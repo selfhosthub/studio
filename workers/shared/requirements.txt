@@ -1,0 +1,11 @@
+# Studio Worker Dependencies
+# HTTP-based job polling architecture
+
+httpx>=0.28.1
+psutil>=5.9.0  # System metrics (CPU, memory, disk)
+jsonpath-ng>=1.6.0  # JSONPath for post-processing (e.g., extracting URLs from API responses)
+Pillow>=10.0.0  # Image processing for thumbnail generation
+rich>=13.0.0  # Beautiful terminal output (colored logs, progress bars)
+mutagen>=1.47.0  # Audio metadata (duration) without ffprobe
+pydantic>=2.0.0  # Shared contract models + worker settings
+pydantic-settings>=2.0.0  # Per-engine BaseSettings that load envs/.env.dev + envs/.env.local

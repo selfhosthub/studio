@@ -1,0 +1,43 @@
+# Dependencies
+node_modules
+
+# Build outputs
+.next
+out
+build
+dist
+
+# Testing
+coverage
+
+# Misc
+.DS_Store
+*.pem
+
+# Logs
+*.log
+
+# Environment files
+.env*.local
+
+# Package lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Cache
+.swc
+cache
+
+# Generated files
+next-env.d.ts
+*.tsbuildinfo
+
+# Backup files
+backup/
+*.backup
+*.bak
+
+# Analysis files
+combined_code.txt
+full_app_analysis.txt

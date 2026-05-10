@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSS Hierarchy Flow</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      text-align: center;
+      color: #0d6efd;
+    }
+    .explanation {
+      background-color: #f8f9fa;
+      border-left: 4px solid #0d6efd;
+      padding: 15px;
+      margin: 20px 0;
+    }
+    .svg-container {
+      display: flex;
+      justify-content: center;
+      margin: 30px 0;
+    }
+    h2 {
+      color: #0d6efd;
+      margin-top: 40px;
+    }
+    code {
+      background-color: #f1f1f1;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    ul {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>CSS Hierarchy and Cascade Flow</h1>
+  
+  <div class="explanation">
+    <p>CSS hierarchy determines how styles are applied to HTML elements. Understanding the specificity, inheritance, and cascading nature of CSS is essential for effective styling of web applications.</p>
+  </div>
+  
+  <div class="svg-container">
+    <img src="/images/css-hierarchy.svg" alt="CSS Hierarchy Flow Diagram" width="800">
+  </div>
+  
+  <h2>CSS Specificity</h2>
+  <p>Specificity determines which CSS rule applies when multiple rules target the same element. Higher specificity rules override lower ones:</p>
+  <ul>
+    <li><strong>!important</strong> - Highest specificity, overrides all other styles</li>
+    <li><strong>Inline Styles</strong> - Applied directly to elements with the style attribute</li>
+    <li><strong>ID Selectors</strong> - Elements selected with #id</li>
+    <li><strong>Class Selectors</strong> - Elements selected with .class names</li>
+    <li><strong>Element Selectors</strong> - Elements selected by their tag name (p, div, h1)</li>
+    <li><strong>Browser Defaults</strong> - The browser's default styling</li>
+  </ul>
+  
+  <h2>CSS Variables and Inheritance</h2>
+  <p>CSS variables (custom properties) are particularly useful for theming:</p>
+  <ul>
+    <li>Define variables at :root level to make them globally available</li>
+    <li>Variables defined on parent elements are inherited by children</li>
+    <li>Override variables at any level for specific components</li>
+    <li>Use <code>var(--name)</code> to reference variables anywhere in your CSS</li>
+  </ul>
+  
+  <h2>Cascading Nature</h2>
+  <p>The "C" in CSS stands for "Cascading," which refers to the algorithm that determines which styles are applied:</p>
+  <ul>
+    <li>Styles from different sources (browser defaults, user stylesheets, author stylesheets) are combined</li>
+    <li>When conflicting styles exist, specificity rules determine which one wins</li>
+    <li>If specificity is the same, the last declared style wins (source order matters)</li>
+  </ul>
+  
+  <div class="explanation">
+    <p><strong>Pro Tip:</strong> With CSS variables, you can define a theme at the root level and have those values cascade through your entire application, allowing for easy theme switching and consistent styling.</p>
+  </div>
+</body>
+</html>

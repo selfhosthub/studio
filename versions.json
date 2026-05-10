@@ -1,0 +1,4 @@
+{
+  "$comment": "Pinned versions baked into release artifacts. claude-production reads these when building Core and Full images. Bumping a version here is the only way to roll a baked tool forward - the Dockerfiles refuse to default the build arg, so a forgotten value fails the build loudly.",
+  "studio_console": "1.0.0"
+}

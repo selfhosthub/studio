@@ -1,0 +1,103 @@
+{
+    "1": {
+        "inputs": {
+            "unet_name": "flux1-schnell-Q4_K_S.gguf"
+        },
+        "class_type": "UnetLoaderGGUF"
+    },
+    "2": {
+        "inputs": {
+            "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+            "clip_name2": "clip_l.safetensors",
+            "type": "flux"
+        },
+        "class_type": "DualCLIPLoader"
+    },
+    "3": {
+        "inputs": {
+            "text": "a cat sitting on a windowsill",
+            "clip": [
+                "2",
+                0
+            ]
+        },
+        "class_type": "CLIPTextEncode"
+    },
+    "4": {
+        "inputs": {
+            "vae_name": "ae.safetensors"
+        },
+        "class_type": "VAELoader"
+    },
+    "5": {
+        "inputs": {
+            "width": 512,
+            "height": 512,
+            "batch_size": 1
+        },
+        "class_type": "EmptySD3LatentImage"
+    },
+    "6": {
+        "inputs": {
+            "seed": 42,
+            "steps": 2,
+            "cfg": 1.0,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": 1.0,
+            "model": [
+                "1",
+                0
+            ],
+            "positive": [
+                "3",
+                0
+            ],
+            "negative": [
+                "3",
+                0
+            ],
+            "latent_image": [
+                "5",
+                0
+            ]
+        },
+        "class_type": "KSampler"
+    },
+    "7": {
+        "inputs": {
+            "samples": [
+                "6",
+                0
+            ],
+            "vae": [
+                "4",
+                0
+            ]
+        },
+        "class_type": "VAEDecode"
+    },
+    "50": {
+        "inputs": {
+            "upscale_method": "lanczos",
+            "width": 512,
+            "height": 512,
+            "crop": "disabled",
+            "image": [
+                "7",
+                0
+            ]
+        },
+        "class_type": "ImageScale"
+    },
+    "8": {
+        "inputs": {
+            "filename_prefix": "ComfyUI",
+            "images": [
+                "50",
+                0
+            ]
+        },
+        "class_type": "SaveImage"
+    }
+}

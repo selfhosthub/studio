@@ -1,0 +1,9 @@
+# ComfyUI Remote Worker Requirements
+# Lightweight - no PyTorch, no CUDA, no ComfyUI
+
+# API client
+httpx>=0.24.0
+websocket-client>=1.6.0
+
+# Image processing (thumbnails only)
+Pillow>=10.0.0

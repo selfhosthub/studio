@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.31.0/swagger-ui.css" integrity="sha384-KX9Rx9vM1AmUNAn07bPAiZhFD4C8jdNgG6f5MRNvR+EfAxs2PmMFtUUazui7ryZQ" crossorigin="anonymous">
+    <title>${title}</title>
+    <style>
+        /* Dark mode styles for Swagger UI */
+        body { background-color: #1a1a1a; }
+        .swagger-ui { background-color: #1a1a1a; }
+        .swagger-ui .topbar { background-color: #1a1a1a; }
+        .swagger-ui .info .title, .swagger-ui .info .base-url, .swagger-ui .info p,
+        .swagger-ui .opblock-tag, .swagger-ui .opblock .opblock-summary-description,
+        .swagger-ui .opblock .opblock-summary-operation-id, .swagger-ui .opblock .opblock-summary-path,
+        .swagger-ui .tab li, .swagger-ui label, .swagger-ui .parameter__name, .swagger-ui .parameter__type,
+        .swagger-ui table thead tr th, .swagger-ui table tbody tr td, .swagger-ui .response-col_status,
+        .swagger-ui .response-col_description, .swagger-ui .model-title, .swagger-ui .model { color: #e0e0e0; }
+        .swagger-ui .opblock.opblock-get .opblock-summary { background: rgba(97,175,254,.2); }
+        .swagger-ui .opblock.opblock-post .opblock-summary { background: rgba(73,204,144,.2); }
+        .swagger-ui .opblock.opblock-put .opblock-summary { background: rgba(252,161,48,.2); }
+        .swagger-ui .opblock.opblock-delete .opblock-summary { background: rgba(249,62,62,.2); }
+        .swagger-ui section.models { background: #2a2a2a; }
+        .swagger-ui section.models .model-container { background: #333; }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.31.0/swagger-ui-bundle.js" integrity="sha384-cxafBeQ+zYROeFafGFxtFbnp1ICqeS9mG7+f0WWSHzhnrUvwg9Za5CCw6wgrHA7K" crossorigin="anonymous"></script>
+    <script>
+        const ui = SwaggerUIBundle({
+            url: '${openapi_url}',
+            dom_id: '#swagger-ui',
+            presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIBundle.SwaggerUIStandalonePreset
+            ],
+            layout: "BaseLayout",
+            deepLinking: true,
+            showExtensions: true,
+            showCommonExtensions: true,
+            oauth2RedirectUrl: '${oauth2_redirect_url}'
+        });
+    </script>
+</body>
+</html>

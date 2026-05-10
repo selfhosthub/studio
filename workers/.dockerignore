@@ -1,0 +1,13 @@
+# workers/.dockerignore
+__pycache__/
+*.pyc
+.venv/
+env/
+venv/
+.dockerignore
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+*.log

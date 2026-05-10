@@ -1,0 +1,1888 @@
+@import 'tailwindcss';
+
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --background-image-gradient-radial: radial-gradient(var(--tw-gradient-stops));
+  --background-image-gradient-conic: conic-gradient(
+    from 180deg at 50% 50%,
+    var(--tw-gradient-stops)
+  );
+
+  --container-9xl: 96rem;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer utilities {
+  /* ==============================================
+   BRANDING SYSTEM
+   ==============================================
+
+   To customize your brand:
+   1. Update the color values in :root (light mode) and .dark (dark mode)
+   2. Key variables to change for branding:
+
+   PRIMARY BRAND COLOR:
+   --theme-primary: Your main brand color (buttons, links, focus rings)
+   --theme-btn-primary-bg: Primary button background
+   --theme-btn-primary-hover: Primary button hover state
+   --theme-hero-gradient-start/end: Hero section gradients
+
+   ACCENT COLORS:
+   --theme-accent: Secondary brand color
+   --theme-success/danger/warning: Status colors
+
+   BACKGROUND HIERARCHY:
+   --theme-bg-primary: Page background
+   --theme-bg-secondary: Cards, panels, modals
+   --theme-bg-tertiary: Inputs, code blocks, nested elements
+
+   TEXT HIERARCHY:
+   --theme-text-primary: Main content text
+   --theme-text-secondary: Subtle text, labels
+   --theme-text-tertiary: Muted text, placeholders
+   --theme-text-inverted: Text on colored backgrounds
+
+   BORDERS:
+   --theme-border-primary: Default borders
+   --theme-border-secondary: Emphasized borders
+
+   ============================================== */
+
+  /* CSS Custom Properties for theming */
+  :root {
+    /* Light mode - white background, gray cards (mirrors dark mode pattern) */
+    --background: #ffffff; /* White: consistent bg like dark mode */
+    --card-background: #f3f4f6; /* Gray-100: cards stand out on white */
+    --text-primary: #111827;
+    --text-secondary: #4b5563;
+    --border-color: #d1d5db; /* Gray-300: visible borders */
+    --primary: #3b82f6;
+    --accent: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+
+    --theme-primary: #3b82f6;
+    --theme-secondary: #6b7280;
+    --theme-accent: #10b981;
+    --theme-danger: #ef4444;
+    --theme-warning: #f59e0b;
+    --theme-success: #10b981;
+    --theme-critical: #f97316;
+    --theme-link-color: #3b82f6; /* Blue-500: link/focus color in light mode */
+
+    --theme-bg-primary: #ffffff; /* White: page/navbar/footer background */
+    --theme-bg-surface: #f9fafb; /* Gray-50: detail sections, surfaces on page */
+    --theme-bg-secondary: #f3f4f6; /* Gray-100: cards, table headers */
+    --theme-bg-tertiary: #e5e7eb; /* Gray-200: for inputs, nested elements */
+
+    --theme-text-primary: #111827;
+    --theme-text-secondary: #4b5563;
+    --theme-text-tertiary: #6b7280;
+    --theme-text-inverted: #ffffff;
+
+    --theme-border-primary: #d1d5db; /* Gray-300: default borders */
+    --theme-border-secondary: #9ca3af; /* Gray-400: for emphasis */
+
+    --theme-btn-primary-bg: #3b82f6;
+    --theme-btn-primary-text: #ffffff;
+    --theme-btn-primary-hover: #2563eb;
+    --theme-btn-primary-border: transparent;
+
+    --theme-btn-secondary-bg: #f3f4f6;
+    --theme-btn-secondary-text: #111827;
+    --theme-btn-secondary-hover: #e5e7eb;
+    --theme-btn-secondary-border: #d1d5db;
+
+    --theme-btn-danger-bg: #ef4444;
+    --theme-btn-danger-text: #ffffff;
+    --theme-btn-danger-hover: #dc2626;
+    --theme-btn-danger-border: transparent;
+
+    --theme-hero-gradient-start: #2563eb;
+    --theme-hero-gradient-end: #4f46e5;
+    --theme-header-bg: #ffffff;
+    --theme-header-text: #3b82f6;
+    --theme-section-bg: #ffffff;
+  }
+
+  .dark {
+    --background: #111827;
+    --card-background: #1f2937;
+    --text-primary: #f9fafb;
+    --text-secondary: #d1d5db;
+    --border-color: #374151;
+    --primary: #3b82f6;
+    --accent: #10b981;
+
+    --theme-primary: #3b82f6;
+    --theme-secondary: #9ca3af;
+    --theme-accent: #10b981;
+    --theme-danger: #ef4444;
+    --theme-warning: #f59e0b;
+    --theme-success: #10b981;
+    --theme-critical: #f97316;
+    --theme-link-color: #60a5fa; /* Blue-400: lightened for dark mode contrast */
+
+    --theme-bg-primary: #111827;
+    --theme-bg-surface: #1f2937; /* Gray-800: detail sections, surfaces on page */
+    --theme-bg-secondary: #1f2937;
+    --theme-bg-tertiary: #374151; /* Gray-700: for nested elements, inputs */
+
+    --theme-text-primary: #f9fafb;
+    --theme-text-secondary: #d1d5db;
+    --theme-text-tertiary: #9ca3af;
+    --theme-text-inverted: #111827;
+
+    --theme-border-primary: #374151;
+    --theme-border-secondary: #4b5563;
+
+    --theme-btn-primary-bg: #3b82f6;
+    --theme-btn-primary-text: #ffffff;
+    --theme-btn-primary-hover: #2563eb;
+    --theme-btn-primary-border: transparent;
+
+    --theme-btn-secondary-bg: #1f2937;
+    --theme-btn-secondary-text: #f9fafb;
+    --theme-btn-secondary-hover: #374151;
+    --theme-btn-secondary-border: #4b5563;
+
+    --theme-btn-danger-bg: #ef4444;
+    --theme-btn-danger-text: #ffffff;
+    --theme-btn-danger-hover: #dc2626;
+    --theme-btn-danger-border: transparent;
+
+    --theme-hero-gradient-start: #1e40af;
+    --theme-hero-gradient-end: #3730a3;
+    --theme-header-bg: #1f2937;
+    --theme-header-text: #60a5fa;
+    --theme-section-bg: #111827;
+  }
+
+  /* Respect user's reduced-motion preference (WCAG 2.3.3) */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Base styles */
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  body {
+    color: var(--theme-text-primary);
+    background-color: var(--theme-bg-primary);
+  }
+
+  /* Global input dark-mode safety net - ensures bare inputs inherit theme colors */
+  input,
+  select,
+  textarea {
+    color: var(--theme-text-primary);
+    background-color: var(--theme-bg-tertiary);
+  }
+
+  /* Layout helpers */
+  .page-container {
+    @apply px-4 sm:px-6 lg:px-8 w-full max-w-7xl mx-auto;
+  }
+
+  .card {
+    @apply rounded-lg shadow-xs p-6;
+    background-color: var(--theme-bg-secondary);
+    border: 1px solid var(--theme-border-primary);
+    color: var(--theme-text-primary);
+  }
+
+  /* ==============================================
+   TABLE STYLING SYSTEM
+
+   Pattern: Header/Footer are lighter, Body rows are darker
+   Light mode: Header = gray-100, Rows = white
+   Dark mode:  Header = gray-700, Rows = gray-800
+
+   Use these CSS classes for consistent table styling:
+   - .table-container: wrapper with shadow/border
+   - .table-header: thead styling
+   - .table-body: tbody styling
+   - .table-row: tr styling with hover
+   - .table-cell: td styling
+   - .table-header-cell: th styling
+   - .table-footer: footer/pagination area
+
+   For tables inside gray cards (like infra-card), use:
+   - .table-in-card thead: darker header for contrast
+   ============================================== */
+
+  /* Table container - wrapper for the entire table */
+  .table-container {
+    @apply shadow-lg rounded-xs overflow-hidden;
+    background-color: var(--theme-bg-secondary);
+    border: 1px solid var(--theme-border-primary);
+  }
+
+  /* Base table styling */
+  table,
+  .data-table {
+    @apply border-collapse w-full;
+  }
+
+  /* Table header - lighter background */
+  thead,
+  .table-header {
+    @apply bg-gray-100 dark:bg-gray-700;
+  }
+
+  /* Table header cells - no default alignment so inline classes can override */
+  th,
+  .table-header-cell {
+    @apply px-4 py-3 text-xs font-semibold uppercase tracking-wider;
+    @apply text-gray-600 dark:text-gray-200;
+    @apply bg-gray-100 dark:bg-gray-700;
+    @apply border border-gray-200 dark:border-gray-600;
+  }
+
+  /* Table body - darker background (matches container) */
+  tbody,
+  .table-body {
+    @apply bg-white dark:bg-gray-800;
+    @apply divide-y divide-gray-200 dark:divide-gray-700;
+  }
+
+  /* Table rows */
+  tr,
+  .table-row {
+    @apply bg-white dark:bg-gray-800;
+    @apply hover:bg-gray-100 dark:hover:bg-gray-700;
+    @apply cursor-pointer;
+  }
+
+  /* Active row (click/tap - persists through scroll) */
+  .table-row-active,
+  .table-row-active td,
+  .table-row-selected,
+  .table-row-selected td {
+    background-color: #eff6ff !important; /* blue-50 */
+  }
+  .table-row-active:hover,
+  .table-row-active:hover td,
+  .table-row-selected:hover,
+  .table-row-selected:hover td {
+    background-color: #dbeafe !important; /* blue-100 */
+  }
+  :is(.dark) .table-row-active,
+  :is(.dark) .table-row-active td,
+  :is(.dark) .table-row-selected,
+  :is(.dark) .table-row-selected td {
+    background-color: #1e3a5f !important; /* opaque dark blue */
+  }
+  :is(.dark) .table-row-active:hover,
+  :is(.dark) .table-row-active:hover td,
+  :is(.dark) .table-row-selected:hover,
+  :is(.dark) .table-row-selected:hover td {
+    background-color: #234b77 !important; /* slightly lighter */
+  }
+
+  /* Table body cells */
+  td,
+  .table-cell {
+    @apply px-4 py-4;
+    @apply text-sm text-gray-800 dark:text-gray-200;
+    @apply border border-gray-200 dark:border-gray-700;
+  }
+
+  /* Table footer - lighter like header (for pagination) */
+  .table-footer,
+  tfoot {
+    @apply bg-gray-100 dark:bg-gray-700;
+    @apply px-6 py-3 border-t border-gray-200 dark:border-gray-600;
+  }
+
+  /* ==============================================
+   BUTTON STYLING SYSTEM
+   ============================================== */
+
+  .btn-primary {
+    @apply px-4 py-2 rounded-md font-medium;
+    background-color: var(--theme-btn-primary-bg);
+    color: var(--theme-btn-primary-text);
+    border: 1px solid var(--theme-btn-primary-border);
+    @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+    --tw-ring-color: var(--theme-primary);
+  }
+  .btn-primary:hover {
+    background-color: var(--theme-btn-primary-hover);
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 rounded-md font-medium;
+    background-color: var(--theme-btn-secondary-bg);
+    color: var(--theme-btn-secondary-text);
+    border: 1px solid var(--theme-btn-secondary-border);
+  }
+  .btn-secondary:hover {
+    background-color: var(--theme-btn-secondary-hover);
+  }
+
+  .btn-success {
+    @apply px-4 py-2 rounded-md font-medium;
+    background-color: var(--theme-success);
+    color: var(--theme-text-inverted);
+    @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+    --tw-ring-color: var(--theme-success);
+  }
+  .btn-success:hover {
+    filter: brightness(0.9);
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 rounded-md font-medium;
+    background-color: var(--theme-danger);
+    color: var(--theme-text-inverted);
+    @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+    --tw-ring-color: var(--theme-danger);
+  }
+  .btn-danger:hover {
+    filter: brightness(0.9);
+  }
+
+  /* ==============================================
+   DASHBOARD & CARD STYLING SYSTEM
+   ============================================== */
+
+  /* Stat cards on dashboard */
+  .stat-card {
+    @apply rounded-lg shadow-xs p-6;
+    background-color: var(--theme-bg-secondary);
+    border: 1px solid var(--theme-border-primary);
+  }
+
+  /* Stat card color variants (matching infra card tints) */
+  .stat-card-blue {
+    background-color: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.25);
+  }
+  .dark .stat-card-blue {
+    background-color: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .stat-card-green {
+    background-color: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.25);
+  }
+  .dark .stat-card-green {
+    background-color: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+
+  .stat-card-purple {
+    background-color: rgba(168, 85, 247, 0.08);
+    border-color: rgba(168, 85, 247, 0.25);
+  }
+  .dark .stat-card-purple {
+    background-color: rgba(168, 85, 247, 0.12);
+    border-color: rgba(168, 85, 247, 0.3);
+  }
+
+  .stat-card-title {
+    @apply text-lg font-medium;
+    color: var(--theme-text-primary);
+  }
+
+  .stat-card-value {
+    @apply text-3xl font-bold mt-2;
+    color: var(--theme-text-primary);
+  }
+
+  .stat-card-link {
+    @apply text-sm font-medium hover:underline;
+    color: var(--theme-primary);
+  }
+
+  /* Icon badges for stat cards */
+  .stat-icon {
+    @apply p-3 rounded-lg shadow-xs;
+  }
+
+  .stat-icon-blue {
+    @apply bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400;
+  }
+
+  .stat-icon-green {
+    @apply bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-400;
+  }
+
+  .stat-icon-purple {
+    @apply bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-400;
+  }
+
+  /* Infrastructure/system cards */
+  .infra-card {
+    @apply rounded-lg p-4;
+    background-color: var(--theme-bg-secondary);
+    border: 1px solid var(--theme-border-primary);
+  }
+
+  /* Infrastructure card color variants (opaque tinted backgrounds) */
+  .infra-card-red {
+    background-color: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.25);
+  }
+  .infra-card-red.infra-card-active {
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.6);
+  }
+  .dark .infra-card-red {
+    background-color: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+
+  .infra-card-green {
+    background-color: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.25);
+  }
+  .infra-card-green.infra-card-active {
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.6);
+  }
+  .dark .infra-card-green {
+    background-color: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+
+  .infra-card-purple {
+    background-color: rgba(168, 85, 247, 0.08);
+    border-color: rgba(168, 85, 247, 0.25);
+  }
+  .infra-card-purple.infra-card-active {
+    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.6);
+  }
+  .dark .infra-card-purple {
+    background-color: rgba(168, 85, 247, 0.12);
+    border-color: rgba(168, 85, 247, 0.3);
+  }
+
+  .infra-card-blue {
+    background-color: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.25);
+  }
+  .infra-card-blue.infra-card-active {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.6);
+  }
+  .dark .infra-card-blue {
+    background-color: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+  .infra-card-orange {
+    background-color: rgba(249, 115, 22, 0.08);
+    border-color: rgba(249, 115, 22, 0.25);
+  }
+  .infra-card-orange.infra-card-active {
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.6);
+  }
+  .dark .infra-card-orange {
+    background-color: rgba(249, 115, 22, 0.12);
+    border-color: rgba(249, 115, 22, 0.3);
+  }
+
+  /* Purple semantic color for infrastructure */
+  .text-purple {
+    color: #a855f7;
+  }
+  .dark .text-purple {
+    color: #c084fc;
+  }
+  .border-purple {
+    border-color: #a855f7;
+  }
+  .dark .border-purple {
+    border-color: #c084fc;
+  }
+
+  /* Orange semantic color for infrastructure */
+  .text-orange {
+    color: #f97316;
+  }
+  .dark .text-orange {
+    color: #fb923c;
+  }
+  .border-orange {
+    border-color: #f97316;
+  }
+  .dark .border-orange {
+    border-color: #fb923c;
+  }
+
+  .infra-card-title {
+    @apply text-sm font-medium;
+    color: var(--theme-text-secondary);
+  }
+
+  .infra-card-value {
+    @apply text-lg font-semibold;
+    color: var(--theme-text-primary);
+  }
+
+  /* ==============================================
+   STATUS BADGE STYLING SYSTEM
+   ============================================== */
+
+  .badge {
+    @apply px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full;
+  }
+
+  .badge-success {
+    @apply bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300;
+  }
+
+  .badge-warning {
+    @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300;
+  }
+
+  .badge-error {
+    @apply bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300;
+  }
+
+  .badge-info {
+    @apply bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300;
+  }
+
+  .badge-default {
+    @apply bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300;
+  }
+
+  .badge-amber {
+    @apply bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300;
+  }
+
+  /* ==============================================
+   FORM INPUT STYLING SYSTEM
+   ============================================== */
+
+  .form-input {
+    @apply w-full px-3 py-2 rounded-md;
+    border: 1px solid var(--theme-border-primary);
+    background-color: var(--theme-bg-tertiary);
+    color: var(--theme-text-primary);
+    @apply focus:ring-2 focus:border-transparent focus:outline-hidden;
+    --tw-ring-color: var(--theme-primary);
+  }
+
+  /* Search input with icon - use pl-10 to leave room for the icon */
+  .form-input-search {
+    @apply w-full pl-10 pr-3 py-2 rounded-md;
+    border: 1px solid var(--theme-border-primary);
+    background-color: var(--theme-bg-tertiary);
+    color: var(--theme-text-primary);
+    @apply focus:ring-2 focus:border-transparent focus:outline-hidden;
+    --tw-ring-color: var(--theme-primary);
+  }
+
+  .form-select {
+    @apply px-3 py-2 rounded-md;
+    border: 1px solid var(--theme-border-primary);
+    background-color: var(--theme-bg-tertiary);
+    color: var(--theme-text-primary);
+    @apply focus:ring-2 focus:border-transparent focus:outline-hidden;
+    --tw-ring-color: var(--theme-primary);
+  }
+
+  .form-label {
+    @apply block text-sm font-medium mb-1;
+    color: var(--theme-text-secondary);
+  }
+
+  /* ==============================================
+   FILTER BAR / SEARCH STYLING
+   ============================================== */
+
+  .filter-bar {
+    @apply mb-6 rounded-lg shadow-sm p-4;
+    background-color: var(--theme-bg-secondary);
+    border: 1px solid var(--theme-border-primary);
+  }
+
+  /* ==============================================
+   ALERT/MESSAGE STYLING
+   ============================================== */
+
+  .alert {
+    @apply p-4 rounded-md border;
+  }
+
+  .alert-success {
+    @apply bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800;
+  }
+
+  .alert-success-text {
+    @apply text-green-700 dark:text-green-400;
+  }
+
+  .alert-error {
+    @apply bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800;
+  }
+
+  .alert-error-text {
+    @apply text-red-700 dark:text-red-400;
+  }
+
+  .alert-warning {
+    @apply bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800;
+  }
+
+  .alert-warning-text {
+    @apply text-yellow-700 dark:text-yellow-400;
+  }
+
+  .alert-info {
+    @apply bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800;
+  }
+
+  .alert-info-text {
+    @apply text-blue-700 dark:text-blue-400;
+  }
+
+  /* ==============================================
+   SECTION HEADINGS
+   ============================================== */
+
+  .section-title {
+    @apply text-lg font-semibold;
+    color: var(--theme-text-primary);
+  }
+
+  .section-subtitle {
+    @apply text-sm;
+    color: var(--theme-text-secondary);
+  }
+}
+
+/* Fix for Next.js Image components with fill property */
+div:has(> img[style*="position:absolute"]) {
+  position: relative;
+  min-height: 500px;
+}
+
+/* React Flow connection line (while dragging) */
+.react-flow__connection-path {
+  stroke: #3b82f6 !important;
+  stroke-width: 4 !important;
+}
+
+/* React Flow controls - dark mode overrides */
+:is(.dark) .react-flow__controls-button {
+  background-color: var(--theme-bg-tertiary);
+  border-color: var(--theme-border-primary);
+  color: var(--theme-text-primary);
+  fill: var(--theme-text-primary);
+}
+:is(.dark) .react-flow__controls-button:hover {
+  background-color: var(--theme-text-tertiary);
+}
+:is(.dark) .react-flow__controls-button svg {
+  fill: var(--theme-text-primary);
+}
+
+/* Flow editor node backgrounds - semantic classes for dark mode visibility */
+.flow-node-bg {
+  background-color: var(--theme-bg-primary);
+}
+:is(.dark) .flow-node-bg {
+  background-color: var(--theme-bg-tertiary);
+}
+.flow-node-bg-selected {
+  background-color: #bfdbfe; /* blue-200 */
+}
+:is(.dark) .flow-node-bg-selected {
+  background-color: #1e3a8a; /* blue-900 - matches original */
+}
+.flow-node-bg-skip {
+  background-color: rgba(229, 231, 235, 0.9); /* gray-200/90 */
+}
+:is(.dark) .flow-node-bg-skip {
+  background-color: rgba(55, 65, 81, 0.7); /* gray-700/70 */
+}
+.flow-node-bg-stop {
+  background-color: rgba(254, 242, 242, 0.7); /* red-50/70 */
+}
+:is(.dark) .flow-node-bg-stop {
+  background-color: rgba(127, 29, 29, 0.5); /* red-900/50 */
+}
+.flow-node-bg-credential-issue {
+  background-color: #fffbeb; /* amber-50 */
+}
+:is(.dark) .flow-node-bg-credential-issue {
+  background-color: #4a3520; /* warm amber-brown - visible on dark bg */
+}
+
+/* ==============================================
+   SEMANTIC TEXT COLORS
+   ============================================== */
+
+.text-primary {
+  color: var(--theme-text-primary);
+}
+
+.text-secondary {
+  color: var(--theme-text-secondary);
+}
+
+.text-muted {
+  color: var(--theme-text-tertiary);
+}
+
+/* Semantic status text colors */
+.text-danger {
+  color: var(--theme-danger);
+}
+
+.text-warning {
+  color: var(--theme-warning);
+}
+
+.text-success {
+  color: var(--theme-success);
+}
+
+.text-info {
+  color: var(--theme-primary);
+}
+
+.text-critical {
+  color: var(--theme-critical);
+}
+
+/* Interactive muted icon - tertiary color that lightens on hover */
+.icon-muted {
+  color: var(--theme-text-tertiary);
+  &:hover {
+    color: var(--theme-text-secondary);
+  }
+}
+
+/* Border utilities using theme variables */
+.border-primary {
+  border-color: var(--theme-border-primary);
+}
+
+.border-secondary {
+  border-color: var(--theme-border-secondary);
+}
+
+/* Semantic status border colors */
+.border-danger {
+  border-color: var(--theme-danger);
+}
+
+.border-success {
+  border-color: var(--theme-success);
+}
+
+.border-warning {
+  border-color: var(--theme-warning);
+}
+
+.border-info {
+  border-color: var(--theme-primary);
+}
+
+.border-critical {
+  border-color: var(--theme-critical);
+}
+
+/* Divide utilities (for table rows, lists) */
+.divide-theme > * + * {
+  border-color: var(--theme-border-primary);
+}
+
+.divide-primary > * + * {
+  border-color: var(--theme-border-primary);
+}
+
+/* Background utilities */
+.bg-page {
+  background-color: var(--theme-bg-primary);
+}
+
+.bg-surface {
+  background-color: var(--theme-bg-surface);
+}
+
+.bg-card {
+  background-color: var(--theme-bg-secondary);
+}
+
+.bg-input {
+  background-color: var(--theme-bg-tertiary);
+}
+
+/* Hover background utilities */
+.hover\:bg-surface:hover {
+  background-color: var(--theme-bg-surface);
+}
+
+.hover\:bg-card:hover {
+  background-color: var(--theme-bg-secondary);
+}
+
+.hover\:bg-input:hover {
+  background-color: var(--theme-bg-tertiary);
+}
+
+/* Solid status backgrounds (for badges, counts, progress bars) */
+.bg-danger {
+  background-color: var(--theme-danger);
+}
+
+.bg-warning {
+  background-color: var(--theme-warning);
+}
+
+.bg-success {
+  background-color: var(--theme-success);
+}
+
+.bg-info {
+  background-color: var(--theme-primary);
+}
+
+.bg-critical {
+  background-color: var(--theme-critical);
+}
+
+/* Status subtle backgrounds (for inline indicators, not badges) */
+.bg-danger-subtle {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+:is(.dark) .bg-danger-subtle {
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+.bg-success-subtle {
+  background-color: rgba(16, 185, 129, 0.1);
+}
+:is(.dark) .bg-success-subtle {
+  background-color: rgba(16, 185, 129, 0.15);
+}
+
+.bg-warning-subtle {
+  background-color: rgba(245, 158, 11, 0.1);
+}
+:is(.dark) .bg-warning-subtle {
+  background-color: rgba(245, 158, 11, 0.15);
+}
+
+.bg-info-subtle {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+:is(.dark) .bg-info-subtle {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+
+.bg-critical-subtle {
+  background-color: rgba(249, 115, 22, 0.1);
+}
+:is(.dark) .bg-critical-subtle {
+  background-color: rgba(249, 115, 22, 0.15);
+}
+
+/* Step-type semantic classes for flow editor nodes */
+.bg-step-condition {
+  @apply bg-orange-100 dark:bg-orange-900;
+}
+.text-step-condition {
+  @apply text-orange-800 dark:text-orange-300;
+}
+.border-step-condition {
+  @apply border-orange-300 dark:border-orange-700;
+}
+
+.bg-step-action {
+  @apply bg-purple-100 dark:bg-purple-900;
+}
+.text-step-action {
+  @apply text-purple-800 dark:text-purple-300;
+}
+.border-step-action {
+  @apply border-purple-300 dark:border-purple-700;
+}
+
+.bg-step-notification {
+  @apply bg-indigo-100 dark:bg-indigo-900;
+}
+.text-step-notification {
+  @apply text-indigo-800 dark:text-indigo-300;
+}
+.border-step-notification {
+  @apply border-indigo-300 dark:border-indigo-700;
+}
+
+.bg-step-webhook {
+  @apply bg-teal-100 dark:bg-teal-900;
+}
+.text-step-webhook {
+  @apply text-teal-800 dark:text-teal-300;
+}
+.border-step-webhook {
+  @apply border-teal-300 dark:border-teal-700;
+}
+
+.bg-step-decision {
+  @apply bg-amber-100 dark:bg-amber-900;
+}
+.border-step-decision {
+  @apply border-amber-300 dark:border-amber-700;
+}
+
+.bg-step-approval {
+  @apply bg-pink-100 dark:bg-pink-900;
+}
+.text-step-approval {
+  @apply text-pink-800 dark:text-pink-300;
+}
+.border-step-approval {
+  @apply border-pink-300 dark:border-pink-700;
+}
+
+/* Toast backgrounds - near-opaque so floating toasts don't show content behind */
+.toast-bg-success {
+  background-color: rgba(16, 185, 129, 0.9);
+}
+:is(.dark) .toast-bg-success {
+  background-color: rgba(6, 78, 59, 0.95);
+}
+.toast-bg-destructive {
+  background-color: rgba(239, 68, 68, 0.9);
+}
+:is(.dark) .toast-bg-destructive {
+  background-color: rgba(127, 29, 29, 0.95);
+}
+.toast-bg-info {
+  background-color: rgba(59, 130, 246, 0.9);
+}
+:is(.dark) .toast-bg-info {
+  background-color: rgba(30, 58, 138, 0.95);
+}
+
+/* Placeholder text using theme */
+.placeholder\:text-muted::placeholder {
+  color: var(--theme-text-tertiary);
+}
+
+/* ==============================================
+   CARD VARIANTS
+   ============================================== */
+
+/* Detail sections - bordered panels that sit on the page background
+   Use for grouped content like Job Queue, Storage, Workers sections.
+   Background is slightly darker than page for visual layering. */
+.detail-section {
+  @apply rounded-lg;
+  background-color: var(--theme-bg-surface);
+  border: 1px solid var(--theme-border-primary);
+}
+
+/* Subtle tinted detail sections for infrastructure tabs */
+.detail-section-red {
+  background-color: rgba(239, 68, 68, 0.03);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+.dark .detail-section-red {
+  background-color: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+.detail-section-green {
+  background-color: rgba(34, 197, 94, 0.03);
+  border-color: rgba(34, 197, 94, 0.15);
+}
+.dark .detail-section-green {
+  background-color: rgba(34, 197, 94, 0.05);
+  border-color: rgba(34, 197, 94, 0.15);
+}
+
+.detail-section-purple {
+  background-color: rgba(168, 85, 247, 0.03);
+  border-color: rgba(168, 85, 247, 0.15);
+}
+.dark .detail-section-purple {
+  background-color: rgba(168, 85, 247, 0.05);
+  border-color: rgba(168, 85, 247, 0.15);
+}
+
+.detail-section-blue {
+  background-color: rgba(59, 130, 246, 0.03);
+  border-color: rgba(59, 130, 246, 0.15);
+}
+.dark .detail-section-blue {
+  background-color: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.15);
+}
+.detail-section-orange {
+  background-color: rgba(249, 115, 22, 0.03);
+  border-color: rgba(249, 115, 22, 0.15);
+}
+.dark .detail-section-orange {
+  background-color: rgba(249, 115, 22, 0.05);
+  border-color: rgba(249, 115, 22, 0.15);
+}
+
+.detail-section-header {
+  @apply px-6 py-4;
+  border-bottom: 1px solid var(--theme-border-primary);
+}
+
+.detail-section-body {
+  @apply p-6;
+}
+
+.infra-card-header {
+  @apply px-4 py-3;
+  border-bottom: 1px solid var(--theme-border-primary);
+}
+
+.infra-card-body {
+  @apply p-4;
+}
+
+/* Card footer - slightly different background for visual separation */
+.card-footer {
+  @apply px-4 py-3;
+  background-color: var(--theme-bg-tertiary);
+  border-top: 1px solid var(--theme-border-primary);
+}
+
+.card-interactive {
+  @apply shadow-sm rounded-lg;
+  background-color: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  @apply hover:shadow-md transition-shadow duration-300;
+}
+
+.card-section {
+  @apply shadow-xs rounded-lg p-4;
+  background-color: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+}
+
+/* ==============================================
+   BUTTON SIZE VARIANTS
+   ============================================== */
+
+.btn-sm {
+  @apply px-3 py-1.5 text-xs rounded-md font-medium;
+}
+
+/* Small button color variants */
+.btn-primary-sm {
+  @apply px-3 py-1.5 text-xs rounded-md font-medium focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+  background-color: var(--theme-btn-primary-bg);
+  color: var(--theme-btn-primary-text);
+  --tw-ring-color: var(--theme-primary);
+}
+.btn-primary-sm:hover {
+  background-color: var(--theme-btn-primary-hover);
+}
+
+.btn-secondary-sm {
+  @apply px-3 py-1.5 text-xs rounded-md font-medium;
+  background-color: var(--theme-btn-secondary-bg);
+  color: var(--theme-btn-secondary-text);
+  border: 1px solid var(--theme-btn-secondary-border);
+}
+.btn-secondary-sm:hover {
+  background-color: var(--theme-btn-secondary-hover);
+}
+
+.btn-danger-sm {
+  @apply px-3 py-1.5 text-xs rounded-md font-medium focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+  background-color: var(--theme-danger);
+  color: var(--theme-text-inverted);
+  --tw-ring-color: var(--theme-danger);
+}
+.btn-danger-sm:hover {
+  filter: brightness(0.9);
+}
+
+.btn-success-sm {
+  @apply px-3 py-1.5 text-xs rounded-md font-medium focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+  background-color: var(--theme-success);
+  color: var(--theme-text-inverted);
+  --tw-ring-color: var(--theme-success);
+}
+.btn-success-sm:hover {
+  filter: brightness(0.9);
+}
+
+/* Icon buttons */
+.btn-icon {
+  @apply p-2 rounded-md;
+  color: var(--theme-text-secondary);
+}
+.btn-icon:hover {
+  color: var(--theme-text-primary);
+  background-color: var(--theme-bg-tertiary);
+}
+
+.btn-icon-sm {
+  @apply p-1.5 rounded-sm;
+  color: var(--theme-text-secondary);
+}
+.btn-icon-sm:hover {
+  color: var(--theme-text-primary);
+  background-color: var(--theme-bg-tertiary);
+}
+
+/* Disabled state modifier */
+.btn-disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* ==============================================
+   CODE & MONOSPACE STYLING
+   ============================================== */
+
+.code-inline {
+  @apply px-1.5 py-0.5 text-sm font-mono rounded-sm;
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+}
+
+/* ==============================================
+   FORM INPUT VARIANTS
+   ============================================== */
+
+.form-input-mono {
+  @apply w-full px-3 py-2 rounded-md font-mono text-sm focus:ring-2 focus:border-transparent focus:outline-hidden;
+  border: 1px solid var(--theme-border-primary);
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+  --tw-ring-color: var(--theme-primary);
+}
+
+.form-input-readonly {
+  @apply w-full px-3 py-2 rounded-md cursor-default focus:ring-2 focus:border-transparent focus:outline-hidden;
+  border: 1px solid var(--theme-border-primary);
+  background-color: var(--theme-bg-secondary);
+  color: var(--theme-text-primary);
+  --tw-ring-color: var(--theme-primary);
+}
+
+.form-textarea {
+  @apply w-full px-3 py-2 rounded-md resize-y;
+  border: 1px solid var(--theme-border-primary);
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+  @apply focus:ring-2 focus:border-transparent focus:outline-hidden;
+  --tw-ring-color: var(--theme-primary);
+}
+
+.form-checkbox {
+  @apply h-4 w-4 rounded-sm;
+  border-color: var(--theme-border-primary);
+  color: var(--theme-primary);
+  --tw-ring-color: var(--theme-primary);
+}
+
+.form-helper {
+  @apply mt-1 text-xs;
+  color: var(--theme-text-tertiary);
+}
+
+/* ==============================================
+   LINK STYLES
+   ============================================== */
+
+.link {
+  color: var(--theme-primary);
+}
+.link:hover {
+  filter: brightness(0.85);
+}
+
+.link-subtle {
+  color: var(--theme-text-secondary);
+}
+.link-subtle:hover {
+  color: var(--theme-text-primary);
+}
+
+.link-danger {
+  color: var(--theme-danger);
+}
+.link-danger:hover {
+  filter: brightness(0.85);
+}
+
+/* ==============================================
+   LOADING STATES
+   ============================================== */
+
+.spinner {
+  @apply inline-block animate-spin rounded-full border-2 border-t-transparent;
+  border-color: var(--theme-text-secondary);
+  border-top-color: transparent;
+}
+
+.spinner-sm {
+  @apply inline-block animate-spin rounded-full border-2 border-t-transparent h-4 w-4;
+  border-color: var(--theme-text-secondary);
+  border-top-color: transparent;
+}
+
+.spinner-md {
+  @apply inline-block animate-spin rounded-full border-2 border-t-transparent h-6 w-6;
+  border-color: var(--theme-text-secondary);
+  border-top-color: transparent;
+}
+
+.spinner-lg {
+  @apply inline-block animate-spin rounded-full border-2 border-t-transparent h-8 w-8;
+  border-color: var(--theme-text-secondary);
+  border-top-color: transparent;
+}
+
+
+/* ==============================================
+   SETTINGS TOGGLE BUTTONS (Quick Settings panels)
+   ============================================== */
+
+.toggle-btn {
+  @apply flex-1 px-2 py-1 text-xs rounded-sm transition-colors;
+}
+
+.toggle-btn-active {
+  @apply flex-1 px-2 py-1 text-xs rounded-sm transition-colors;
+  background-color: var(--theme-primary);
+  color: var(--theme-text-inverted);
+}
+
+.toggle-btn-inactive {
+  @apply flex-1 px-2 py-1 text-xs rounded-sm transition-colors;
+  background-color: var(--theme-bg-secondary);
+  color: var(--theme-text-secondary);
+  border: 1px solid var(--theme-border-primary);
+}
+
+/* ==============================================
+   TAB NAVIGATION
+   ============================================== */
+
+.tab {
+  @apply pb-2 px-1 text-sm font-medium border-b-2 transition-colors;
+}
+
+.tab-active {
+  border-color: var(--theme-primary);
+  color: var(--theme-primary);
+}
+
+.tab-inactive {
+  @apply border-transparent;
+  color: var(--theme-text-tertiary);
+}
+
+.tab-inactive:hover {
+  color: var(--theme-text-secondary);
+  border-color: var(--theme-border-primary);
+}
+
+/* ==============================================
+   FILTER PILL BUTTONS (URL-driven filters)
+   ============================================== */
+
+.filter-pill {
+  @apply px-3 py-2 rounded-md text-sm font-medium flex-shrink-0 transition-colors;
+}
+
+.filter-pill-active {
+  @apply bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300;
+}
+
+.filter-pill-inactive {
+  color: var(--theme-text-secondary);
+}
+
+.filter-pill-inactive:hover {
+  background-color: var(--theme-bg-tertiary);
+}
+
+.filter-pill-danger {
+  @apply bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300;
+}
+
+/* ==============================================
+   ACTION BUTTON GROUPS (Install/Uninstall etc.)
+   ============================================== */
+
+.action-btn-install {
+  @apply inline-flex items-center px-3 py-1.5 border border-transparent rounded-md;
+  @apply text-xs font-medium text-white bg-green-600 hover:bg-green-700;
+  @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500;
+  @apply disabled:opacity-50;
+}
+
+.action-btn-uninstall {
+  @apply inline-flex items-center px-3 py-1.5 border border-transparent rounded-md;
+  @apply text-xs font-medium text-white bg-red-600 hover:bg-red-700;
+  @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500;
+  @apply disabled:opacity-50;
+}
+
+.action-btn-view {
+  @apply inline-flex items-center px-3 py-1.5 border border-transparent rounded-md;
+  @apply text-xs font-medium text-white bg-blue-600 hover:bg-blue-700;
+  @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500;
+}
+
+.action-btn-locked {
+  @apply inline-flex items-center px-3 py-1.5 border border-amber-300 dark:border-amber-700 rounded-md;
+  @apply text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20;
+}
+
+/* ==============================================
+   TABLE ACTION BUTTON VARIANTS
+   High contrast buttons for table row actions
+   ============================================== */
+
+.action-btn-active {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-blue-600 text-white border-blue-700;
+  @apply hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 dark:border-blue-500;
+}
+
+.action-btn-passive {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-gray-200 text-gray-800 border-gray-300;
+  @apply hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-100 dark:border-gray-500 dark:hover:bg-gray-500;
+}
+
+.action-btn-destructive {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-red-600 text-white border-red-700;
+  @apply hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-500 dark:border-red-500;
+}
+
+.action-btn-navigate {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-blue-600 text-white border-blue-700;
+  @apply hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 dark:border-blue-500;
+}
+
+.action-btn-warning {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-amber-500 text-white border-amber-600;
+  @apply hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500 dark:border-amber-500;
+}
+
+.action-btn-change {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-emerald-600 text-white border-emerald-700;
+  @apply hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:border-emerald-500;
+}
+
+.action-btn-secondary {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-gray-200 text-gray-800 border-gray-300;
+  @apply hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-100 dark:border-gray-500 dark:hover:bg-gray-500;
+}
+
+.action-btn-danger {
+  @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
+  @apply bg-red-600 text-white border-red-700;
+  @apply hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-500 dark:border-red-500;
+}
+
+.action-btn-passive-md {
+  @apply px-3 py-1.5 text-sm font-medium rounded-sm shadow-xs border;
+  @apply bg-gray-200 text-gray-800 border-gray-300;
+  @apply hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-100 dark:border-gray-500 dark:hover:bg-gray-500;
+}
+
+/* ==============================================
+   EXTRACTED SEMANTIC CLASSES (ST157)
+   Replaces >10 Tailwind utility class strings
+   ============================================== */
+
+/* --- Prose typography (markdown content) --- */
+
+/* TW4 typography plugin applies prose-code styles to all <code>, including
+   inside <pre> blocks. Reset code-inside-pre so only inline code gets the
+   pink highlight treatment. Needs full specificity to override prose-code:* utilities. */
+.prose pre code {
+  color: inherit !important;
+  background-color: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  font-size: inherit !important;
+}
+.prose pre code::before,
+.prose pre code::after {
+  content: none !important;
+}
+
+/* Large prose - privacy, terms pages. Use with: prose prose-lg dark:prose-invert */
+.prose-semantic-lg :where(h1, h2, h3, h4, h5, h6) {
+  font-weight: 700;
+  color: var(--theme-text-primary);
+}
+:is(.dark) .prose-semantic-lg :where(h1, h2, h3, h4, h5, h6) {
+  color: white;
+}
+.prose-semantic-lg :where(h2) {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+.prose-semantic-lg :where(h3) {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+.prose-semantic-lg :where(p) {
+  color: var(--theme-text-secondary);
+  line-height: 1.625;
+  margin-bottom: 1rem;
+}
+:is(.dark) .prose-semantic-lg :where(p) {
+  color: var(--theme-text-tertiary);
+}
+.prose-semantic-lg :where(a) {
+  color: var(--theme-primary);
+}
+:is(.dark) .prose-semantic-lg :where(a) {
+  color: var(--theme-link-color);
+}
+.prose-semantic-lg :where(ul, ol) {
+  color: var(--theme-text-secondary);
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  list-style-type: disc;
+  padding-left: 1.5rem;
+}
+:is(.dark) .prose-semantic-lg :where(ul, ol) {
+  color: var(--theme-text-tertiary);
+}
+.prose-semantic-lg :where(li) {
+  color: var(--theme-text-secondary);
+  margin-bottom: 0.5rem;
+}
+:is(.dark) .prose-semantic-lg :where(li) {
+  color: var(--theme-text-tertiary);
+}
+.prose-semantic-lg :where(strong) {
+  color: var(--theme-text-primary);
+}
+:is(.dark) .prose-semantic-lg :where(strong) {
+  color: white;
+}
+.prose-semantic-lg :where(hr) {
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+.prose-semantic-lg :where(em) {
+  color: var(--theme-text-secondary);
+}
+:is(.dark) .prose-semantic-lg :where(em) {
+  color: var(--theme-text-tertiary);
+}
+
+/* Small prose - settings preview. Use with: prose prose-sm dark:prose-invert max-w-none */
+.prose-semantic-sm :where(h1, h2, h3, h4, h5, h6) {
+  font-weight: 700;
+  color: var(--theme-text-primary);
+}
+:is(.dark) .prose-semantic-sm :where(h1, h2, h3, h4, h5, h6) {
+  color: white;
+}
+.prose-semantic-sm :where(h1) {
+  font-size: 1.5rem;
+  line-height: 2rem;
+}
+.prose-semantic-sm :where(h2) {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+.prose-semantic-sm :where(h3) {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.prose-semantic-sm :where(p) {
+  color: var(--theme-text-secondary);
+  line-height: 1.625;
+  margin-bottom: 0.75rem;
+}
+:is(.dark) .prose-semantic-sm :where(p) {
+  color: var(--theme-text-tertiary);
+}
+.prose-semantic-sm :where(a) {
+  color: var(--theme-primary);
+}
+:is(.dark) .prose-semantic-sm :where(a) {
+  color: var(--theme-link-color);
+}
+.prose-semantic-sm :where(ul, ol) {
+  color: var(--theme-text-secondary);
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  list-style-type: disc;
+  padding-left: 1.25rem;
+}
+:is(.dark) .prose-semantic-sm :where(ul, ol) {
+  color: var(--theme-text-tertiary);
+}
+.prose-semantic-sm :where(li) {
+  color: var(--theme-text-secondary);
+  margin-bottom: 0.25rem;
+}
+:is(.dark) .prose-semantic-sm :where(li) {
+  color: var(--theme-text-tertiary);
+}
+.prose-semantic-sm :where(strong) {
+  color: var(--theme-text-primary);
+}
+:is(.dark) .prose-semantic-sm :where(strong) {
+  color: white;
+}
+.prose-semantic-sm :where(hr) {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.prose-semantic-sm :where(em) {
+  color: var(--theme-text-secondary);
+}
+:is(.dark) .prose-semantic-sm :where(em) {
+  color: var(--theme-text-tertiary);
+}
+
+/* --- Toggle switch (checkbox toggle) ---
+   Use: <input class="sr-only peer" /><div class="toggle-switch"> */
+.toggle-switch {
+  @apply w-11 h-6 rounded-full relative;
+  background-color: var(--theme-bg-tertiary);
+}
+.toggle-switch::after {
+  content: '';
+  @apply absolute top-[2px] rounded-full h-5 w-5 transition-all;
+  inset-inline-start: 2px;
+  background-color: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+}
+.peer:focus ~ .toggle-switch {
+  @apply outline-hidden ring-4;
+  --tw-ring-color: rgba(147, 197, 253, 0.5);
+}
+:is(.dark) .peer:focus ~ .toggle-switch {
+  --tw-ring-color: rgba(30, 64, 175, 0.5);
+}
+.peer:checked ~ .toggle-switch {
+  background-color: #2563EB;
+}
+.peer:checked ~ .toggle-switch::after {
+  @apply translate-x-full;
+  border-color: white;
+}
+:is([dir="rtl"]) .peer:checked ~ .toggle-switch::after {
+  @apply -translate-x-full;
+}
+
+/* Small toggle variant - use alongside toggle-switch */
+.toggle-switch-sm {
+  @apply w-9 h-5;
+}
+.toggle-switch-sm::after {
+  @apply h-4 w-4;
+}
+
+/* --- Tooltip popover (hover-reveal) --- */
+.tooltip-popover {
+  @apply absolute z-50 p-2 text-xs rounded-md shadow-lg hidden;
+  background-color: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  color: var(--theme-text-secondary);
+}
+.group:hover > .tooltip-popover,
+.group:hover .tooltip-popover {
+  @apply block;
+}
+.tooltip-popover-warning {
+  background-color: var(--theme-bg-secondary);
+  border-color: var(--theme-warning);
+  color: var(--theme-warning);
+}
+.tooltip-popover-success {
+  background-color: var(--theme-bg-secondary);
+  border-color: var(--theme-success);
+  color: var(--theme-success);
+}
+.tooltip-popover-danger {
+  background-color: var(--theme-bg-secondary);
+  border-color: var(--theme-danger);
+  color: var(--theme-danger);
+}
+
+/* --- Loading overlay --- */
+.loading-overlay {
+  @apply absolute inset-0 flex items-center justify-center rounded-sm pointer-events-none z-10;
+  background-color: rgba(59, 130, 246, 0.08);
+}
+:is(.dark) .loading-overlay {
+  background-color: rgba(59, 130, 246, 0.12);
+}
+
+/* --- Collapsible group header (warning/amber accent) --- */
+.group-header-warning {
+  @apply flex items-center justify-between px-3 py-2 cursor-pointer transition-colors;
+  background-color: rgba(251, 191, 36, 0.15);
+  border-left: 4px solid var(--theme-warning);
+}
+:is(.dark) .group-header-warning {
+  background-color: rgba(245, 158, 11, 0.12);
+  border-left-color: #d97706;
+}
+.group-header-warning:hover {
+  background-color: rgba(251, 191, 36, 0.25);
+}
+:is(.dark) .group-header-warning:hover {
+  background-color: rgba(245, 158, 11, 0.2);
+}
+
+/* --- MappableParameterField layout --- */
+/* Outer wrapper: min-w-0 lets it shrink inside flex parents. */
+.param-field-wrapper {
+  @apply space-y-1 relative rounded transition-all min-w-0;
+}
+
+/* Input row: w-full so it fills its block parent; flex-wrap breaks
+   two-select rows to a second line before they become unreadably narrow. */
+.param-field-input-row {
+  @apply w-full flex flex-wrap items-start gap-2 min-w-0;
+}
+
+/* Direct select/input children get a minimum width so flex-wrap fires
+   before they compress to zero. */
+.param-field-input-row > select,
+.param-field-input-row > input {
+  @apply flex-1 min-w-[120px];
+}
+
+/* Wrapper around text/textarea inputs so w-full resolves against the
+   constrained parent width rather than overflowing. */
+.param-field-input-wrap {
+  @apply w-full min-w-0;
+}
+
+/* --- Experience view: large form input --- */
+.form-input-xl {
+  @apply w-full px-4 py-3 rounded-xl transition-all duration-200;
+  border: 1px solid var(--theme-border-primary);
+  background-color: var(--theme-bg-surface);
+  color: var(--theme-text-primary);
+  @apply focus:ring-2 focus:outline-hidden;
+  --tw-ring-color: rgba(59, 130, 246, 0.2);
+}
+.form-input-xl:focus {
+  border-color: var(--theme-primary);
+}
+:is(.dark) .form-input-xl:focus {
+  border-color: var(--theme-link-color);
+}
+.form-input-xl::placeholder {
+  color: var(--theme-text-tertiary);
+}
+
+/* --- Experience view: CTA button --- */
+.btn-cta {
+  @apply w-full py-3.5 px-4 font-medium rounded-xl shadow-lg transition-all duration-200 flex items-center justify-center gap-2;
+  background: linear-gradient(to right, #2563EB, #3B82F6);
+  color: white;
+  --tw-shadow-color: rgba(59, 130, 246, 0.25);
+}
+.btn-cta:hover {
+  background: linear-gradient(to right, #1D4ED8, #2563EB);
+  --tw-shadow-color: rgba(59, 130, 246, 0.3);
+}
+.btn-cta:disabled {
+  background: linear-gradient(to right, #60A5FA, #93C5FD);
+  @apply cursor-not-allowed;
+}
+
+/* --- Experience view: page gradient background --- */
+/* Sits inside DashboardLayout's main area (pt-12 navbar, flex-grow). */
+.experience-bg {
+  @apply flex items-start justify-center px-4 pt-8 pb-8 relative;
+  min-height: calc(100vh - 3rem);
+  background: linear-gradient(to bottom right, var(--theme-bg-primary), var(--theme-bg-surface), var(--theme-bg-primary));
+}
+
+/* --- Experience view: shadow card --- */
+.experience-card {
+  @apply rounded-2xl overflow-hidden;
+  background-color: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  box-shadow:
+    0 20px 50px -12px rgba(0, 0, 0, 0.12),
+    0 8px 20px -8px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+}
+:is(.dark) .experience-card {
+  box-shadow:
+    0 25px 60px -10px rgba(0, 0, 0, 0.55),
+    0 10px 25px -8px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+/* --- Experience view: accordion section card --- */
+.experience-section {
+  @apply rounded-lg overflow-hidden transition-all duration-200;
+  background-color: var(--theme-bg-primary);
+  border: 1px solid var(--theme-border-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.experience-section:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+.experience-section-open {
+  box-shadow:
+    0 8px 20px -6px rgba(0, 0, 0, 0.1),
+    0 2px 6px -2px rgba(0, 0, 0, 0.06);
+}
+:is(.dark) .experience-section {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+:is(.dark) .experience-section:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+:is(.dark) .experience-section-open {
+  box-shadow:
+    0 10px 25px -6px rgba(0, 0, 0, 0.5),
+    0 3px 8px -2px rgba(0, 0, 0, 0.3);
+}
+
+/* --- Table sortable column header --- */
+.table-sort-header {
+  @apply px-4 py-2.5 text-xs font-medium uppercase cursor-pointer select-none;
+  color: var(--theme-text-tertiary);
+}
+.table-sort-header:hover {
+  color: var(--theme-text-primary);
+}
+
+/* --- Orange button variant (blueprints) --- */
+.btn-orange {
+  @apply px-4 py-2 rounded-md font-medium;
+  background-color: #EA580C;
+  color: white;
+  @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+  --tw-ring-color: #F97316;
+}
+.btn-orange:hover {
+  background-color: #C2410C;
+}
+.btn-orange:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* --- Orange status badge (extends .badge) --- */
+.badge-orange {
+  @apply px-1.5 py-0.5 text-xs font-medium rounded-full;
+  @apply bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400;
+}
+
+/* --- Notification count badge (always white text on danger bg) --- */
+.notification-count {
+  color: #FFFFFF;
+}
+
+/* --- react-datepicker theme overrides (scoped under .studio-datepicker-theme) --- */
+.studio-datepicker-theme .react-datepicker {
+  background-color: var(--theme-bg-secondary);
+  color: var(--theme-text-primary);
+  border: 1px solid var(--theme-border-primary);
+  font-family: inherit;
+}
+.studio-datepicker-theme .react-datepicker__header {
+  background-color: var(--theme-bg-secondary);
+  border-bottom: 1px solid var(--theme-border-primary);
+}
+.studio-datepicker-theme .react-datepicker__current-month,
+.studio-datepicker-theme .react-datepicker-time__header,
+.studio-datepicker-theme .react-datepicker__day-name {
+  color: var(--theme-text-primary);
+}
+.studio-datepicker-theme .react-datepicker__day,
+.studio-datepicker-theme .react-datepicker__time-list-item {
+  color: var(--theme-text-primary);
+}
+.studio-datepicker-theme .react-datepicker__day:hover,
+.studio-datepicker-theme .react-datepicker__time-list-item:hover {
+  background-color: var(--theme-bg-tertiary, #e5e7eb);
+}
+.studio-datepicker-theme .react-datepicker__day--selected,
+.studio-datepicker-theme .react-datepicker__day--keyboard-selected,
+.studio-datepicker-theme .react-datepicker__time-list-item--selected {
+  background-color: var(--theme-btn-primary-bg);
+  color: var(--theme-btn-primary-text);
+}
+.studio-datepicker-theme .react-datepicker__day--selected:hover,
+.studio-datepicker-theme .react-datepicker__day--keyboard-selected:hover,
+.studio-datepicker-theme .react-datepicker__time-list-item--selected:hover {
+  background-color: var(--theme-btn-primary-hover);
+}
+.studio-datepicker-theme .react-datepicker__day--outside-month,
+.studio-datepicker-theme .react-datepicker__day--disabled {
+  color: var(--theme-text-secondary);
+  opacity: 0.5;
+}
+.studio-datepicker-theme .react-datepicker__navigation-icon::before {
+  border-color: var(--theme-text-secondary);
+}
+.studio-datepicker-theme .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
+  border-color: var(--theme-text-primary);
+}
+.studio-datepicker-theme .react-datepicker__time-container {
+  border-left: 1px solid var(--theme-border-primary);
+}
+.studio-datepicker-theme .react-datepicker__time-container .react-datepicker__time {
+  background-color: var(--theme-bg-secondary);
+}

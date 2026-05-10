@@ -1,0 +1,12 @@
+# workers/docker-compose.gpu.yml
+# GPU override for workers requiring NVIDIA GPU.
+# Usage: make up-gpu SVC=audio
+# Or: make prod-up-gpu SVC=audio
+
+services:
+  audio:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
