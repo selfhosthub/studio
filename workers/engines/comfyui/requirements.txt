@@ -1,0 +1,6 @@
+# ComfyUI Worker specific requirements
+# Most dependencies come from base requirements.txt
+# These are additions specific to ComfyUI integration
+
+# httpx is already in base requirements (for API client)
+# No additional packages needed for v1

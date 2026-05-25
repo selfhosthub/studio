@@ -1,0 +1,8 @@
+# Video Worker Dependencies (shs-video provider)
+# Extends base requirements.txt
+
+# Whisper for speech-to-text
+openai-whisper>=20231117
+
+# Note: FFmpeg is installed via apt in Dockerfile.video
+# Note: torch is installed as whisper dependency

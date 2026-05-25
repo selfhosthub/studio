@@ -1,0 +1,114 @@
+{
+  "provider": {
+    "name": "httpbin",
+    "slug": "httpbin",
+    "description": "HTTPBin - Free HTTP testing service for demonstrating GenericHTTPAdapter",
+    "base_url": "https://httpbin.org",
+    "adapter_type": "generic_http",
+    "webhook_support": false,
+    "status": "ACTIVE",
+    "tier": "built-in",
+    "system": true,
+    "credential_provider": null,
+    "requires": [],
+    "adapter_config": {
+      "request_mapping": {
+        "method": "POST",
+        "endpoint": "/post",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-API-Key": "{{credentials.api_key}}",
+          "X-Organization": "{{system.organization_id}}"
+        },
+        "body_template": {
+          "message": "{{parameters.message}}",
+          "echo": "{{parameters.echo}}"
+        }
+      },
+      "response_mapping": {
+        "success_status": [200],
+        "extract": {
+          "url": "$.url",
+          "origin": "$.origin",
+          "data": "$.json",
+          "headers": "$.headers"
+        }
+      },
+      "error_config": {
+        "error_message_path": "$.error",
+        "retryable_status_codes": [429, 500, 502, 503, 504],
+        "max_retries": 3
+      }
+    },
+    "validation_config": {
+      "endpoint": "/get",
+      "headers": {
+        "X-API-Key": "{{credentials.api_key}}"
+      }
+    },
+    "health_check_endpoint": "/status/200"
+  },
+  "services": [
+    {
+      "service_id": "httpbin.echo",
+      "display_name": "Echo Service",
+      "description": "Echoes back the provided parameters as JSON",
+      "service_type": "OTHER",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Message to echo back"
+          },
+          "echo": {
+            "type": "boolean",
+            "title": "Echo Enabled",
+            "description": "Whether to enable echo",
+            "default": true
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "Optional timestamp"
+          }
+        },
+        "required": ["message"]
+      },
+      "result_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Request URL"
+          },
+          "origin": {
+            "type": "string",
+            "description": "Request origin IP"
+          },
+          "data": {
+            "type": "object",
+            "description": "Echoed data"
+          },
+          "headers": {
+            "type": "object",
+            "description": "Request headers"
+          }
+        }
+      }
+    }
+  ],
+  "credentials": {
+    "credential_type": "API_KEY",
+    "fields": {
+      "api_key": {
+        "type": "string",
+        "title": "API Key",
+        "description": "HTTPBin API key (can be any value for testing)",
+        "required": true,
+        "encrypted": true
+      }
+    }
+  }
+}

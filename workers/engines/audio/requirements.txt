@@ -1,0 +1,11 @@
+# Audio Worker Dependencies (shs-audio provider)
+# Extends base requirements.txt
+
+# Chatterbox TTS - text-to-speech with voice cloning
+chatterbox-tts
+
+# PyTorch with CUDA support (also needed by chatterbox-tts)
+# CUDA wheels include runtime — no nvidia/cuda base image needed.
+# Falls back to CPU/MPS when no NVIDIA GPU present.
+torch
+soundfile

@@ -1,0 +1,179 @@
+name: Release images
+
+# Triggered by `vX.Y.Z` tag push (created by scripts/release.sh).
+# Builds the 9 studio images, pushes to ghcr.io/selfhosthub/* with tags
+# :X.Y.Z and :latest. 7 images are multi-arch (amd64+arm64); 2 are amd64-only
+# (worker-audio bundles CUDA, studio-full targets single-container x86 hosts).
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: selfhosthub
+
+jobs:
+  guard:
+    name: Verify VERSION matches tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      console_version: ${{ steps.check.outputs.console_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG#v}"
+          FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          echo "tag=$TAG  tag_version=$TAG_VERSION  file_version=$FILE_VERSION"
+          if [[ "$TAG_VERSION" != "$FILE_VERSION" ]]; then
+            echo "::error::VERSION file ($FILE_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+          # Pinned studio-console version baked into Bundled + All-in-one images.
+          # Source: versions.json (.studio_console), rsynced from studio-app's release config.
+          # No fallback default — a missing/empty value fails the workflow before any build runs.
+          # The Dockerfiles also reject an empty ARG, but failing here gives a clearer error.
+          if [[ ! -f versions.json ]]; then
+            echo "::error::versions.json missing — studio-app release config did not sync"
+            exit 1
+          fi
+          CONSOLE_VERSION="$(jq -er '.studio_console' versions.json 2>/dev/null || true)"
+          if [[ -z "$CONSOLE_VERSION" || "$CONSOLE_VERSION" == "null" ]]; then
+            echo "::error::versions.json has no .studio_console field — bump studio-app's release config to pin a console version"
+            exit 1
+          fi
+          echo "console_version=$CONSOLE_VERSION  (baked into studio-core + studio-full)"
+          echo "console_version=$CONSOLE_VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.image }}
+    needs: guard
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: studio-api
+            context: api
+            dockerfile: api/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            contracts: true
+          - image: studio-ui
+            context: ui
+            dockerfile: ui/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            contracts: false
+          - image: studio-worker-general
+            context: workers
+            dockerfile: workers/engines/general/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            contracts: true
+          - image: studio-worker-transfer
+            context: workers
+            dockerfile: workers/engines/transfer/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            contracts: true
+          - image: studio-worker-video
+            context: workers
+            dockerfile: workers/engines/video/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            contracts: true
+          - image: studio-worker-comfyui
+            context: workers
+            dockerfile: workers/engines/comfyui/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            contracts: true
+          - image: studio-worker-audio
+            context: workers
+            dockerfile: workers/engines/audio/Dockerfile
+            platforms: linux/amd64
+            contracts: true
+          - image: studio-core
+            context: .
+            dockerfile: Dockerfile
+            platforms: linux/amd64,linux/arm64
+            contracts: false
+            bakes_console: true
+          - image: studio-full
+            context: .
+            dockerfile: Dockerfile.full
+            platforms: linux/amd64
+            contracts: false
+            bakes_console: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ needs.guard.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
+          # studio-core + studio-full bake studio-console at build time. The Dockerfile
+          # ARG has no default; an empty value fails the build. Other images get an empty
+          # build-args list, which build-push-action treats as a no-op.
+          build-args: |
+            ${{ matrix.bakes_console && format('STUDIO_CONSOLE_VERSION={0}', needs.guard.outputs.console_version) || '' }}
+            ${{ matrix.bakes_console && format('STUDIO_VERSION={0}', needs.guard.outputs.version) || '' }}
+            GIT_SHA=${{ github.sha }}
+          # com.selfhosthub.console.version is a dedicated label for the baked
+          # studio-console version, kept separate from any future
+          # org.opencontainers.image.version (which would track studio-app itself).
+          # Operators can query the baked version with `docker inspect`.
+          labels: ${{ matrix.bakes_console && format('com.selfhosthub.console.version={0}', needs.guard.outputs.console_version) || '' }}
+          build-contexts: ${{ matrix.contracts && 'contracts=contracts' || '' }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          provenance: false
+
+  notes:
+    name: Append baked-tool versions to release notes
+    needs: [guard, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # The release was created by scripts/release.sh before this workflow ran. Append
+      # a "Baked tools" section so operators can see which studio-console version is
+      # frozen into the studio-core + studio-full images for this tag without doing
+      # a `docker inspect` lookup.
+      - name: Append baked console version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          CONSOLE_VERSION: ${{ needs.guard.outputs.console_version }}
+        run: |
+          set -euo pipefail
+          CURRENT="$(gh release view "$TAG" --json body --jq '.body')"
+          APPEND=$'\n\n## Baked tools\n\n- `studio-console` **'"$CONSOLE_VERSION"$'** — baked into `studio-core` and `studio-full` images.'
+          printf '%s%s' "$CURRENT" "$APPEND" | gh release edit "$TAG" --notes-file -
