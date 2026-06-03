@@ -60,7 +60,7 @@
     "jest-environment-jsdom": "^29.7.0",
     "openapi-typescript": "^7.10.1",
     "pngjs": "^7.0.0",
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.15",
     "prettier": "^3.2.5",
     "tailwindcss": "^4.2.2",
     "tesseract.js": "^7.0.0",
