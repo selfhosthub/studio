@@ -1,0 +1,51 @@
+# =============================================================================
+# Studio prod .gitignore
+# =============================================================================
+
+# ── Env / secrets ─────────────────────────────────────────────────────────────
+.env
+.env.local
+*/.env
+*/.env.local
+**/.env
+**/.env.local
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.venv/
+.venv-*/
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+node_modules/
+.next/
+*.tsbuildinfo
+
+# ── Docker build artifacts ────────────────────────────────────────────────────
+*.tar
+*.tar.gz
+
+# ── Runtime / operator-generated ──────────────────────────────────────────────
+api/providers/
+api/docs/
+uploads/
+workspace/
+backups/
+.studio/
+org.json
+workers/shared/handlers/
+workers/shared/comfyui
+
+# ── Logs & cache ──────────────────────────────────────────────────────────────
+*.log
+.cache/
+
+# ── OS / IDE ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

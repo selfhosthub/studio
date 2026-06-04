@@ -1,0 +1,9 @@
+# api/.dockerignore
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+studio_framework.egg-info/
+Dockerfile
+.dockerignore

@@ -1,0 +1,133 @@
+Studio Use License
+
+Copyright (c) 2025 Kawika Ohumukini. All rights reserved.
+
+This license governs the use of the Studio software platform ("Software"),
+including its API, frontend, worker, and documentation components.
+
+This is not an open-source license. The source code is publicly available
+for transparency and community contribution, but commercial use is subject
+to the terms below.
+
+
+1. PERMITTED USE
+
+You may:
+
+  (a) Deploy and operate the Software for your own business purposes.
+
+  (b) Operate a hosted instance of the Software and charge customers for
+      access to it (SaaS model). There is no limit on the number of
+      customers or organizations on your instance.
+
+  (c) Provide consulting, installation, deployment, configuration, training,
+      and support services related to the Software.
+
+  (d) Deploy the Software for individual clients as part of bespoke service
+      engagements (one instance per client engagement).
+
+  (e) Provide the Software source code to your clients so they may deploy
+      and operate their own instance.
+
+  (f) Create, sell, and distribute your own workflow configurations,
+      templates, and automations. These are your intellectual property.
+
+  (g) Sell any output produced by the Software (images, video, text, data,
+      or any other generated content).
+
+  (h) Modify the Software for your own use.
+
+  (i) Contribute to this project.
+
+
+2. RESTRICTIONS
+
+You may not:
+
+  (a) Offer automated or self-service provisioning of Software instances
+      to third parties. You may not build a platform, tool, or service
+      whose primary function is deploying, hosting, or managing Software
+      instances on behalf of others.
+
+  (b) Create, distribute, or sell pre-configured images, containers,
+      deployment packages, automation, or infrastructure templates that
+      contain or install the Software for third-party use.
+
+  (c) Fork or rebrand the Software for resale or distribution as a
+      competing workflow automation platform or service.
+
+  (d) Redistribute, sublicense, or sell copies of the Software source
+      code as a standalone product or component.
+
+  (e) Remove or alter any copyright, trademark, or license notices
+      included in the Software.
+
+The distinction this license draws is between OPERATING and DISTRIBUTING.
+You may build a business that runs on Studio. You may not build a business
+that distributes Studio.
+
+For avoidance of doubt: operating a single Studio deployment as a
+multi-tenant service for customers is permitted. Offering Studio
+deployment, provisioning, or instance creation as a service to third
+parties is not.
+
+
+3. MARKETPLACE PACKAGES
+
+The Studio Marketplace ("studio-marketplace") provides optional provider packages,
+services, and templates under separate terms. Marketplace packages:
+
+  (a) Are licensed separately from this Software under their own terms.
+
+  (b) May not be redistributed, sideloaded, bundled, or transferred to
+      third-party deployments. Each deploying party must obtain marketplace
+      packages directly from the official marketplace.
+
+  (c) Are subject to the Marketplace Terms of Service, which govern access,
+      usage, and distribution.
+
+For clarity: workflow configurations that reference marketplace packages
+may be freely shared or sold. The marketplace packages themselves may not.
+
+
+4. USER-CREATED CONTENT
+
+Workflow configurations, templates, automations, field mappings, and other
+user-created content (typically JSON or similar configuration files) are the
+intellectual property of their creators. This license makes no claim on
+user-created content.
+
+
+5. TRADEMARKS
+
+"Studio," "Self-Host Studio," "Self-Host Hub," and associated logos and
+marks are trademarks of the copyright holder. Use of these trademarks is
+subject to applicable trademark law. You may use these names to truthfully
+describe your relationship with the Software (e.g., "built on Self-Host
+Studio," "powered by Studio"). You may not use the trademarks in a way
+that implies endorsement, affiliation, or origin without prior written
+consent. Nothing in this license grants the right to use these names or
+marks as part of a product name, company name, or primary branding.
+
+
+6. CONTRIBUTIONS
+
+Contributions to this project are assigned to the copyright holder and
+their successors and assigns. By submitting a contribution, you agree to
+this assignment and represent that you have the right to make the
+contribution.
+
+
+7. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE
+FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH
+THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Operators are solely responsible for compliance with applicable laws and
+third-party service terms. See LEGAL.md for detailed operator obligations.

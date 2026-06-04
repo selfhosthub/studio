@@ -1,0 +1,74 @@
+# workers/docker-compose.yml
+# Studio Workers - Standalone deployment (production images)
+# Workers connect to the API over HTTP - no shared Docker network required.
+#
+# Usage:
+#   make prod-up                   # All workers
+#   make prod-up SVC=general       # Specific worker
+#
+# Configuration:
+#   envs/.env.prod   - edit directly (SHS_API_BASE_URL, SHS_WORKER_SHARED_SECRET required)
+
+services:
+  general:
+    image: ghcr.io/selfhosthub/studio-worker-general:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    env_file: &env-files
+      - envs/.env.prod
+    environment:
+      - SHS_WORKER_TYPE=general
+    volumes:
+      - ${SHS_WORKSPACE_HOST:-~/.studio}:/workspace
+    extra_hosts: &extra-hosts
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  transfer:
+    image: ghcr.io/selfhosthub/studio-worker-transfer:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    env_file: *env-files
+    environment:
+      - SHS_WORKER_TYPE=transfer
+    volumes:
+      - ${SHS_WORKSPACE_HOST:-~/.studio}:/workspace
+    extra_hosts: *extra-hosts
+    restart: unless-stopped
+    logging: *default-logging
+
+  video:
+    image: ghcr.io/selfhosthub/studio-worker-video:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    env_file: *env-files
+    environment:
+      - SHS_WORKER_TYPE=video
+      - SHS_WHISPER_MODEL=${SHS_WHISPER_MODEL:-base}
+    volumes:
+      - ${SHS_WORKSPACE_HOST:-~/.studio}:/workspace
+    extra_hosts: *extra-hosts
+    restart: unless-stopped
+    logging: *default-logging
+
+  audio:
+    image: ghcr.io/selfhosthub/studio-worker-audio:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    env_file: *env-files
+    environment:
+      - SHS_WORKER_TYPE=audio
+      - HF_HOME=/workspace/models/huggingface
+    volumes:
+      - ${SHS_WORKSPACE_HOST:-~/.studio}:/workspace
+    extra_hosts: *extra-hosts
+    restart: unless-stopped
+    logging: *default-logging
+
+  comfyui-image:
+    image: ghcr.io/selfhosthub/studio-worker-comfyui:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    env_file: *env-files
+    environment:
+      - SHS_WORKER_TYPE=comfyui-image
+    volumes:
+      - ${SHS_WORKSPACE_HOST:-~/.studio}:/workspace
+    extra_hosts: *extra-hosts
+    restart: unless-stopped
+    logging: *default-logging
