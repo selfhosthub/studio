@@ -1,0 +1,102 @@
+{
+  "$comment": "Launch contract for host-launched single-image deployments. studio-console reads this to build the `docker run` invocation for `launch-full`. studio-app (this repo) is the sole authority; console must not hardcode entrypoint assumptions. Source of truth: Dockerfile.full + api/docker/entrypoint.sh. Bump manifest_version on any breaking change to required_env, ports, or volume.",
+  "manifest_version": 1,
+  "engine": {
+    "description": "Database engine pin, shared across all shapes (full/core/split). The Full image build is the forcing function: whatever Dockerfile.full bundles, split/core compose must match. studio-console reads `image` to pin its postgres service. Single source of truth for these values: api/tests/unit/contracts/test_unit_contracts__postgres_version.py; this block is asserted equal to it by that guard.",
+    "postgres_major": 18,
+    "pgvector_version": "0.8.3",
+    "base_distro": "trixie",
+    "image": "pgvector/pgvector:0.8.3-pg18-trixie@sha256:6232c5ea178707f278d060b51747c30f310164595674e95d5f9d100f4a48b56c"
+  },
+  "shapes": {
+    "full": {
+      "summary": "Self-contained image: nginx front door + PostgreSQL + API + UI + general/transfer workers under supervisord. No external Postgres. Host-launchable.",
+      "image": {
+        "repository": "ghcr.io/selfhosthub/studio-full",
+        "tags": ["${STUDIO_VERSION}", "latest"],
+        "default_tag": "latest"
+      },
+      "ports": [
+        {"container": 80, "name": "nginx", "protocol": "tcp", "healthcheck": true, "primary": true, "description": "Single front-door origin. nginx routes /api,/ws → API and / → UI. Publish this port; point cloudflared and external proxies here. Listen port follows SHS_NGINX_PORT (default 80)."},
+        {"container": 8000, "name": "api", "protocol": "tcp", "internal": true, "description": "API process behind nginx. Not host-facing; reachable only via nginx /api,/ws routes."},
+        {"container": 3000, "name": "ui", "protocol": "tcp", "internal": true, "description": "UI process behind nginx. Not host-facing; reachable only via nginx /."},
+        {"container": 9001, "name": "supervisor", "protocol": "tcp"}
+      ],
+      "volumes": [
+        {
+          "container_path": "/workspace",
+          "description": "Persistent state: generated .env (secrets), Postgres data dir (/workspace/db), and org file storage. Must persist across container restarts. Suggested host default: ~/.studio."
+        }
+      ],
+      "required_env": [
+        {
+          "name": "SHS_SUPERVISOR_USER",
+          "description": "Username for the supervisord web/control auth. No default; entrypoint exits non-zero if unset.",
+          "secret": false,
+          "prompt": true,
+          "every_boot": true,
+          "persisted_to_workspace_env": false
+        },
+        {
+          "name": "SHS_SUPERVISOR_PASSWORD",
+          "description": "Password for supervisord auth. No default; entrypoint exits non-zero if unset. Fail-closed by design (no auto-generation).",
+          "secret": true,
+          "prompt": true,
+          "every_boot": true,
+          "persisted_to_workspace_env": false
+        }
+      ],
+      "required_env_persistence": {
+        "description": "The required_env pair is checked on EVERY supervisord boot from process env only (entrypoint.sh step 4, outside the first-boot .env-absent block) and is NOT written to /workspace/.env. The container does not remember them. The launcher owns persistence: store them in console state and re-inject via `docker run -e` on every start/restart. Reading them back from the mounted /workspace/.env will NOT work - they are never there. Override-CMD invocations (studio-console/psql/bash) short-circuit before the check and do not need these set."
+      },
+      "optional_env": [
+        {
+          "name": "SHS_NGINX_PORT",
+          "description": "Host/listen port for the nginx front door - the single origin browser, SSR, and cloudflared all use. nginx routes /api,/ws → API and / → UI internally. Publish this port; the API (8000) and UI (3000) are not host-facing.",
+          "default_on_first_boot": "80"
+        },
+        {
+          "name": "SHS_PUBLIC_BASE_URL",
+          "description": "Public URL the deployment is reachable at - the nginx origin. First boot writes http://localhost:${SHS_NGINX_PORT} (default :80) as a placeholder; operator tightens it via the in-container console once the domain is known.",
+          "default_on_first_boot": "http://localhost:80"
+        },
+        {
+          "name": "SHS_CORS_ORIGINS",
+          "description": "Allowed CORS origins. First boot writes '*' (permissive). Once a real domain is set, nginx makes browser/API same-origin so CORS is effectively moot; tighten post-launch regardless.",
+          "default_on_first_boot": "*"
+        },
+        {
+          "name": "SHS_GENERAL_WORKERS",
+          "description": "Number of general worker processes.",
+          "default_on_first_boot": "1"
+        },
+        {
+          "name": "SHS_TRANSFER_WORKERS",
+          "description": "Number of transfer worker processes.",
+          "default_on_first_boot": "1"
+        }
+      ],
+      "self_generated_secrets": {
+        "description": "Generated and persisted by the entrypoint on first boot ONLY when /workspace/.env is absent. The operator never supplies these; the launcher must NOT prompt for or set them. Written to /workspace/.env at 0600 and never regenerated on subsequent boots.",
+        "keys": [
+          "SHS_JWT_SECRET_KEY",
+          "SHS_WORKER_SHARED_SECRET",
+          "SHS_CREDENTIAL_ENCRYPTION_KEY",
+          "POSTGRES_PASSWORD",
+          "SHS_DATABASE_URL"
+        ]
+      },
+      "baked_env": {
+        "description": "Set in the image at build time. Operator never tunes these at boot.",
+        "keys": ["SHS_ENV", "SHS_STUDIO_VERSION", "SHS_GIT_SHA", "SHS_COMMUNITY_SOURCE", "SHS_PLUS_SOURCE", "PORT", "HOST"]
+      },
+      "entrypoint": {
+        "first_boot": "When /workspace/.env is absent: generate deployment shape + all secrets above + SHS_NGINX_PORT/SHS_PUBLIC_BASE_URL on the nginx origin, write /workspace/.env (0600), init the Postgres data dir at /workspace/db, run bootstrap, then hand off to supervisord (which starts nginx, api, ui, workers).",
+        "subsequent_boot": "When /workspace/.env exists: use it as-is, generate nothing, start supervisord.",
+        "override_cmd": "Passing any CMD other than the default supervisord (e.g. `studio-console ...`, `psql`, `bash`) short-circuits first-boot and execs the override directly, after ensuring the .env symlink. Console can run one-off commands in the image without triggering Postgres/supervisord startup.",
+        "fail_closed": "Exits non-zero if SHS_SUPERVISOR_USER or SHS_SUPERVISOR_PASSWORD is unset, or if SHS_STUDIO_VERSION was not baked into the image."
+      },
+      "launch_summary": "One prompt: SHS_SUPERVISOR_USER + SHS_SUPERVISOR_PASSWORD. Everything else self-generates on first boot."
+    }
+  }
+}

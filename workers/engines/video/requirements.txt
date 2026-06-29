@@ -1,0 +1,11 @@
+# Video Worker Dependencies (shs-video provider)
+# Extends base requirements.txt
+
+# Whisper for speech-to-text
+openai-whisper>=20231117
+
+# Faster alternative backend (CTranslate2); selected per-job via subtitles_backend
+faster-whisper>=1.0.0
+
+# Note: FFmpeg is installed via apt in Dockerfile.video
+# Note: torch is installed as whisper dependency

@@ -1,0 +1,233 @@
+name: Release images
+
+# Triggered by `vX.Y.Z` tag push (created by scripts/release.sh).
+# Builds the 9 studio images, pushes to ghcr.io/selfhosthub/* with tags
+# :X.Y.Z and :latest. 7 images are multi-arch (amd64+arm64); 2 are amd64-only
+# (worker-audio bundles CUDA, studio-full targets single-container x86 hosts).
+#
+# Multi-arch is built natively, NOT under QEMU: each {image, arch} leg runs on a
+# native runner (amd64 -> ubuntu-24.04, arm64 -> ubuntu-24.04-arm) and pushes by
+# digest. A merge job then assembles the per-arch digests into one manifest list
+# per tag, so `docker pull` (and the k8s kubelet) auto-selects the node's arch.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: selfhosthub
+
+jobs:
+  guard:
+    name: Verify VERSION matches tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      console_version: ${{ steps.check.outputs.console_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG#v}"
+          FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          echo "tag=$TAG  tag_version=$TAG_VERSION  file_version=$FILE_VERSION"
+          if [[ "$TAG_VERSION" != "$FILE_VERSION" ]]; then
+            echo "::error::VERSION file ($FILE_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+          # Pinned studio-console version baked into Bundled + All-in-one images.
+          # Source: versions.json (.studio_console), rsynced from studio-app's release config.
+          # No fallback default — a missing/empty value fails the workflow before any build runs.
+          # The Dockerfiles also reject an empty ARG, but failing here gives a clearer error.
+          if [[ ! -f versions.json ]]; then
+            echo "::error::versions.json missing — studio-app release config did not sync"
+            exit 1
+          fi
+          CONSOLE_VERSION="$(jq -er '.studio_console' versions.json 2>/dev/null || true)"
+          if [[ -z "$CONSOLE_VERSION" || "$CONSOLE_VERSION" == "null" ]]; then
+            echo "::error::versions.json has no .studio_console field — bump studio-app's release config to pin a console version"
+            exit 1
+          fi
+          echo "console_version=$CONSOLE_VERSION  (baked into studio-core + studio-full)"
+          echo "console_version=$CONSOLE_VERSION" >> "$GITHUB_OUTPUT"
+
+  prepare:
+    name: Compute build matrix
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.gen.outputs.build_matrix }}
+      merge_matrix: ${{ steps.gen.outputs.merge_matrix }}
+    steps:
+      - id: gen
+        # Single source of truth for per-image config. The build matrix expands each
+        # image over its `arches` into one {image, arch, runner} leg; the merge matrix
+        # is just the image names. Keeps config un-duplicated across the two arch legs.
+        run: |
+          set -euo pipefail
+          images='[
+            {"image":"studio-api","context":"api","dockerfile":"api/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-ui","context":"ui","dockerfile":"ui/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-general","context":"workers","dockerfile":"workers/engines/general/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-transfer","context":"workers","dockerfile":"workers/engines/transfer/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-video","context":"workers","dockerfile":"workers/engines/video/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-comfyui","context":"workers","dockerfile":"workers/engines/comfyui/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-audio","context":"workers","dockerfile":"workers/engines/audio/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64"]},
+            {"image":"studio-core","context":".","dockerfile":"Dockerfile","contracts":false,"bakes_console":true,"arches":["amd64","arm64"]},
+            {"image":"studio-full","context":".","dockerfile":"Dockerfile.full","contracts":false,"bakes_console":true,"arches":["amd64"]}
+          ]'
+          build=$(echo "$images" | jq -c '
+            [ .[] | . as $img | $img.arches[] | {
+                image: $img.image,
+                context: $img.context,
+                dockerfile: $img.dockerfile,
+                contracts: $img.contracts,
+                bakes_console: $img.bakes_console,
+                arch: .,
+                runner: (if . == "amd64" then "ubuntu-24.04" else "ubuntu-24.04-arm" end)
+              } ]')
+          merge=$(echo "$images" | jq -c '[ .[] | {image: .image} ]')
+          echo "build_matrix={\"include\":$build}" >> "$GITHUB_OUTPUT"
+          echo "merge_matrix={\"include\":$merge}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.image }} (${{ matrix.arch }})
+    needs: [guard, prepare]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          # studio-core + studio-full bake studio-console at build time. The Dockerfile
+          # ARG has no default; an empty value fails the build. Other images get an empty
+          # build-args list, which build-push-action treats as a no-op.
+          build-args: |
+            ${{ matrix.bakes_console && format('STUDIO_CONSOLE_VERSION={0}', needs.guard.outputs.console_version) || '' }}
+            ${{ matrix.bakes_console && format('STUDIO_VERSION={0}', needs.guard.outputs.version) || '' }}
+            GIT_SHA=${{ github.sha }}
+          # com.selfhosthub.console.version is a dedicated label for the baked
+          # studio-console version, kept separate from any future
+          # org.opencontainers.image.version (which would track studio-app itself).
+          # Operators can query the baked version with `docker inspect`.
+          labels: ${{ matrix.bakes_console && format('com.selfhosthub.console.version={0}', needs.guard.outputs.console_version) || '' }}
+          build-contexts: ${{ matrix.contracts && 'contracts=contracts' || '' }}
+          # Cache scope is arch-qualified: each arch builds separately, so a shared
+          # scope would let the two legs clobber each other's cache.
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+          # Push by digest only (no tag); the merge job assembles the manifest list.
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge ${{ matrix.image }} manifest
+    needs: [guard, prepare, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.merge_matrix) }}
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        # amd64-only images flow through identically: a one-entry manifest list.
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:latest" \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect manifest list
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        # Proof that the published tag is a real manifest list (both arches for
+        # multi-arch images); `docker pull` then auto-selects the node's arch.
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+
+  notes:
+    name: Append baked-tool versions to release notes
+    needs: [guard, merge]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # The release was created by scripts/release.sh before this workflow ran. Append
+      # a "Baked tools" section so operators can see which studio-console version is
+      # frozen into the studio-core + studio-full images for this tag without doing
+      # a `docker inspect` lookup.
+      - name: Append baked console version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          CONSOLE_VERSION: ${{ needs.guard.outputs.console_version }}
+        run: |
+          set -euo pipefail
+          CURRENT="$(gh release view "$TAG" --json body --jq '.body')"
+          APPEND=$'\n\n## Baked tools\n\n- `studio-console` **'"$CONSOLE_VERSION"$'** — baked into `studio-core` and `studio-full` images.'
+          printf '%s%s' "$CURRENT" "$APPEND" | gh release edit "$TAG" --notes-file -

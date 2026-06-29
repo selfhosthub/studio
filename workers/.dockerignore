@@ -1,0 +1,22 @@
+# workers/.dockerignore
+__pycache__/
+*.pyc
+.venv/
+env/
+venv/
+.dockerignore
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+*.log
+.pytest_cache/
+.coverage
+.coverage.*
+.worker.log
+.worker.pid
+.DS_Store
+*.sarif
+*-codeql-db/
+.codeql/

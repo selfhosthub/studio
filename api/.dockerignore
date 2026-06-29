@@ -1,0 +1,18 @@
+# api/.dockerignore
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+studio_framework.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.log
+.DS_Store
+*.sarif
+*-codeql-db/
+.codeql/
+Dockerfile
+.dockerignore

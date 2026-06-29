@@ -1,0 +1,32 @@
+# .github/workflows/codeql.yml
+# CodeQL advanced setup. Uses the shared .github/codeql/config.yml so this scan
+# matches the local one (scripts/codeql-scan.sh) - a clean local run means no
+# new alerts here.
+name: CodeQL
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+          config-file: ./.github/codeql/config.yml
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3

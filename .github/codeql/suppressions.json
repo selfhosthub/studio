@@ -1,0 +1,52 @@
+[
+  {
+    "rule": "py/url-redirection",
+    "path": "api/app/presentation/api/oauth.py",
+    "reason": "All 11 redirects go to settings.FRONTEND_URL (server config, not user-controlled) with urlencode(params) sanitizing query params. CodeQL can't verify base-URL immutability, so it flags every call site."
+  },
+  {
+    "rule": "py/partial-ssrf",
+    "path": "api/app/presentation/api/packages.py",
+    "reason": "_PinnedPublicIPTransport resolves host, rejects non-public IPs, and pins the validated IP for each connect() call (closes DNS-rebind TOCTOU). CodeQL cannot trace through a custom httpx transport as a sanitizer."
+  },
+  {
+    "rule": "py/path-injection",
+    "path": "api/app/presentation/api/public.py",
+    "reason": "Avatar: filename validated by ^[0-9a-f]{16}\\.jpg$ allowlist before any filesystem access - path traversal is structurally impossible. Asset: explicit '..' + startswith('/') check + is_relative_to(org_root) guard."
+  },
+  {
+    "rule": "py/path-injection",
+    "path": "api/app/application/services/instance/deletion_service.py",
+    "reason": "Path built from str(organization_id)/str(instance_id) where both are UUIDs validated by FastAPI/Pydantic - UUIDs cannot contain path separators."
+  },
+  {
+    "rule": "py/clear-text-logging-sensitive-data",
+    "path": "api/app/presentation/api/organization_secrets.py",
+    "reason": "Logged data is either a date suffix derived from a token (not the token value) or passes through mask_id()/safe_error_message() which are runtime sanitizers CodeQL cannot trace."
+  },
+  {
+    "rule": "py/clear-text-logging-sensitive-data",
+    "path": "api/scripts/bootstrap_database.py",
+    "reason": "Bootstrap script logs a password VALIDATION ERROR MESSAGE (e.g. 'too short'), not the password value. CodeQL traces the password taint through validate_password() into the error string."
+  },
+  {
+    "rule": "py/clear-text-logging-sensitive-data",
+    "path": "api/scripts/reset_admin_password.py",
+    "reason": "Admin reset script logs a password validation error message (not the password value). Same taint-through-validate_password() FP pattern as bootstrap_database.py."
+  },
+  {
+    "rule": "py/clear-text-logging-sensitive-data",
+    "path": "api/scripts/bootstrap.py",
+    "reason": "Bootstrap prints the key NAME (e.g. 'JWT_SECRET_KEY'), not the value. CodeQL associates the print with the tainted env_value via the surrounding scope."
+  },
+  {
+    "rule": "py/clear-text-storage-sensitive-data",
+    "path": "api/scripts/bootstrap.py",
+    "reason": "Bootstrap intentionally writes secrets to the operator's .env file. This is the purpose of the function: generate/persist initial credentials."
+  },
+  {
+    "rule": "py/jinja2/autoescape-false",
+    "path": "api/app/infrastructure/adapters/generic_http_adapter.py",
+    "reason": "Jinja2 environment generates JSON/API request bodies only - no HTML output. autoescape=True would corrupt JSON syntax. Documented with nosemgrep too."
+  }
+]

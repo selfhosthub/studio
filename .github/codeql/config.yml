@@ -1,0 +1,36 @@
+# .github/codeql/config.yml
+# Shared CodeQL config: read by BOTH the GitHub advanced-setup workflow
+# (.github/workflows/codeql.yml) and the local scan (dev/Makefile.dev codeql).
+# Keeping one config means a clean local run == no new GitHub alerts.
+#
+# Scope mirrors .prod-exclude (the dev -> prod rsync filter): tests, fixtures,
+# migrations, coverage, and vendored deps are not shipped, so they're out of
+# scope here too. Paths are repo-root-relative; both scans run from repo root.
+
+name: "Studio CodeQL config"
+
+# Suite is selected per-scan, not here: the GitHub workflow sets queries:
+# security-extended in its init step, and the local Makefile passes the
+# matching suite to `analyze`. A `queries:` block here would be resolved at
+# database-create time and fail when the pack isn't pre-installed.
+
+# py/log-injection is excluded: it flags every f-string log of user input, but
+# the runtime LogInjectionFilter (app/infrastructure/logging/filters.py) strips
+# CR/LF from all formatted records, neutralizing the vuln at the handler. CodeQL
+# can't see runtime filters as sanitizers, so it would report ~90 unfixable
+# alerts; the filter is the real fix. Removing this exclusion requires per-site
+# sanitizing CodeQL recognizes.
+query-filters:
+  - exclude:
+      id: py/log-injection
+
+paths-ignore:
+  - "**/tests"
+  - "**/__tests__"
+  - "**/.next"
+  - "api/alembic/versions"
+  - "scripts"
+  - "**/node_modules"
+  - "**/__pycache__"
+  - "**/*.egg-info"
+  - "**/.venv"

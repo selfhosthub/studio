@@ -1,0 +1,322 @@
+// ui/app/workflows/list/components/WorkflowsOrganizationTab.tsx
+
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ChevronUp, ChevronDown } from 'lucide-react';
+import {
+  ActionButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+  SearchInput,
+  Pagination,
+  LoadingState,
+  ErrorState,
+  EmptyState,
+  StatusBadge,
+} from '@/shared/ui';
+import type { WorkflowResponse } from '@/shared/types/api';
+import type { WorkflowIssue } from '@/shared/lib/workflow-readiness';
+import type { WorkflowSortField, SortDirection } from '../page';
+import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import { listPageSizeKey } from '@/shared/lib/constants';
+import { useCurrentUrl, withReturnTo } from '@/shared/hooks/useReturnTo';
+
+const PAGE_SIZE_KEY = listPageSizeKey('workflows');
+
+interface WorkflowsOrganizationTabProps {
+  loading: boolean;
+  error: string | null;
+  filteredWorkflows: WorkflowResponse[];
+  paginatedWorkflows: WorkflowResponse[];
+  searchTerm: string;
+  onSearchChange: (term: string) => void;
+  statusFilter: "all" | "pending" | "published";
+  onStatusChange: (status: "all" | "pending" | "published") => void;
+  pendingCount: number;
+  currentPage: number;
+  totalPages: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+  isAdmin: boolean;
+  isSuperAdmin: boolean;
+  onRun: (w: WorkflowResponse) => void;
+  onDelete: (w: WorkflowResponse) => void;
+  onArchive: (w: WorkflowResponse) => void;
+  onCopy: (w: WorkflowResponse) => void;
+  onSetVisibility?: (
+    w: WorkflowResponse,
+    visibility: 'private' | 'staging' | 'public',
+  ) => void;
+  copyingId: string | null;
+  onApprovePublish: (w: WorkflowResponse) => void;
+  onRejectPublish: (w: WorkflowResponse) => void;
+  approvingId: string | null;
+  rejectingId: string | null;
+  getIssues: (w: WorkflowResponse) => WorkflowIssue[];
+  onRetry: () => void;
+  sortField: WorkflowSortField;
+  sortDirection: SortDirection;
+  onSort: (field: WorkflowSortField) => void;
+}
+
+export function WorkflowsOrganizationTab({
+  loading,
+  error,
+  filteredWorkflows,
+  paginatedWorkflows,
+  searchTerm,
+  onSearchChange,
+  statusFilter,
+  onStatusChange,
+  pendingCount,
+  currentPage,
+  totalPages,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+  isAdmin,
+  isSuperAdmin,
+  onRun,
+  onDelete,
+  onArchive,
+  onCopy,
+  onSetVisibility,
+  copyingId,
+  onApprovePublish,
+  onRejectPublish,
+  approvingId,
+  rejectingId,
+  getIssues,
+  onRetry,
+  sortField,
+  sortDirection,
+  onSort,
+}: WorkflowsOrganizationTabProps) {
+  const router = useRouter();
+  const from = useCurrentUrl();
+
+  const formatDateTime = (dateStr: string | null | undefined) =>
+    dateStr ? new Date(dateStr).toISOString().replace('T', ' ').slice(0, 16) : 'N/A';
+
+  const sortIcon = (field: WorkflowSortField) => {
+    if (sortField !== field) return null;
+    return sortDirection === 'asc'
+      ? <ChevronUp className="inline w-4 h-4 ml-1" />
+      : <ChevronDown className="inline w-4 h-4 ml-1" />;
+  };
+
+  if (loading) return <LoadingState message="Loading organization workflows..." />;
+  if (error) return <ErrorState title="Error" message={error} onRetry={onRetry} />;
+
+  return (
+    <>
+      {/* Search + Status filter + Pagination */}
+      <div className="mb-6 flex flex-wrap gap-3 items-center">
+        <div className="w-full sm:w-auto sm:flex-1">
+          <SearchInput
+            value={searchTerm}
+            onChange={onSearchChange}
+            placeholder="Search workflows..."
+          />
+        </div>
+        {isAdmin && (
+          <select
+            value={statusFilter}
+            onChange={(e) => onStatusChange(e.target.value as typeof statusFilter)}
+            className="form-select text-sm w-auto"
+          >
+            <option value="all">All Statuses</option>
+            <option value="pending">Awaiting approval ({pendingCount})</option>
+            <option value="published">Published</option>
+          </select>
+        )}
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalCount={filteredWorkflows.length}
+          pageSize={pageSize}
+          onPageChange={onPageChange}
+          onPageSizeChange={(size) => {
+            onPageSizeChange(size);
+            localStorage.setItem(PAGE_SIZE_KEY, String(size));
+          }}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          position="top"
+          itemLabel="workflows"
+        />
+      </div>
+
+      {filteredWorkflows.length === 0 ? (
+        <EmptyState
+          title="No organization workflows"
+          description={
+            isSuperAdmin
+              ? 'Install workflows from the Marketplace.'
+              : 'No workflows are shared in your organization yet.'
+          }
+        />
+      ) : (
+        <>
+          <TableContainer>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHeaderCell onClick={() => onSort('name')}>
+                    Name{sortIcon('name')}
+                  </TableHeaderCell>
+                  <TableHeaderCell onClick={() => onSort('status')}>
+                    Status{sortIcon('status')}
+                  </TableHeaderCell>
+                  <TableHeaderCell onClick={() => onSort('updated_at')}>
+                    Updated{sortIcon('updated_at')}
+                  </TableHeaderCell>
+                  <TableHeaderCell align="center">Actions</TableHeaderCell>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedWorkflows.map((w) => {
+                  const issues = getIssues(w);
+                  // Null-safety for the optional field; backend always sets it.
+                  const currentVisibility = w.visibility || 'private'; // defaults-ok
+                  return (
+                  <TableRow key={w.id}>
+                    <TableCell>
+                      <div>
+                        <Link
+                          href={withReturnTo(`/workflows/${w.id}/edit`, from)}
+                          className="text-sm font-medium link hover:underline"
+                        >
+                          {w.name}
+                        </Link>
+                        {w.description && (
+                          <div className="text-muted text-xs line-clamp-2">
+                            {w.description}
+                          </div>
+                        )}
+                        {issues.length > 0 && (
+                          <div className="text-warning text-xs mt-0.5">
+                            Missing: {issues.map(i => i.message).filter((v, idx, arr) => arr.indexOf(v) === idx).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={w.status || 'active'} />
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-muted">
+                        {formatDateTime(w.updated_at)}
+                      </span>
+                    </TableCell>
+                    <TableCell align="center">
+                      <div className="flex justify-center items-center space-x-2">
+                        {isAdmin && w.publish_status === 'pending' && (
+                          <>
+                            <ActionButton
+                              variant="active"
+                              onClick={() => onApprovePublish(w)}
+                              disabled={approvingId === w.id}
+                            >
+                              {approvingId === w.id ? 'Approving...' : 'Approve'}
+                            </ActionButton>
+                            <ActionButton
+                              variant="warning"
+                              onClick={() => onRejectPublish(w)}
+                              disabled={rejectingId === w.id}
+                            >
+                              {rejectingId === w.id ? 'Rejecting...' : 'Reject'}
+                            </ActionButton>
+                          </>
+                        )}
+                        {isSuperAdmin && onSetVisibility && (
+                          <select
+                            aria-label="Marketplace visibility"
+                            className="form-input text-xs py-1"
+                            value={currentVisibility}
+                            onChange={(e) =>
+                              onSetVisibility(
+                                w,
+                                e.target.value as 'private' | 'staging' | 'public',
+                              )
+                            }
+                          >
+                            <option value="private">Private</option>
+                            <option value="staging">Staging</option>
+                            <option value="public">Public</option>
+                          </select>
+                        )}
+                        {isAdmin && (
+                          <ActionButton
+                            variant="change"
+                            onClick={() => router.push(withReturnTo(`/workflows/${w.id}/edit`, from))}
+                          >
+                            Edit
+                          </ActionButton>
+                        )}
+                        {!isSuperAdmin && (w.status ?? 'active') === 'active' && ( // defaults-ok
+                          <ActionButton variant="active" onClick={() => onRun(w)}>
+                            Run
+                          </ActionButton>
+                        )}
+                        {w.client_metadata?.experience_config != null && (
+                          <ActionButton
+                            variant="navigate"
+                            onClick={() => router.push(`/run/${w.id}`)}
+                          >
+                            Experience
+                          </ActionButton>
+                        )}
+                        {!isAdmin && (
+                          <ActionButton
+                            variant="navigate"
+                            onClick={() => onCopy(w)}
+                            disabled={copyingId === w.id}
+                          >
+                            {copyingId === w.id ? 'Copying...' : 'Copy'}
+                          </ActionButton>
+                        )}
+                        {/* Hidden while pending; Reject is how an admin declines. */}
+                        {isAdmin && w.publish_status !== 'pending' && w.status !== 'inactive' && w.status !== 'archived' && (
+                          <ActionButton variant="warning" onClick={() => onArchive(w)}>
+                            Archive
+                          </ActionButton>
+                        )}
+                        {isAdmin && w.publish_status !== 'pending' && w.can_be_deleted !== false && (w.status === 'inactive' || w.status === 'archived') && (
+                          <ActionButton
+                            variant="destructive"
+                            onClick={() => onDelete(w)}
+                          >
+                            Delete
+                          </ActionButton>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  ); })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={filteredWorkflows.length}
+            pageSize={pageSize}
+            onPageChange={onPageChange}
+            itemLabel="workflows"
+            position="bottom"
+          />
+        </>
+      )}
+    </>
+  );
+}

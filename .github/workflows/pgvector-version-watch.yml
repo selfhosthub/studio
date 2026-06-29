@@ -1,0 +1,82 @@
+# .github/workflows/pgvector-version-watch.yml
+# Notifier, not auto-bumper: watches for a newer pgvector release or a moved
+# pg<major>-trixie image digest and opens an issue when the pins in
+# test_unit_contracts__postgres_version.py fall behind. A human follows the
+# upgrade procedure documented in that test's docstring. Owned by the build
+# pipeline (console); the version constants it reads live in studio-dev.
+
+name: pgvector version watch
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GUARD: api/tests/unit/contracts/test_unit_contracts__postgres_version.py
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read pinned versions from the guard
+        id: pinned
+        run: |
+          set -euo pipefail
+          MAJOR=$(grep -oP 'EXPECTED_MAJOR = \K\d+' "$GUARD")
+          VERSION=$(grep -oP 'PGVECTOR_VERSION = "\K[^"]+' "$GUARD")
+          DIGEST=$(grep -oP 'PGVECTOR_DIGEST = "\K[^"]+' "$GUARD")
+          echo "major=$MAJOR"     >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST"   >> "$GITHUB_OUTPUT"
+
+      - name: Resolve latest pgvector release + current image digest
+        id: latest
+        run: |
+          set -euo pipefail
+          LATEST=$(curl -fsSL https://api.github.com/repos/pgvector/pgvector/releases/latest | jq -r .tag_name | sed 's/^v//')
+          TAG="pgvector/pgvector:${{ steps.pinned.outputs.version }}-pg${{ steps.pinned.outputs.major }}-trixie"
+          CURRENT_DIGEST=$(docker buildx imagetools inspect "$TAG" --format '{{.Manifest.Digest}}')
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "current_digest=$CURRENT_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Compare and open an issue on drift
+        run: |
+          set -euo pipefail
+          PINNED_V="${{ steps.pinned.outputs.version }}"
+          PINNED_D="${{ steps.pinned.outputs.digest }}"
+          LATEST_V="${{ steps.latest.outputs.latest }}"
+          CURRENT_D="${{ steps.latest.outputs.current_digest }}"
+
+          REASONS=""
+          # A newer release exists (sort -V: newest wins, and it isn't the pin).
+          NEWEST=$(printf '%s\n%s\n' "$PINNED_V" "$LATEST_V" | sort -V | tail -1)
+          if [ "$NEWEST" = "$LATEST_V" ] && [ "$LATEST_V" != "$PINNED_V" ]; then
+            REASONS="${REASONS}- New pgvector release: **$LATEST_V** (pinned **$PINNED_V**)\n"
+          fi
+          # The pinned tag's digest moved (PGDG rebuilt - e.g. a base CVE patch).
+          if [ "$CURRENT_D" != "$PINNED_D" ]; then
+            REASONS="${REASONS}- Image digest for \`${{ steps.latest.outputs.tag }}\` moved:\n  - pinned:  \`$PINNED_D\`\n  - current: \`$CURRENT_D\`\n"
+          fi
+
+          if [ -z "$REASONS" ]; then
+            echo "pgvector pins are current ($PINNED_V, digest matches)."
+            exit 0
+          fi
+
+          TITLE="pgvector pin drift detected"
+          # Dedup: skip if an open issue with this title already exists.
+          if [ -n "$(gh issue list --state open --search "in:title $TITLE" --json number --jq '.[].number')" ]; then
+            echo "Open drift issue already exists - not duplicating."
+            exit 0
+          fi
+
+          BODY=$(printf 'Automated check found the pgvector pins are behind:\n\n%b\nBump in lockstep, in order:\n1. `PGVECTOR_VERSION` / `PGVECTOR_TAG` / `PGVECTOR_DIGEST` in `%s`\n2. The `image:` pins in the three compose files\n3. `ARG PGVECTOR_VERSION` in `Dockerfile.full`\n\nFull procedure is in that test'"'"'s docstring. Existing installs migrate on boot via `ALTER EXTENSION vector UPDATE`; no operator step.\n' "$REASONS" "$GUARD")
+          gh issue create --title "$TITLE" --body "$BODY"
