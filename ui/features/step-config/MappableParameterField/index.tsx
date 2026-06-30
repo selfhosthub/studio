@@ -67,10 +67,13 @@ export function MappableParameterField({
   };
 
   const detectedMapping = detectMappingFromValue();
-  const isMapped = mapping?.mappingType === 'mapped' || detectedMapping !== null;
+  const isMapped = mapping?.mappingType === 'mapped' || (!mapping && detectedMapping !== null);
   const isForm = mapping?.mappingType === 'form';
   const isPrompt = mapping?.mappingType === 'prompt';
-  const currentMode = detectedMapping ? 'mapped' : (mapping?.mappingType || 'static');
+  // Explicit mapping state wins over auto-detected template strings in stale values
+  const currentMode = mapping?.mappingType
+    ? mapping.mappingType
+    : detectedMapping ? 'mapped' : 'static';
 
   const effectiveMapping = mapping?.mappingType === 'mapped' ? mapping : detectedMapping ? {
     mappingType: 'mapped' as const,
@@ -176,6 +179,7 @@ export function MappableParameterField({
     setShowModeDropdown(false);
     if (newMode === 'static') {
       onMappingChange(paramKey, null);
+      if (detectMappingFromValue()) onValueChange(paramKey, '');
       if (onIterationChange && iterationConfig?.target_parameter === paramKey) {
         onIterationChange(undefined);
       }
@@ -186,6 +190,7 @@ export function MappableParameterField({
       }
     } else if (newMode === 'form') {
       onMappingChange(paramKey, { mappingType: 'form' });
+      if (detectMappingFromValue()) onValueChange(paramKey, '');
       if (onIterationChange && iterationConfig?.target_parameter === paramKey) {
         onIterationChange(undefined);
       }

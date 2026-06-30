@@ -197,13 +197,24 @@ export function useItemFieldState(
     fieldKey: string,
     mode: FieldMode,
     keyPrefix?: string,
-    onMappingChange?: (key: string, mapping: any) => void
+    onMappingChange?: (key: string, mapping: any) => void,
+    onClearValue?: () => void
   ) => {
     const key = keyPrefix ? `${keyPrefix}:${itemIndex}:${fieldKey}` : `${itemIndex}:${fieldKey}`;
     setFieldModes(prev => ({ ...prev, [key]: mode }));
     setShowItemModeDropdown(null);
 
-    const nestedParamKey = `${paramKey}[${itemIndex}].${fieldKey}`;
+    // Rebuild the saved-mapping path from keyPrefix so nested fields hit the right key.
+    let basePath = paramKey;
+    if (keyPrefix) {
+      const parts = keyPrefix.split(':');
+      basePath = parts[0];
+      for (let i = 1; i < parts.length; i += 2) {
+        basePath += `[${parts[i]}]`;
+        if (parts[i + 1]) basePath += `.${parts[i + 1]}`;
+      }
+    }
+    const nestedParamKey = `${basePath}[${itemIndex}].${fieldKey}`;
 
     if (mode === 'mapped') {
       // Initialize with empty mapping
@@ -218,6 +229,9 @@ export function useItemFieldState(
       // Remove any non-static mapping when switching back
       onMappingChange(nestedParamKey, null);
     }
+
+    // Clear a stale template value so initializeFieldStates won't re-derive 'mapped'.
+    if (mode !== 'mapped') onClearValue?.();
   };
 
   // Get mapping for an array item field
