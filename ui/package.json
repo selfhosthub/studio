@@ -1,6 +1,6 @@
 {
   "name": "studio-dashboard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "packageManager": "npm@11.11.0",
   "engines": {

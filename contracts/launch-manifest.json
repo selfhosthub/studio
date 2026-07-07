@@ -1,5 +1,5 @@
 {
-  "$comment": "Launch contract for host-launched single-image deployments. studio-console reads this to build the `docker run` invocation for `launch-full`. studio-app (this repo) is the sole authority; console must not hardcode entrypoint assumptions. Source of truth: Dockerfile.full + api/docker/entrypoint.sh. Bump manifest_version on any breaking change to required_env, ports, or volume.",
+  "$comment": "Launch contract for host-launched single-image deployments. studio-console reads this to build the `docker run` invocation for `launch-full` (shapes.full) and `launch-core` (shapes.core). studio-app (this repo) is the sole authority; console must not hardcode entrypoint assumptions. Source of truth: Dockerfile.full + Dockerfile (core) + api/docker/entrypoint.sh. Bump manifest_version on any breaking change to required_env, ports, or volume.",
   "manifest_version": 1,
   "engine": {
     "description": "Database engine pin, shared across all shapes (full/core/split). The Full image build is the forcing function: whatever Dockerfile.full bundles, split/core compose must match. studio-console reads `image` to pin its postgres service. Single source of truth for these values: api/tests/unit/contracts/test_unit_contracts__postgres_version.py; this block is asserted equal to it by that guard.",
@@ -66,6 +66,21 @@
           "default_on_first_boot": "*"
         },
         {
+          "name": "SHS_PUBLIC_API_URL",
+          "description": "Browser-bundle API origin. ui-start.sh reads this from /workspace/.env to render __env.js (NEXT_PUBLIC_API_URL). The entrypoint writes it on first boot honoring a launcher-injected value (non-interactive provisioning), else the nginx-origin placeholder. First-boot-only: do NOT inject on relaunch (clobbers a wizard-set domain). Distinct from SHS_API_BASE_URL, which is SSR-only and stays on the in-container API.",
+          "default_on_first_boot": "http://localhost:${SHS_NGINX_PORT}"
+        },
+        {
+          "name": "SHS_WS_URL",
+          "description": "Browser-bundle WebSocket origin (NEXT_PUBLIC_WS_URL). Same first-boot/never-clobber persistence as SHS_PUBLIC_API_URL.",
+          "default_on_first_boot": "ws://localhost:${SHS_NGINX_PORT}"
+        },
+        {
+          "name": "SHS_FRONTEND_URL",
+          "description": "Browser-bundle frontend origin (NEXT_PUBLIC_FRONTEND_URL). Same first-boot/never-clobber persistence as SHS_PUBLIC_API_URL.",
+          "default_on_first_boot": "http://localhost:${SHS_NGINX_PORT}"
+        },
+        {
           "name": "SHS_GENERAL_WORKERS",
           "description": "Number of general worker processes.",
           "default_on_first_boot": "1"
@@ -86,6 +101,20 @@
           "SHS_DATABASE_URL"
         ]
       },
+      "consumed_secret_files": {
+        "description": "High-value secrets the launcher supplies via a read-only bind-mounted file instead of `docker run -e` (which leaks via `docker inspect` and /proc/1/environ). The entrypoint reads the file on every boot, upserts the value into /workspace/.env (strip-then-append, 0600), and the launcher removes the host file after `docker run` returns. Drop the file ONLY on first-provision or explicit reconfigure - NEVER on a bare relaunch: a bare relaunch mounts nothing, the entrypoint leaves .env untouched (clobber-protection), and re-dropping a new value rotates it. Distinct from self_generated_secrets (which the launcher must NOT supply) and required_env (injected via -e every boot).",
+        "files": [
+          {
+            "mount_path": "/run/secrets/cf-token",
+            "env_key": "CLOUDFLARE_TUNNEL_TOKEN",
+            "format": "raw single-line token, surrounding whitespace stripped",
+            "persisted_to_workspace_env": true,
+            "consumed_on": "every boot when the mount is present",
+            "drop_when": "first-provision or explicit reconfigure only",
+            "description": "Cloudflare tunnel connector token. Present → cloudflared autostarts on boot (CLOUDFLARED_AUTOSTART=true); absent → cloudflared stays stopped. Enables non-interactive CF provisioning (CI, RunPod, GitOps) without the in-container wizard."
+          }
+        ]
+      },
       "baked_env": {
         "description": "Set in the image at build time. Operator never tunes these at boot.",
         "keys": ["SHS_ENV", "SHS_STUDIO_VERSION", "SHS_GIT_SHA", "SHS_COMMUNITY_SOURCE", "SHS_PLUS_SOURCE", "PORT", "HOST"]
@@ -97,6 +126,124 @@
         "fail_closed": "Exits non-zero if SHS_SUPERVISOR_USER or SHS_SUPERVISOR_PASSWORD is unset, or if SHS_STUDIO_VERSION was not baked into the image."
       },
       "launch_summary": "One prompt: SHS_SUPERVISOR_USER + SHS_SUPERVISOR_PASSWORD. Everything else self-generates on first boot."
+    },
+    "core": {
+      "summary": "nginx front door + API + UI + general/transfer workers under supervisord. External PostgreSQL, supplied via SHS_DATABASE_URL (BYO Postgres, e.g. a compose sidecar). No in-container database. Host-launchable.",
+      "image": {
+        "repository": "ghcr.io/selfhosthub/studio-core",
+        "tags": ["${STUDIO_VERSION}", "latest"],
+        "default_tag": "latest"
+      },
+      "ports": [
+        {"container": 80, "name": "nginx", "protocol": "tcp", "healthcheck": true, "primary": true, "description": "Single front-door origin. nginx routes /api,/ws → API and / → UI. Publish this port; point cloudflared and external proxies here. Listen port follows SHS_NGINX_PORT (default 80)."},
+        {"container": 8000, "name": "api", "protocol": "tcp", "internal": true, "description": "API process behind nginx. Not host-facing; reachable only via nginx /api,/ws routes."},
+        {"container": 3000, "name": "ui", "protocol": "tcp", "internal": true, "description": "UI process behind nginx. Not host-facing; reachable only via nginx /."},
+        {"container": 9001, "name": "supervisor", "protocol": "tcp"}
+      ],
+      "volumes": [
+        {
+          "container_path": "/workspace",
+          "description": "Persistent state: generated .env (secrets) and org file storage. Unlike full, holds NO Postgres data dir - the database is external. Must persist across container restarts. Suggested host default: ~/.studio."
+        }
+      ],
+      "required_env": [
+        {
+          "name": "SHS_SUPERVISOR_USER",
+          "description": "Username for the supervisord web/control auth. No default; entrypoint exits non-zero if unset.",
+          "secret": false,
+          "prompt": true,
+          "every_boot": true,
+          "persisted_to_workspace_env": false
+        },
+        {
+          "name": "SHS_SUPERVISOR_PASSWORD",
+          "description": "Password for supervisord auth. No default; entrypoint exits non-zero if unset. Fail-closed by design (no auto-generation).",
+          "secret": true,
+          "prompt": true,
+          "every_boot": true,
+          "persisted_to_workspace_env": false
+        },
+        {
+          "name": "SHS_DATABASE_URL",
+          "description": "Connection URL for the external PostgreSQL (postgresql+asyncpg://user:pass@host:5432/db). Core does NOT run or generate a database; the launcher supplies this and owns the Postgres instance. bootstrap.py reads it on first boot. Full generates this itself (in-container DB); core requires it. Point at a Postgres pinned to the manifest `engine` block (pg18 + pgvector 0.8.3).",
+          "secret": true,
+          "prompt": true,
+          "every_boot": true,
+          "persisted_to_workspace_env": false
+        }
+      ],
+      "required_env_persistence": {
+        "description": "None of the required_env keys are written to /workspace/.env. SHS_SUPERVISOR_USER/PASSWORD are checked on every supervisord boot from process env (entrypoint.sh step 4). SHS_DATABASE_URL is read from process env by bootstrap.py and the API; the core first-boot .env block writes only secrets + shape, never DB vars. The launcher owns persistence for all three: store them in console state and re-inject via `docker run -e` on every start/restart. Override-CMD invocations (studio-console/psql/bash) short-circuit before the supervisor check."
+      },
+      "optional_env": [
+        {
+          "name": "SHS_NGINX_PORT",
+          "description": "Host/listen port for the nginx front door - the single origin browser, SSR, and cloudflared all use. nginx routes /api,/ws → API and / → UI internally. Publish this port; the API (8000) and UI (3000) are not host-facing. Written to /workspace/.env on first boot (default 80) - see self_generated_secrets; the launcher must NOT re-inject it via -e on relaunch (process env beats .env and would clobber an operator-set value).",
+          "default_on_first_boot": "80"
+        },
+        {
+          "name": "SHS_PUBLIC_API_URL",
+          "description": "Browser-bundle API origin. ui-start.sh reads this from /workspace/.env to render __env.js (NEXT_PUBLIC_API_URL). The entrypoint writes it on first boot honoring a launcher-injected value (non-interactive provisioning), else the nginx-origin placeholder. First-boot-only: do NOT inject on relaunch (clobbers a wizard-set domain). Distinct from SHS_API_BASE_URL, which is SSR-only and stays on the in-container API.",
+          "default_on_first_boot": "http://localhost:${SHS_NGINX_PORT}"
+        },
+        {
+          "name": "SHS_WS_URL",
+          "description": "Browser-bundle WebSocket origin (NEXT_PUBLIC_WS_URL). Same first-boot/never-clobber persistence as SHS_PUBLIC_API_URL.",
+          "default_on_first_boot": "ws://localhost:${SHS_NGINX_PORT}"
+        },
+        {
+          "name": "SHS_FRONTEND_URL",
+          "description": "Browser-bundle frontend origin (NEXT_PUBLIC_FRONTEND_URL). Same first-boot/never-clobber persistence as SHS_PUBLIC_API_URL.",
+          "default_on_first_boot": "http://localhost:${SHS_NGINX_PORT}"
+        },
+        {
+          "name": "SHS_GENERAL_WORKERS",
+          "description": "Number of general worker processes.",
+          "default_on_first_boot": "1"
+        },
+        {
+          "name": "SHS_TRANSFER_WORKERS",
+          "description": "Number of transfer worker processes.",
+          "default_on_first_boot": "1"
+        }
+      ],
+      "self_generated_secrets": {
+        "description": "Written and persisted by the entrypoint on first boot ONLY when /workspace/.env is absent, then never regenerated (0600). The first three are random secrets; the last four are the nginx front-door placeholders (identical to full - core is now symmetric). The operator never supplies these and the launcher must NOT prompt for OR re-inject them via `docker run -e`: process env beats .env, so re-passing e.g. SHS_PUBLIC_BASE_URL=http://localhost on relaunch would clobber a domain the in-container CF wizard saved. Unlike full, core generates NO POSTGRES_PASSWORD and NO SHS_DATABASE_URL - the database is external and supplied via required_env.",
+        "keys": [
+          "SHS_JWT_SECRET_KEY",
+          "SHS_WORKER_SHARED_SECRET",
+          "SHS_CREDENTIAL_ENCRYPTION_KEY",
+          "SHS_NGINX_PORT",
+          "SHS_CORS_ORIGINS",
+          "SHS_PUBLIC_BASE_URL",
+          "SHS_WORKSPACE_ROOT"
+        ]
+      },
+      "consumed_secret_files": {
+        "description": "High-value secrets the launcher supplies via a read-only bind-mounted file instead of `docker run -e` (which leaks via `docker inspect` and /proc/1/environ). The entrypoint reads the file on every boot, upserts the value into /workspace/.env (strip-then-append, 0600), and the launcher removes the host file after `docker run` returns. Drop the file ONLY on first-provision or explicit reconfigure - NEVER on a bare relaunch: a bare relaunch mounts nothing, the entrypoint leaves .env untouched (clobber-protection), and re-dropping a new value rotates it. Distinct from self_generated_secrets (which the launcher must NOT supply) and required_env (injected via -e every boot).",
+        "files": [
+          {
+            "mount_path": "/run/secrets/cf-token",
+            "env_key": "CLOUDFLARE_TUNNEL_TOKEN",
+            "format": "raw single-line token, surrounding whitespace stripped",
+            "persisted_to_workspace_env": true,
+            "consumed_on": "every boot when the mount is present",
+            "drop_when": "first-provision or explicit reconfigure only",
+            "description": "Cloudflare tunnel connector token. Present → cloudflared autostarts on boot (CLOUDFLARED_AUTOSTART=true); absent → cloudflared stays stopped. Enables non-interactive CF provisioning (CI, RunPod, GitOps) without the in-container wizard."
+          }
+        ]
+      },
+      "baked_env": {
+        "description": "Set in the image at build time. Operator never tunes these at boot.",
+        "keys": ["SHS_ENV", "SHS_STUDIO_VERSION", "SHS_GIT_SHA", "SHS_COMMUNITY_SOURCE", "SHS_PLUS_SOURCE", "PORT", "HOST"]
+      },
+      "entrypoint": {
+        "first_boot": "When /workspace/.env is absent: generate deployment shape + the three secrets + the four nginx front-door placeholders (SHS_NGINX_PORT/CORS/PUBLIC_BASE_URL/WORKSPACE_ROOT, same as full), write /workspace/.env (0600), run bootstrap against the external SHS_DATABASE_URL, then hand off to supervisord (which starts nginx, api, ui, workers). No Postgres init - the DB is external.",
+        "subsequent_boot": "When /workspace/.env exists: use it as-is, generate nothing, start supervisord.",
+        "override_cmd": "Passing any CMD other than the default supervisord (e.g. `studio-console ...`, `psql`, `bash`) short-circuits first-boot and execs the override directly, after ensuring the .env symlink.",
+        "fail_closed": "Exits non-zero if SHS_SUPERVISOR_USER or SHS_SUPERVISOR_PASSWORD is unset, or if SHS_STUDIO_VERSION was not baked into the image. bootstrap.py additionally fails if SHS_DATABASE_URL is unreachable."
+      },
+      "launch_summary": "Prompt for SHS_SUPERVISOR_USER + SHS_SUPERVISOR_PASSWORD + SHS_DATABASE_URL (external Postgres). The three app secrets self-generate on first boot."
     }
   }
 }

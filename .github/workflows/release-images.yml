@@ -84,7 +84,7 @@ jobs:
             {"image":"studio-worker-comfyui","context":"workers","dockerfile":"workers/engines/comfyui/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
             {"image":"studio-worker-audio","context":"workers","dockerfile":"workers/engines/audio/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64"]},
             {"image":"studio-core","context":".","dockerfile":"Dockerfile","contracts":false,"bakes_console":true,"arches":["amd64","arm64"]},
-            {"image":"studio-full","context":".","dockerfile":"Dockerfile.full","contracts":false,"bakes_console":true,"arches":["amd64"]}
+            {"image":"studio-full","context":".","dockerfile":"Dockerfile.full","contracts":false,"bakes_console":true,"arches":["amd64","arm64"]}
           ]'
           build=$(echo "$images" | jq -c '
             [ .[] | . as $img | $img.arches[] | {

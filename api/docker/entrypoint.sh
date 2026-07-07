@@ -7,10 +7,12 @@
 #
 #   A. Default CMD (supervisord) → full first-boot:
 #      1. /workspace/.env exists → use as-is, generate nothing.
-#      2. /workspace/.env absent → generate SHS_DEPLOYMENT_SHAPE and the
-#         three secrets (JWT, worker shared, credential encryption). For
-#         Full also POSTGRES_PASSWORD, matching SHS_DATABASE_URL,
-#         permissive SHS_CORS_ORIGINS=*, SHS_WORKSPACE_ROOT. 0600 perms.
+#      2. /workspace/.env absent → generate SHS_DEPLOYMENT_SHAPE, the three
+#         secrets (JWT, worker shared, credential encryption), and the nginx
+#         front-door vars (SHS_NGINX_PORT, SHS_CORS_ORIGINS=*,
+#         SHS_PUBLIC_BASE_URL, SHS_WORKSPACE_ROOT) for BOTH shapes. Full
+#         additionally gets POSTGRES_PASSWORD + matching SHS_DATABASE_URL
+#         (bundled DB); core's DB URL is launcher-supplied. 0600 perms.
 #      3. Symlink /app/api/.env and /app/.env → /workspace/.env.
 #      4. Verify SHS_SUPERVISOR_USER and SHS_SUPERVISOR_PASSWORD are
 #         present in process env. Exit non-zero if either is missing -
@@ -37,6 +39,10 @@ WORKSPACE_ENV="/workspace/.env"
 SUPERVISORD_CONF="/etc/supervisor/supervisord.conf"
 PG_BIN="/usr/lib/postgresql/18/bin"
 PG_DATA="${SHS_PG_DATA:-/workspace/db}"
+# Read-only bind mount the launcher drops a raw CF tunnel token at (contract:
+# contracts/launch-manifest.json → consumed_secret_files). Must match console's
+# CF_TOKEN_MOUNT constant exactly.
+CF_TOKEN_MOUNT="/run/secrets/cf-token"
 
 # --- Functions -----------------------------------------------------------
 # Pump a .env file into process env. Splits on the first = only, preserving
@@ -59,6 +65,29 @@ load_env_safe() {
         value="${value%\'}"; value="${value#\'}"
         export "$key=$value"
     done < "$1"
+}
+
+# Consume a launcher-dropped Cloudflare tunnel token into /workspace/.env.
+# The token is a high-value secret, so the launcher passes it via a read-only
+# file mount (never `docker run -e`, which leaks via docker inspect and
+# /proc/1/environ). Upsert semantics: strip any existing line, append the new
+# value (append sidesteps sed escaping - CF tokens are base64 with / and +).
+# Runs every boot; an absent mount leaves .env untouched (relaunch clobber-
+# protection - the launcher drops the file only on first-provision/reconfigure).
+consume_cf_token() {
+    [ -f "$CF_TOKEN_MOUNT" ] || return 0
+    token="$(tr -d '[:space:]' < "$CF_TOKEN_MOUNT")"
+    [ -n "$token" ] || return 0
+    if [ ! -f "$WORKSPACE_ENV" ]; then
+        touch "$WORKSPACE_ENV"; chmod 0600 "$WORKSPACE_ENV"
+    fi
+    tmp="$(mktemp -p "$(dirname "$WORKSPACE_ENV")")"
+    chmod 0600 "$tmp"
+    grep -v '^CLOUDFLARE_TUNNEL_TOKEN=' "$WORKSPACE_ENV" > "$tmp" || true
+    printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$token" >> "$tmp"
+    mv "$tmp" "$WORKSPACE_ENV"
+    chmod 0600 "$WORKSPACE_ENV"
+    echo "consumed $CF_TOKEN_MOUNT → .env"
 }
 
 # When sourced (e.g. by tests), expose functions and stop — skip all boot work.
@@ -147,22 +176,38 @@ if [ ! -f "$WORKSPACE_ENV" ]; then
         echo "SHS_CREDENTIAL_ENCRYPTION_KEY=$GEN_ENCRYPTION"
         if [ "$SHAPE" = "full" ]; then
             # Full runs Postgres inside the container with this password,
-            # and the API connects to it at localhost.
+            # and the API connects to it at localhost. Core has no bundled DB;
+            # SHS_DATABASE_URL is supplied by the launcher (console/compose).
             echo "POSTGRES_PASSWORD=$GEN_PG_PASSWORD"
             echo "SHS_DATABASE_URL=postgresql+asyncpg://postgres:${GEN_PG_PASSWORD}@localhost:5432/selfhost_studio"
-            # nginx is the single front door: browser, SSR, and the public URL
-            # all share the nginx origin (default :80), and /api,/ws route to
-            # the API internally. So the placeholder public URL is the nginx
-            # port, not :8000. CORS is permissive at first boot - RunPod
-            # operators don't know their domain until the pod is running;
-            # tighten via the in-container console once it's known (same-origin
-            # via nginx makes CORS moot once a real domain is set).
-            NGINX_PORT="${SHS_NGINX_PORT:-80}"
-            echo "SHS_NGINX_PORT=$NGINX_PORT"
-            echo "SHS_CORS_ORIGINS=*"
-            echo "SHS_PUBLIC_BASE_URL=http://localhost:${NGINX_PORT}"
-            echo "SHS_WORKSPACE_ROOT=/workspace"
         fi
+        # nginx front-door vars: written for BOTH shapes so first boot self-seeds
+        # them and later edits (e.g. the CF wizard writing a real domain) persist.
+        # The launcher must NOT inject these via `docker run -e` on relaunch -
+        # process env beats .env, so a re-injected localhost placeholder would
+        # clobber an operator-configured domain every restart. nginx is the single
+        # front door: browser, SSR, and the public URL share the nginx origin
+        # (default :80); /api,/ws route to the API internally, so the placeholder
+        # public URL is the nginx port, not :8000. CORS is permissive at first
+        # boot - operators don't know their domain until the deploy is running;
+        # tighten via the in-container console once it's known (same-origin via
+        # nginx makes CORS moot once a real domain is set).
+        NGINX_PORT="${SHS_NGINX_PORT:-80}"
+        echo "SHS_NGINX_PORT=$NGINX_PORT"
+        echo "SHS_CORS_ORIGINS=*"
+        echo "SHS_PUBLIC_BASE_URL=http://localhost:${NGINX_PORT}"
+        echo "SHS_WORKSPACE_ROOT=/workspace"
+        # Browser-bundle origin vars: ui-start.sh reads these from .env to render
+        # __env.js (NEXT_PUBLIC_*). Honor launcher-injected values so non-
+        # interactive provisioning (CI/RunPod/GitOps) reaches the real domain;
+        # else the nginx-origin placeholder. First-boot-only (block skipped once
+        # .env exists) so a wizard-set domain on relaunch is never clobbered.
+        # SHS_API_BASE_URL is deliberately NOT persisted - SSR must stay on the
+        # in-container API (ui-start defaults it to localhost:$PORT), never
+        # hairpin through the public origin.
+        echo "SHS_PUBLIC_API_URL=${SHS_PUBLIC_API_URL:-http://localhost:${NGINX_PORT}}"
+        echo "SHS_WS_URL=${SHS_WS_URL:-ws://localhost:${NGINX_PORT}}"
+        echo "SHS_FRONTEND_URL=${SHS_FRONTEND_URL:-http://localhost:${NGINX_PORT}}"
     } > "$WORKSPACE_ENV"
     chmod 0600 "$WORKSPACE_ENV"
     umask 022
@@ -236,19 +281,20 @@ case "$SHAPE" in
         su - postgres -c "$PG_BIN/pg_ctl -D $PG_DATA stop"
 
         export SHS_PG_DATA="$PG_DATA"
-        export SHS_GENERAL_WORKERS="${SHS_GENERAL_WORKERS:-1}"
-        export SHS_TRANSFER_WORKERS="${SHS_TRANSFER_WORKERS:-1}"
         ;;
     core)
         # External Postgres via compose. Bootstrap reads SHS_DATABASE_URL.
+        # PYTHONPATH=/app/api so bootstrap's deferred `from scripts.*` imports resolve.
         cd /app/api
-        python3 scripts/bootstrap.py
-        export SHS_GENERAL_WORKERS="${SHS_GENERAL_WORKERS:-1}"
-        export SHS_TRANSFER_WORKERS="${SHS_TRANSFER_WORKERS:-1}"
+        PATH="/app/api/.venv/bin:$PATH" PYTHONPATH="/app/api" python3 scripts/bootstrap.py
         ;;
 esac
 
-# --- Step 6: load .env into process env, then hand off to CMD ------------
+# --- Step 6: consume CF token, load .env, then hand off to CMD -----------
+# Consume before load_env_safe so a freshly-dropped token lands in .env and
+# then in process env for the autostart gate below.
+consume_cf_token
+
 # Supervisord doesn't read .env files. Child programs that don't ship their
 # own load_dotenv() call (workers - pydantic env_file points at
 # /app/worker/envs/, which doesn't exist in the image) need vars in process
@@ -256,6 +302,22 @@ esac
 # spawned child inherit. Process env (docker run -e) wins over .env (matches
 # pydantic-settings precedence and api/main.py:load_dotenv(override=False)).
 load_env_safe "$WORKSPACE_ENV"
+
+# Worker counts feed supervisord numprocs. .env is authoritative; default to 1
+# when unset; docker run -e still wins (load_env_safe skips already-set keys).
+export SHS_GENERAL_WORKERS="${SHS_GENERAL_WORKERS:-1}"
+export SHS_TRANSFER_WORKERS="${SHS_TRANSFER_WORKERS:-1}"
+
+# cloudflared autostarts only when a tunnel token is present (core/full parity
+# with split's compose profile): token in .env → tunnel comes up on boot, no
+# manual kick; absent → stays stopped, no crash-loop. cloudflared.conf reads
+# autostart=%(ENV_CLOUDFLARED_AUTOSTART)s at conf-load, so this MUST be exported
+# before exec, and always set (unset → supervisord conf-load fails).
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    export CLOUDFLARED_AUTOSTART=true
+else
+    export CLOUDFLARED_AUTOSTART=false
+fi
 
 echo "Starting supervisord (shape=$SHAPE)..."
 exec "$@"
