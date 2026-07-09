@@ -90,6 +90,21 @@ consume_cf_token() {
     echo "consumed $CF_TOKEN_MOUNT → .env"
 }
 
+# Write a literal numprocs=<count> into a supervisor conf fragment.
+set_worker_numprocs() {
+    conf="$1"; count="$2"
+    [ -f "$conf" ] || return 0
+    if ! [[ "$count" =~ ^[0-9]+$ ]]; then
+        echo "WARNING: invalid worker count '$count' for $conf; numprocs unchanged" >&2
+        return 0
+    fi
+    tmp="$(mktemp -p "$(dirname "$conf")")"
+    sed "s/^numprocs=.*/numprocs=${count}/" "$conf" > "$tmp"
+    # cat-in-place (not mv) keeps the fragment's mode/owner/inode.
+    cat "$tmp" > "$conf"
+    rm -f "$tmp"
+}
+
 # When sourced (e.g. by tests), expose functions and stop — skip all boot work.
 (return 0 2>/dev/null) && return 0
 
@@ -303,10 +318,13 @@ consume_cf_token
 # pydantic-settings precedence and api/main.py:load_dotenv(override=False)).
 load_env_safe "$WORKSPACE_ENV"
 
-# Worker counts feed supervisord numprocs. .env is authoritative; default to 1
-# when unset; docker run -e still wins (load_env_safe skips already-set keys).
+# Seed worker numprocs until first bootstrap; after that the console owns them.
 export SHS_GENERAL_WORKERS="${SHS_GENERAL_WORKERS:-1}"
 export SHS_TRANSFER_WORKERS="${SHS_TRANSFER_WORKERS:-1}"
+if [ ! -f /workspace/.bootstrapped ]; then
+    set_worker_numprocs /etc/supervisor/conf.d/worker-general.conf "$SHS_GENERAL_WORKERS"
+    set_worker_numprocs /etc/supervisor/conf.d/worker-transfer.conf "$SHS_TRANSFER_WORKERS"
+fi
 
 # cloudflared autostarts only when a tunnel token is present (core/full parity
 # with split's compose profile): token in .env → tunnel comes up on boot, no

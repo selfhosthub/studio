@@ -20,6 +20,11 @@
     "reason": "Path built from str(organization_id)/str(instance_id) where both are UUIDs validated by FastAPI/Pydantic - UUIDs cannot contain path separators."
   },
   {
+    "rule": "py/path-injection",
+    "path": "api/app/application/services/org_file/resource_upload_service.py",
+    "reason": "Path = workspace / orgs/{org_id}/instances/{instance_id}/{filename}. org_id/instance_id are UUIDs; filename from contracts.sanitize_step_filename maps every non-[alnum-_.] char to '_', so '/' and '\\' cannot survive and no path separator can form - traversal is structurally impossible. CodeQL cannot model the char-allowlist as a sanitizer; the taint edge began resolving with python-queries pack 1.8.5 (clean on 1.8.4)."
+  },
+  {
     "rule": "py/clear-text-logging-sensitive-data",
     "path": "api/app/presentation/api/organization_secrets.py",
     "reason": "Logged data is either a date suffix derived from a token (not the token value) or passes through mask_id()/safe_error_message() which are runtime sanitizers CodeQL cannot trace."
