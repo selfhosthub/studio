@@ -45,16 +45,10 @@ COPY --from=contracts . /app/contracts/
 # Copy shared code
 COPY shared/ shared/
 
-# Copy engine code
+# Copy engine code. Subtitle fonts ride along in engines/video/fonts/ and are
+# passed to libass via the ass filter's fontsdir, so no system font install.
 COPY engines/__init__.py engines/__init__.py
 COPY engines/video/ engines/video/
-
-# Install custom fonts for subtitles
-COPY engines/video/fonts/ /tmp/fonts/
-RUN mkdir -p /usr/share/fonts/truetype/custom && \
-    cp -r /tmp/fonts/*/*.ttf /usr/share/fonts/truetype/custom/ 2>/dev/null || true && \
-    fc-cache -f -v && \
-    rm -rf /tmp/fonts
 
 # Create non-root user
 RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app

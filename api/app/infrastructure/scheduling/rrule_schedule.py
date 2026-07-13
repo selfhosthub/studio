@@ -63,7 +63,7 @@ def compute_next_run(
     try:
         rule = rrulestr(rrule, dtstart=local_dtstart)
     except (ValueError, TypeError) as e:
-        raise ScheduleError(f"Invalid RRULE: {e}") from e
+        raise ScheduleError(f"Invalid recurrence rule: {rrule!r}") from e
 
     # .after() needs a datetime in the same awareness as dtstart (tz-aware here).
     nxt = rule.after(after_utc.astimezone(tz), inc=False)

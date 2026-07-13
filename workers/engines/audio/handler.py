@@ -2,6 +2,7 @@
 
 """GPU worker for text-to-speech with Chatterbox TTS."""
 
+import gc
 import os
 import tempfile
 import time
@@ -14,6 +15,7 @@ import httpx
 from shared.utils import WorkerBase, create_job_client
 from shared.utils.file_upload_client import FileUploadClient
 from shared.utils.result_publisher import ResultPublisher
+from shared.utils.error_codes import classify_error_code
 from shared.worker_types import get_worker_config
 from shared.settings import settings
 from engines.audio.settings import settings as audio_settings
@@ -22,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 _models: Dict[str, Any] = {}
 _device: Optional[str] = None
+_last_used: float = 0.0
 
 
 def _detect_device() -> str:
@@ -43,8 +46,46 @@ def _detect_device() -> str:
     return _device
 
 
+def _unload_models() -> None:
+    """Drop every loaded model and hand the VRAM back to the driver.
+
+    empty_cache() is the part that actually matters. Deleting the model object is not
+    enough: PyTorch's caching allocator keeps the freed blocks RESERVED, so nvidia-smi
+    still reports the memory as held and another process on the same GPU still cannot
+    have it. Without this call the eviction looks like it worked and frees nothing.
+    """
+    if not _models:
+        return
+
+    freed = list(_models)
+    _models.clear()
+    gc.collect()
+
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception as exc:  # never let a cleanup failure kill the worker loop
+        logger.warning(f"empty_cache failed: {exc}")
+
+    logger.info(f"Unloaded idle model(s): {', '.join(freed)}")
+
+
+def _maybe_unload_idle() -> None:
+    """Called from the poll loop while the queue is empty."""
+    idle_after = audio_settings.AUDIO_MODEL_IDLE_SECONDS
+    if idle_after <= 0 or not _models:       # 0 = never evict (default)
+        return
+    if time.time() - _last_used >= idle_after:
+        _unload_models()
+
+
 def _get_model(variant: str):
     """Lazy-load a Chatterbox variant; avoids loading both at startup."""
+    global _last_used
+    _last_used = time.time()
+
     if variant in _models:
         return _models[variant]
 
@@ -135,6 +176,8 @@ class AudioWorker(WorkerBase):
 
     def process_jobs(self):
         """Main worker loop."""
+        global _last_used
+
         logger.info(f"{self.worker_type.upper()} Worker Started")
         logger.info(f"Monitoring queue: {self.queue_name}")
         logger.debug(f"Operations: {', '.join(self.OPERATIONS.keys())}")
@@ -163,12 +206,20 @@ class AudioWorker(WorkerBase):
                 )
 
                 if job is None:
+                    # Idle. The only safe moment to drop the model: no job is in flight,
+                    # so nothing can be holding a reference to it.
+                    _maybe_unload_idle()
+
                     sleep_duration = self.job_client.get_sleep_duration()
                     if sleep_duration > 0:
                         time.sleep(sleep_duration)
                     continue
 
                 self._process_job(job)
+
+                # Idle is measured from the end of the last job, not its start -- a long
+                # job would otherwise burn its own runtime off the timer.
+                _last_used = time.time()
 
         finally:
             self.job_client.close()
@@ -327,17 +378,21 @@ class AudioWorker(WorkerBase):
             # importable here, so workers inline the classifier (transfer-worker idiom).
             logger.exception(f"Audio job {job_id} failed: {e}")
             error_msg = f"Audio job failed ({type(e).__name__}). See worker logs."
-            self._handle_failure(job, error_msg)
+            self._handle_failure(job, error_msg, error_code=classify_error_code(e))
 
         finally:
             self.set_idle()
 
-    def _handle_failure(self, job: Dict[str, Any], error_msg: str):
+    def _handle_failure(
+        self, job: Dict[str, Any], error_msg: str, error_code: str = "INTERNAL"
+    ):
         """Handle job failure - write error and notify."""
         job_id = job.get("job_id", "unknown")
 
         if job.get("notify_api", True):
-            if not self.result_publisher.publish_step_result(status="FAILED", error=error_msg):
+            if not self.result_publisher.publish_step_result(
+                status="FAILED", error=error_msg, error_code=error_code
+            ):
                 logger.critical(
                     "Failed to publish step result after retries - job will be orphaned",
                     extra={"job_id": job_id, "status": "FAILED"},

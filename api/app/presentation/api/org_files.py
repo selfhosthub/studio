@@ -60,6 +60,24 @@ class ReorderResourcesRequest(BaseModel):
     resource_ids: List[UUID]
 
 
+async def _require_same_org_resource(
+    service: OrgFileService, file_id: UUID, user: CurrentUser
+):
+    """Fetch a resource, enforcing the caller's org owns it.
+
+    App-layer boundary: RLS is bypassed when the DB role is superuser, so the
+    route cannot rely on the scoped session. Cross-org gets the same 404 as
+    missing so existence never leaks.
+    """
+    resource = await service.get_resource(file_id)
+    if resource is None or str(resource.organization_id) != user.get("org_id"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File {file_id} not found",
+        )
+    return resource
+
+
 @router.get("/files", response_model=List[OrgFileResponse])
 async def list_organization_files(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
@@ -246,6 +264,7 @@ async def select_file(
     the given resource, deselects its siblings at the same slot, and rebuilds
     the step's stored output so downstream steps consume the new selection.
     """
+    await _require_same_org_resource(service, file_id, user)
     try:
         resource = await service.select_resource(file_id)
         return OrgFileResponse.from_domain(resource, _API_BASE_URL)
@@ -268,13 +287,7 @@ async def get_file(
     service: OrgFileService = Depends(get_org_file_service),
 ):
     """Get file metadata by ID."""
-    resource = await service.get_resource(file_id)
-
-    if not resource:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"File {file_id} not found",
-        )
+    resource = await _require_same_org_resource(service, file_id, user)
 
     api_base_url = _API_BASE_URL
     return OrgFileResponse.from_domain(resource, api_base_url)
@@ -323,6 +336,12 @@ async def download_file(
             pass
 
     try:
+        await _require_same_org_resource(service, file_id, user)
+    except HTTPException:
+        await _audit(status_val=AuditStatus.FAILED, error_msg="Resource not found")
+        raise
+
+    try:
         file_path, mime_type = await service.get_resource_file_path(file_id)
 
         if not file_path.exists():
@@ -360,6 +379,7 @@ async def preview_file(
 
     Returns the thumbnail image if available.
     """
+    await _require_same_org_resource(service, file_id, user)
     thumbnail_path = await service.get_resource_thumbnail_path(file_id)
 
     if not thumbnail_path or not thumbnail_path.exists():
@@ -415,13 +435,11 @@ async def delete_file(
             pass
 
     # Fetch resource metadata before deletion for audit logging
-    resource = await service.get_resource(file_id)
-    if not resource:
+    try:
+        resource = await _require_same_org_resource(service, file_id, user)
+    except HTTPException:
         await _audit(status_val=AuditStatus.FAILED, error_msg="Resource not found")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"File {file_id} not found",
-        )
+        raise
 
     # Store filename for audit logging before deletion
     filename = resource.display_name
@@ -570,6 +588,8 @@ async def replace_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No file provided",
         )
+
+    await _require_same_org_resource(service, file_id, user)
 
     # Get file extension from filename
     file_extension = ""

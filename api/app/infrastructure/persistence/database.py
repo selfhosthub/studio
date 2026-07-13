@@ -3,9 +3,8 @@
 """DB connection and session management with optional RLS for org isolation."""
 
 import logging
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import AsyncGenerator, Optional
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -20,12 +19,19 @@ logger = logging.getLogger(__name__)
 
 
 def __getattr__(name: str):
-    """Lazy module-level `DATABASE_URL` — resolved on first read so importing
-    this module (e.g. from Alembic's env.py via the package __init__)
+    """Lazy module-level URLs — resolved on first read so importing this
+    module (e.g. from Alembic's env.py via the package __init__)
     doesn't trigger full Settings validation.
+
+    DATABASE_URL is the privileged string (bootstrap/Alembic/seeding);
+    RUNTIME_DATABASE_URL is what serves requests (restricted shs_app role
+    when DATABASE_APP_URL is set, else the same privileged string).
     """
     if name == "DATABASE_URL":
         return get_settings().DATABASE_URL
+    if name == "RUNTIME_DATABASE_URL":
+        s = get_settings()
+        return s.DATABASE_APP_URL or s.DATABASE_URL
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -59,8 +65,10 @@ class Database:
 
     def init(self) -> None:
         # Resolve any unset values from Settings now (lazy — first use only).
+        # Request serving prefers the restricted-role URL (DATABASE_APP_URL);
+        # bootstrap/Alembic/seeding keep the privileged DATABASE_URL.
         s = get_settings()
-        self.db_url = self._db_url_override or s.DATABASE_URL
+        self.db_url = self._db_url_override or s.DATABASE_APP_URL or s.DATABASE_URL
         self.pool_size = (
             self._pool_size_override
             if self._pool_size_override is not None
@@ -173,6 +181,29 @@ class Database:
             raise RuntimeError("Session factory not initialized")
         return self.session_factory
 
+    def get_service_session_factory(self) -> "async_sessionmaker[AsyncSession]":
+        """Session factory whose sessions carry trusted-service posture.
+
+        For background surfaces (result processing, cleanup/schedule tasks)
+        that operate across orgs: every session is primed so the RLS
+        service-bypass policies pass once the runtime role stops being a
+        superuser.
+        """
+        from typing import cast
+
+        from app.infrastructure.persistence.rls_posture import (
+            prime_service_posture,
+        )
+
+        base_factory = self.get_session_factory()
+
+        def factory(*args, **kwargs) -> AsyncSession:
+            session = base_factory(*args, **kwargs)
+            prime_service_posture(session)
+            return session
+
+        return cast("async_sessionmaker[AsyncSession]", factory)
+
     async def get_session(self) -> AsyncSession:
         if not self.session_factory:
             self.init()
@@ -193,90 +224,14 @@ db = Database()
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Plain session without RLS context.
 
-    Use for unauthenticated endpoints, service accounts, or background tasks
-    that handle their own authorization. Authenticated endpoints should use
-    get_db_session_with_rls instead.
+    Use for unauthenticated endpoints or background tasks that handle their
+    own authorization. Authenticated endpoints attach org posture to this
+    same session via get_db_session_rls (presentation dependencies).
     """
     session = await db.get_session()
     try:
         yield session
     finally:
-        await session.close()
-
-
-async def get_db_session_with_rls(
-    user: Dict[str, Any],
-) -> AsyncGenerator[AsyncSession, None]:
-    """Session with RLS context - sets app.current_org_id from the JWT.
-
-    Intended as a FastAPI dependency (with `user = Depends(get_current_user)`).
-    """
-    session = await db.get_session()
-    try:
-        org_id = user.get("org_id")
-        if org_id:
-            # set_config(name, value, is_local=true) is session-scoped and works
-            # with asyncpg's bind-parameter protocol; raw `SET` does not.
-            await session.execute(
-                text("SELECT set_config('app.current_org_id', :org_id, true)"),
-                {"org_id": str(org_id)},
-            )
-        else:
-            logger.warning("No org_id in user context, RLS policies may block access")
-
-        # Verify super_admin against the DB - JWT claims can be stale post-demotion.
-        # Fail closed: any mismatch or error denies the privilege.
-        if user.get("role") == "super_admin":
-            user_id = user.get("id")
-            if user_id:
-                try:
-                    result = await session.execute(
-                        text("SELECT role FROM users WHERE id = :uid"),
-                        {"uid": user_id},
-                    )
-                    row = result.first()
-                    if row and row[0] == "super_admin":
-                        await session.execute(
-                            text(
-                                "SELECT set_config('app.is_super_admin', 'true', true)"
-                            )
-                        )
-                    else:
-                        logger.warning(
-                            f"JWT claims super_admin but DB role={row[0] if row else 'NOT_FOUND'} "
-                            f"for user {user_id} - stale token or tampering"
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to verify super_admin for user {user_id}, "
-                        f"denying privilege (fail closed): {e}"
-                    )
-
-        yield session
-    finally:
-        # Reset before returning to pool - prevents leakage between requests.
-        try:
-            await session.execute(text("RESET app.current_org_id"))
-            await session.execute(text("RESET app.is_super_admin"))
-        except Exception as e:
-            logger.warning(f"Failed to reset RLS context: {e}")
-        await session.close()
-
-
-async def get_db_session_with_org(org_id: str) -> AsyncGenerator[AsyncSession, None]:
-    """Session with RLS context for background work that has org_id but no user."""
-    session = await db.get_session()
-    try:
-        await session.execute(
-            text("SELECT set_config('app.current_org_id', :org_id, true)"),
-            {"org_id": org_id},
-        )
-        yield session
-    finally:
-        try:
-            await session.execute(text("RESET app.current_org_id"))
-        except Exception as e:
-            logger.warning(f"Failed to reset RLS context: {e}")
         await session.close()
 
 
@@ -289,15 +244,11 @@ async def get_db_session_service(
     OAuth callbacks, public billing endpoints, webhook triggers. Do not use
     for normal authenticated endpoints.
     """
+    from app.infrastructure.persistence.rls_posture import set_service_posture
+
     session = await db.get_session()
     try:
-        await session.execute(
-            text("SELECT set_config('app.is_service_account', 'true', true)")
-        )
+        await set_service_posture(session)
         yield session
     finally:
-        try:
-            await session.execute(text("RESET app.is_service_account"))
-        except Exception as e:
-            logger.warning(f"Failed to reset service-account context: {e}")
         await session.close()

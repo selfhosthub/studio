@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover
     PIL_AVAILABLE = False
 
 from shared.utils import ResultPublisher, WorkerBase, create_job_client
+from shared.utils.error_codes import classify_error_code
 from shared.utils.file_upload_client import FileUploadClient
 from shared.worker_types import get_worker_config
 from shared.settings import settings
@@ -464,7 +465,7 @@ class ComfyUIWorker(WorkerBase):
                 extra={"job_id": job_id, "duration_ms": duration_ms},
             )
             error_msg = f"ComfyUI job failed ({type(e).__name__}). See worker logs."
-            self._handle_failure(job, error_msg)
+            self._handle_failure(job, error_msg, error_code=classify_error_code(e))
 
         finally:
             self.set_idle()
@@ -543,12 +544,16 @@ class ComfyUIWorker(WorkerBase):
         logger.debug(f"Uploaded: {url_path}")
         return url_path, None
 
-    def _handle_failure(self, job: Dict[str, Any], error_msg: str):
+    def _handle_failure(
+        self, job: Dict[str, Any], error_msg: str, error_code: str = "INTERNAL"
+    ):
         """Handle job failure - write error and notify."""
         job_id = job.get("job_id", "unknown")
 
         if job.get("notify_api", True):
-            if not self.result_publisher.publish_step_result(status="FAILED", error=error_msg):
+            if not self.result_publisher.publish_step_result(
+                status="FAILED", error=error_msg, error_code=error_code
+            ):
                 logger.critical(
                     "Failed to publish step result after retries - job will be orphaned",
                     extra={"job_id": job_id, "status": "FAILED"},

@@ -13,6 +13,7 @@ import httpx
 from shared.utils import WorkerBase, create_job_client
 from shared.utils.file_upload_client import FileUploadClient
 from shared.utils.result_publisher import ResultPublisher
+from shared.utils.error_codes import classify_error_code
 from shared.settings import settings
 from shared.worker_types import get_worker_config
 
@@ -139,12 +140,20 @@ class VideoWorker(WorkerBase):
             parameters["cache_dir"] = job_cache_dir
 
             scenes = parameters.get("scenes", [])
-            has_item_groups = any(
-                isinstance(s, dict) and s.get("type") == "item_group" for s in scenes
+            group_count = sum(
+                1
+                for s in scenes
+                if isinstance(s, dict) and s.get("type") == "item_group"
             )
+            has_item_groups = group_count > 0
             if operation == "shs_create_video" and has_item_groups:
+                logger.info(
+                    f"Render path: composable timeline "
+                    f"({len(scenes)} scenes, {group_count} item groups)"
+                )
                 result = self._process_composable_timeline(parameters, job)
             else:
+                logger.info(f"Render path: standard ({len(scenes)} scenes)")
                 result = self._process_standard(parameters, operation)
 
             output_path = result.get("output_path")
@@ -190,13 +199,23 @@ class VideoWorker(WorkerBase):
                 )
 
             duration_ms = int((time.time() - job_start_time) * 1000)
+            # video_count is absent from standard-path results and from the
+            # single-clip concat shortcut; duration is absent for non-render ops.
+            clip_count = result.get("video_count", 1)
+            output_duration = result.get("duration")
+            duration_str = (
+                f"{output_duration:.1f}s" if output_duration is not None else "unknown"
+            )
             logger.info(
-                f"Video job {job_id} completed ({duration_ms}ms)",
+                f"Video job {job_id} completed ({duration_ms}ms): "
+                f"{duration_str} output, {clip_count} clip(s)",
                 extra={
                     "job_id": job_id,
                     "step_id": step_id,
                     "operation": operation,
                     "duration_ms": duration_ms,
+                    "output_duration_s": output_duration,
+                    "clip_count": clip_count,
                 },
             )
 
@@ -211,7 +230,7 @@ class VideoWorker(WorkerBase):
                 extra={"job_id": job_id, "duration_ms": duration_ms},
             )
             error_msg = f"Video job failed ({type(e).__name__}). See worker logs."
-            self._handle_failure(job, error_msg)
+            self._handle_failure(job, error_msg, error_code=classify_error_code(e))
 
         finally:
             self.set_idle()
@@ -225,8 +244,10 @@ class VideoWorker(WorkerBase):
         image_count = len(params.get("images", []))
         audio_count = len(params.get("audio_tracks", []))
         video_count = len(params.get("video_clips", []))
-        logger.debug(
-            f"Normalized: {image_count} images, {audio_count} audio, {video_count} video clips"
+        scene_count = len(parameters.get("scenes", []))
+        logger.info(
+            f"Normalized: {image_count} images, {audio_count} audio, "
+            f"{video_count} video from {scene_count} scenes"
         )
 
         if image_count == 0 and video_count == 0 and operation == "shs_create_video":
@@ -299,7 +320,11 @@ class VideoWorker(WorkerBase):
                 clip = self._render_static_scene(scene, parameters)
                 timeline_clips.append(clip)
 
-        logger.debug(f"Timeline complete: {len(timeline_clips)} clips")
+        timeline_duration = sum(c.get("duration", 0) for c in timeline_clips)
+        logger.info(
+            f"Timeline complete: {len(timeline_clips)} clips, "
+            f"{timeline_duration:.1f}s before concat"
+        )
 
         # Output
         if per_group:
@@ -715,12 +740,16 @@ class VideoWorker(WorkerBase):
             "has_subtitles": any(v.get("has_subtitles") for v in group_videos),
         }
 
-    def _handle_failure(self, job: Dict[str, Any], error_msg: str):
+    def _handle_failure(
+        self, job: Dict[str, Any], error_msg: str, error_code: str = "INTERNAL"
+    ):
         """Handle job failure - write error and notify."""
         job_id = job.get("job_id", "unknown")
 
         if job.get("notify_api", True):
-            if not self.result_publisher.publish_step_result(status="FAILED", error=error_msg):
+            if not self.result_publisher.publish_step_result(
+                status="FAILED", error=error_msg, error_code=error_code
+            ):
                 logger.critical(
                     "Failed to publish step result after retries - job will be orphaned",
                     extra={"job_id": job_id, "status": "FAILED"},
@@ -849,6 +878,12 @@ class VideoWorker(WorkerBase):
         audio_url_for_log = (
             audio_url.get("url") if isinstance(audio_url, dict) else audio_url
         )
+        # Only audio_tracks[0] is merged; the rest are discarded.
+        if len(audio_tracks) > 1:
+            logger.info(
+                f"Merging audio track 1 of {len(audio_tracks)}; "
+                f"{len(audio_tracks) - 1} tracks unused"
+            )
         logger.debug(f"Merging audio track: {redact_url(audio_url_for_log or '')}")
 
         # Build merge parameters

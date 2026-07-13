@@ -14,6 +14,7 @@ from shared.utils import (
     create_job_client,
 )
 from shared.utils.result_publisher import ResultPublisher
+from shared.utils.error_codes import classify_error_code
 from shared.utils.credential_client import CredentialClient
 from shared.settings import settings
 from shared.worker_types import get_worker_config
@@ -273,7 +274,10 @@ class StepExecutor(WorkerBase):
             error_msg = f"Step failed ({type(e).__name__}). See worker logs."
 
             if not self.result_publisher.publish_step_result(
-                status="FAILED", error=error_msg, job_id=job_id
+                status="FAILED",
+                error=error_msg,
+                error_code=classify_error_code(e),
+                job_id=job_id,
             ):
                 logger.critical(
                     "Failed to publish step result after retries - job will be orphaned"

@@ -29,7 +29,7 @@ from app.infrastructure.auth.websocket_auth import (
 )
 from app.infrastructure.messaging.event_bus import EventBus
 from app.infrastructure.messaging.pg_notify import notify_organization
-from app.infrastructure.persistence.database import get_db_session
+from app.infrastructure.persistence.database import get_db_session_service
 from app.presentation.api.dependencies import get_organization_service_for_ws
 from app.presentation.websockets.handlers import WSEventMessage, logger, router
 from app.presentation.websockets.manager import manager
@@ -47,7 +47,7 @@ async def organization_websocket_endpoint(
     organization_service: OrganizationService = Depends(
         get_organization_service_for_ws
     ),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
 ):
     """Org-scoped updates. Auth via Bearer.<token> in Sec-WebSocket-Protocol; ?token= deprecated."""
     user = None
@@ -162,6 +162,9 @@ async def organization_websocket_endpoint(
         rate_limiter = make_rate_limiter()
 
         while True:
+            # Release the DB connection before blocking on receive - an open
+            # transaction would pin a pool slot for the socket's lifetime.
+            await session.rollback()
             try:
                 try:
                     data = await asyncio.wait_for(

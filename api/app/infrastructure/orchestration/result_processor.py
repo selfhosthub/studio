@@ -137,6 +137,11 @@ class ResultProcessor:
         self._step_locks: WeakValueDictionary[str, asyncio.Lock] = (
             WeakValueDictionary()
         )
+        # Bounds concurrent top-level session opens; a result burst queues here
+        # instead of pinning one pool connection each while serialized on the
+        # parent-step FOR UPDATE. Inline recursion reuses the outer session and
+        # never acquires.
+        self._session_gate = asyncio.Semaphore(settings.RESULT_PROCESSING_CONCURRENCY)
 
     def _step_lock(self, step_id: str) -> asyncio.Lock:
         lock = self._step_locks.get(step_id)
@@ -181,14 +186,17 @@ class ResultProcessor:
 
         # Serialize the top-level tick per step so PROCESSING commits before
         # COMPLETED for the SAME step. Different step_ids use different locks.
+        # Step-lock first: same-step results queue on their lock without
+        # consuming gate slots; only one per step competes for a session.
         async with self._step_lock(parsed.step_id):
             try:
-                async with self.session_factory() as session:
-                    token = _inline_session.set(session)
-                    try:
-                        await self._process_with_session(session, payload, parsed)
-                    finally:
-                        _inline_session.reset(token)
+                async with self._session_gate:
+                    async with self.session_factory() as session:
+                        token = _inline_session.set(session)
+                        try:
+                            await self._process_with_session(session, payload, parsed)
+                        finally:
+                            _inline_session.reset(token)
 
             except Exception as e:
                 context = getattr(e, "context", None) or {}

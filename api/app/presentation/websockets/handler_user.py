@@ -33,7 +33,7 @@ from app.infrastructure.auth.websocket_auth import (
 )
 from app.infrastructure.messaging.event_bus import EventBus
 from app.infrastructure.messaging.pg_notify import notify_user
-from app.infrastructure.persistence.database import get_db_session
+from app.infrastructure.persistence.database import get_db_session_service
 from app.presentation.websockets.handlers import WSEventMessage, router
 from app.presentation.websockets.manager import manager
 from app.presentation.websockets.rate_limit import (
@@ -47,7 +47,7 @@ from app.presentation.websockets.rate_limit import (
 async def user_websocket_endpoint(
     websocket: WebSocket,
     user_id: str,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
 ):
     """User-scoped feed. Auth REQUIRED via Bearer.<token> in Sec-WebSocket-Protocol; ?token= deprecated."""
     # RFC 6455 requires server to select a sub-protocol on accept
@@ -144,6 +144,9 @@ async def user_websocket_endpoint(
 
     try:
         while True:
+            # Release the DB connection before blocking on receive - an open
+            # transaction would pin a pool slot for the socket's lifetime.
+            await session.rollback()
             try:
                 try:
                     data = await asyncio.wait_for(

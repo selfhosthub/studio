@@ -198,7 +198,8 @@ def resolve_step_parameters(
     parameters: Dict[str, Any],
     org_id: str,
     instance_id: str,
+    expand_groups: bool = True,
 ) -> Dict[str, Any]:
-    """Apply group expansion then file URL resolution in order."""
-    expanded = expand_groups_in_parameters(parameters)
+    """Apply group expansion (unless expand_groups=False) then file URL resolution in order."""
+    expanded = expand_groups_in_parameters(parameters) if expand_groups else parameters
     return resolve_file_references(expanded, org_id, instance_id)

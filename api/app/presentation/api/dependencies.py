@@ -2,13 +2,17 @@
 
 """FastAPI dependency injection wiring for all API endpoints."""
 
+import logging
 import re
 from typing import Annotated, Any, AsyncGenerator, Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Path, Request, WebSocket, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import TypedDict
+
+logger = logging.getLogger(__name__)
 
 # Each half of a namespaced id must match this; rejects leading/trailing
 # punctuation and anything outside [a-zA-Z0-9._-].
@@ -124,12 +128,18 @@ from app.infrastructure.messaging.job_status_publisher import DirectJobStatusPub
 from app.infrastructure.persistence.database import (
     get_db_session,
     get_db_session_service,
-    get_db_session_with_rls,
 )
+from app.infrastructure.persistence.rls_posture import set_org_posture
 from app.infrastructure.repositories.instance_repository import (
     SQLAlchemyInstanceRepository,
 )
-from app.infrastructure.repositories.audit_repository import AuditEventRepository
+from app.domain.audit.repository import (
+    AuditEventRepository as AuditEventRepositoryABC,
+)
+from app.infrastructure.repositories.audit_repository import (
+    AuditEventRepository,
+    SessionPerCallAuditEventRepository,
+)
 from app.infrastructure.repositories.org_file_repository import (
     SQLAlchemyOrgFileRepository,
 )
@@ -256,19 +266,49 @@ def get_notifier(request: Request):
 
 
 async def get_db_session_rls(
+    session: AsyncSession = Depends(get_db_session),
     user: dict[str, Any] = Depends(get_current_user),
 ) -> AsyncGenerator[AsyncSession, None]:
-    """Session with RLS context set from the authenticated user's org."""
-    async for session in get_db_session_with_rls(user):
-        yield session
+    """Org posture on the shared request session.
 
-
-async def get_db_session_bypass_rls(
-    user: dict[str, Any] = Depends(get_current_user),
-) -> AsyncGenerator[AsyncSession, None]:
-    """Session WITHOUT RLS. Only for super_admin cross-org endpoints - must be paired with a super_admin role check."""
-    async for session in get_db_session():
+    Rides Depends(get_db_session), which FastAPI dedupes with the auth
+    lookup's session - one pool connection per authenticated request. The
+    posture is re-asserted per transaction (see rls_posture), so it survives
+    repositories' internal commits.
+    """
+    org_id = user.get("org_id")
+    if not org_id:
+        logger.warning("No org_id in user context, RLS policies may block access")
         yield session
+        return
+
+    # Verify super_admin against the DB - JWT claims can be stale post-demotion.
+    # Fail closed: any mismatch or error denies the privilege.
+    is_super_admin = False
+    if user.get("role") == "super_admin":
+        user_id = user.get("id")
+        if user_id:
+            try:
+                result = await session.execute(
+                    text("SELECT role FROM users WHERE id = :uid"),
+                    {"uid": user_id},
+                )
+                row = result.first()
+                if row and row[0] == "super_admin":
+                    is_super_admin = True
+                else:
+                    logger.warning(
+                        f"JWT claims super_admin but DB role={row[0] if row else 'NOT_FOUND'} "
+                        f"for user {user_id} - stale token or tampering"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to verify super_admin for user {user_id}, "
+                    f"denying privilege (fail closed): {e}"
+                )
+
+    await set_org_posture(session, str(org_id), is_super_admin=is_super_admin)
+    yield session
 
 
 # =============================================================================
@@ -553,10 +593,10 @@ async def get_instance_service(
 
 async def get_instance_service_bypass(
     request: Request,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
     event_bus: EventBus = Depends(get_event_bus),
 ) -> InstanceService:
-    """Without RLS. Only for public webhook endpoints; security enforced by token lookup."""
+    """Service posture (RLS bypass). Only for public webhook endpoints; security enforced by token lookup."""
     # Create all repositories without RLS
     instance_repo = SQLAlchemyInstanceRepository(session)
     step_execution_repo = SQLAlchemyStepExecutionRepository(session)
@@ -681,10 +721,22 @@ async def get_queue_service_bypass(
     )
 
 
+def get_audit_repository() -> "AuditEventRepositoryABC":
+    """Audit writes run on their own short-lived session, never the request's.
+
+    They must commit independently of the request transaction (log-then-raise
+    on denial paths) and audit_repository.create()'s commit would otherwise
+    commit a shared request session mid-flight. Service posture: audit_events
+    is RLS-enabled and these sessions carry no org context.
+    """
+    from app.infrastructure.persistence.database import db
+
+    return SessionPerCallAuditEventRepository(db.get_service_session_factory())
+
+
 async def get_audit_service(
-    session: AsyncSession = Depends(get_db_session),
+    repository: "AuditEventRepositoryABC" = Depends(get_audit_repository),
 ) -> AuditService:
-    repository = AuditEventRepository(session)
     return AuditService(repository)
 
 
@@ -721,11 +773,11 @@ async def get_active_provider_package_versions(
 
 async def get_webhook_service_public(
     request: Request,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
     event_bus: EventBus = Depends(get_event_bus),
     instance_service: InstanceService = Depends(get_instance_service_bypass),
 ) -> WebhookService:
-    """Without RLS. Only for public webhook endpoints; security enforced by token lookup."""
+    """Service posture (RLS bypass). Only for public webhook endpoints; security enforced by token lookup."""
     workflow_repository = SQLAlchemyWorkflowRepository(session)
     # Provider-completion callbacks route a result through the same processor a
     # worker submission uses; reuse the instance-service's enqueue collaborator
@@ -858,12 +910,13 @@ async def verify_org_access_strict(
 
 async def get_instance_service_for_ws(
     websocket: WebSocket,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
     event_bus: EventBus = Depends(get_event_bus),
 ) -> InstanceService:
     """
     WebSocket variant. Takes WebSocket not Request - FastAPI does not inject Request for WS endpoints.
     Auth is handled by the WS handler; all authorization checks are the handler's responsibility.
+    Same session dep as the handler so FastAPI dedupes to ONE connection per socket.
     """
     # Create all repositories without RLS (WebSocket auth is handled separately)
     instance_repo = SQLAlchemyInstanceRepository(session)

@@ -509,7 +509,8 @@ class JobEnqueueService:
 
         # Apply scene expansion + file URL resolution so the http_request
         # body is byte-equivalent to what the worker would otherwise
-        # compute.
+        # compute. Local workers expand item_groups themselves at render
+        # time (per-scene audio + concat), so expansion is skipped for them.
         job_cfg = resolved_step_config.get("job") or {}
         job_params = job_cfg.get("parameters")
         if isinstance(job_params, dict):
@@ -517,6 +518,7 @@ class JobEnqueueService:
                 job_params,
                 org_id=str(organization_id),
                 instance_id=str(instance_id),
+                expand_groups=not endpoint.local_worker,
             )
             resolved_params = collapse_file_source_to_local_path(
                 resolved_params, endpoint.parameter_mapping

@@ -108,12 +108,15 @@ class WorkerBase(ABC):
         """Return "local" if the worker shares the API's /workspace mount,
         else "remote".
 
-        The API is the sole creator of `/workspace/orgs/`; workers never
-        write that tree. So its existence is an unforgeable signal that
-        the worker sees the same volume as the API. Re-checked on every
-        heartbeat so a network-mount loss/recovery flips the mode without
-        a restart.
+        SHS_STORAGE_MODE, when set, wins outright. Otherwise fall back to
+        probing for `/workspace/orgs/`, which the API creates and workers
+        never write. That signal is soft: a host that once ran the API keeps
+        the tree and reads as "local" even with no shared mount. Re-checked
+        on every heartbeat so a network-mount loss/recovery flips the mode
+        without a restart.
         """
+        if settings.STORAGE_MODE:
+            return settings.STORAGE_MODE
         workspace = settings.WORKSPACE_ROOT
         if not workspace:
             return "remote"

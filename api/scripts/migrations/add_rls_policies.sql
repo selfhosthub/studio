@@ -42,6 +42,20 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql STABLE;
 
+-- Self-lookup claim helper. QUARANTINED: app.current_user_id is set from the
+-- UNVERIFIED JWT sub before the row is read, so it must only ever power the
+-- SELECT-only users_self_lookup policy below. Never reference it in any other
+-- policy or treat it as trusted context - org/super-admin posture is derived
+-- from the verified row afterwards.
+CREATE OR REPLACE FUNCTION current_user_claim() RETURNS uuid AS $$
+BEGIN
+    RETURN NULLIF(current_setting('app.current_user_id', true), '')::uuid;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
 -- ============================================================================
 -- USERS TABLE
 -- Users can only see/modify users in their own organization
@@ -52,6 +66,13 @@ DROP POLICY IF EXISTS users_org_isolation ON users;
 CREATE POLICY users_org_isolation ON users
     USING (organization_id = current_org_id())
     WITH CHECK (organization_id = current_org_id());
+
+-- Auth lookup: a bearer token resolves its own row (and only its own row)
+-- before any org posture exists. SELECT-only - writes stay org-scoped.
+DROP POLICY IF EXISTS users_self_lookup ON users;
+CREATE POLICY users_self_lookup ON users
+    FOR SELECT
+    USING (id = current_user_claim());
 
 DROP POLICY IF EXISTS users_service_bypass ON users;
 CREATE POLICY users_service_bypass ON users
@@ -241,6 +262,54 @@ CREATE POLICY organization_secrets_org_isolation ON organization_secrets
 
 DROP POLICY IF EXISTS organization_secrets_service_bypass ON organization_secrets;
 CREATE POLICY organization_secrets_service_bypass ON organization_secrets
+    FOR ALL
+    USING (is_service_account())
+    WITH CHECK (is_service_account());
+
+-- ============================================================================
+-- BLUEPRINTS TABLE
+-- ============================================================================
+ALTER TABLE blueprints ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS blueprints_org_isolation ON blueprints;
+CREATE POLICY blueprints_org_isolation ON blueprints
+    USING (organization_id = current_org_id())
+    WITH CHECK (organization_id = current_org_id());
+
+DROP POLICY IF EXISTS blueprints_service_bypass ON blueprints;
+CREATE POLICY blueprints_service_bypass ON blueprints
+    FOR ALL
+    USING (is_service_account())
+    WITH CHECK (is_service_account());
+
+-- ============================================================================
+-- WORKFLOW_VERSIONS TABLE
+-- ============================================================================
+ALTER TABLE workflow_versions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS workflow_versions_org_isolation ON workflow_versions;
+CREATE POLICY workflow_versions_org_isolation ON workflow_versions
+    USING (organization_id = current_org_id())
+    WITH CHECK (organization_id = current_org_id());
+
+DROP POLICY IF EXISTS workflow_versions_service_bypass ON workflow_versions;
+CREATE POLICY workflow_versions_service_bypass ON workflow_versions
+    FOR ALL
+    USING (is_service_account())
+    WITH CHECK (is_service_account());
+
+-- ============================================================================
+-- PROMPTS TABLE
+-- ============================================================================
+ALTER TABLE prompts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS prompts_org_isolation ON prompts;
+CREATE POLICY prompts_org_isolation ON prompts
+    USING (organization_id = current_org_id())
+    WITH CHECK (organization_id = current_org_id());
+
+DROP POLICY IF EXISTS prompts_service_bypass ON prompts;
+CREATE POLICY prompts_service_bypass ON prompts
     FOR ALL
     USING (is_service_account())
     WITH CHECK (is_service_account());

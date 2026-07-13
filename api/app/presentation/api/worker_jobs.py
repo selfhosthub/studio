@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.result_processing.step_result_enrichment import (
     build_step_result_payload,
 )
+from app.application.services.result_processing.worker_error_codes import (
+    client_message_for_worker_error,
+)
 from app.domain.queue.repository import QueuedJobRepository, WorkerRepository
 from app.infrastructure.auth.worker_jwt import verify_worker_token
 from app.infrastructure.repositories.queue_job_repository import (
@@ -43,25 +46,6 @@ class ClaimJobResponse(BaseModel):
     queue_name: str
     payload: Dict[str, Any]
     claimed_at: str
-
-
-class SubmitResultRequest(BaseModel):
-    """Request to submit job result."""
-
-    model_config = {"extra": "forbid"}
-
-    status: str  # "COMPLETED" or "FAILED"
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-
-
-class SubmitResultResponse(BaseModel):
-    """Response after submitting result."""
-
-    job_id: str
-    status: str
-    completed_at: Optional[str] = None
-    failed_at: Optional[str] = None
 
 
 # --- Dependencies ---
@@ -183,143 +167,13 @@ async def claim_job(
     )
 
 
-@router.post("/jobs/{job_id}/result", response_model=SubmitResultResponse)
-async def submit_job_result(
-    job_id: str,
-    request: SubmitResultRequest,
-    http_request: Request,
-    _: None = Depends(verify_worker_secret),
-    repo: QueuedJobRepository = Depends(get_job_repository),
-) -> SubmitResultResponse:
-    """
-    Submit the result of a job execution.
-
-    Workers call this after executing a job to report success or failure.
-    This endpoint:
-    1. Updates PostgreSQL job status (for audit/tracking)
-    2. Feeds result to ResultProcessor for workflow orchestration
-
-    Args:
-        job_id: The job ID (from claim response)
-        request: Result data (status, result/error)
-
-    Returns:
-        Confirmation of result submission
-    """
-    logger.info(f"Receiving result for job {job_id}: status={request.status}")
-
-    job_uuid = UUID(job_id)
-
-    # First, fetch the job - the result processor resolves instance_id/step_id
-    # from it via build_step_result_payload.
-    job = await repo.get_by_id(job_uuid)
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
-        )
-
-    if request.status == "COMPLETED":
-        job = await repo.complete_job(
-            job_id=job_uuid,
-            output_data=request.result or {},
-        )
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
-            )
-
-        logger.info(f"Job {job_id} marked as COMPLETED in PostgreSQL")
-
-        # Fire-and-forget orchestration so the worker gets an immediate
-        # response and the event loop stays free for other requests.
-        _schedule_result_processing(
-            http_request,
-            job,
-            status="COMPLETED",
-            result=request.result or {},
-            error=None,
-        )
-
-        return SubmitResultResponse(
-            job_id=job_id,
-            status="COMPLETED",
-            completed_at=job.completed_at.isoformat() if job.completed_at else None,
-        )
-
-    elif request.status == "FAILED":
-        job = await repo.fail_job(
-            job_id=job_uuid,
-            error_message=request.error or "Unknown error",
-        )
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
-            )
-
-        logger.info(f"Job {job_id} marked as FAILED in PostgreSQL: {request.error}")
-
-        # Fire-and-forget orchestration (same as COMPLETED path)
-        _schedule_result_processing(
-            http_request,
-            job,
-            status="FAILED",
-            result=None,
-            error=request.error or "Unknown error",
-        )
-
-        return SubmitResultResponse(
-            job_id=job_id,
-            status="FAILED",
-            failed_at=job.failed_at.isoformat() if job.failed_at else None,
-        )
-
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid status: {request.status}. Must be 'COMPLETED' or 'FAILED'",
-        )
-
-
-def _schedule_result_processing(
-    http_request: Request,
-    job: Any,
-    status: str,
-    result: Optional[Dict[str, Any]],
-    error: Optional[str],
-) -> None:
-    """Fire-and-forget result processing as an async background task."""
-    if not job.instance_id:
-        logger.warning("Cannot process result: no instance_id")
-        return
-
-    payload = build_step_result_payload(
-        job,
-        status=status,
-        result=result,
-        error=error,
-    )
-
-    result_processor = http_request.app.state.result_processor
-
-    async def _run() -> None:
-        try:
-            await result_processor.process_result(payload)
-            logger.debug(
-                f"Processed step result: instance={payload['instance_id']}, "
-                f"step={payload['step_id']}, status={status}"
-            )
-        except Exception as e:
-            logger.error(f"Background result processing failed: {e}")
-
-    asyncio.create_task(_run())
-
-
 class StepResultRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
     status: str  # PROCESSING, COMPLETED, FAILED, etc.
     result: Dict[str, Any] = {}
-    error: Optional[str] = None
+    error: Optional[str] = None  # Log-only detail; never rendered to clients.
+    error_code: Optional[str] = None
     job_id: Optional[str] = None
     # Worker fired async + released without polling.
     webhook_pending: bool = False
@@ -384,10 +238,17 @@ async def publish_step_result(
                 detail="No active job found for this worker",
             )
 
+    client_error = client_message_for_worker_error(request.error_code)
     if request.status == "COMPLETED":
         await job_repo.complete_job(job.id, request.result or {})
     elif request.status == "FAILED":
-        await job_repo.fail_job(job.id, request.error or "")
+        logger.warning(
+            "Step job %s FAILED [code=%s]: %s",
+            job.id,
+            request.error_code,
+            request.error,
+        )
+        await job_repo.fail_job(job.id, client_error)
 
     # Single source of truth for the routing payload - shared with dead-letter
     # replay so a result delivered after an outage is routed identically (Bug #2).
@@ -395,7 +256,7 @@ async def publish_step_result(
         job,
         status=request.status,
         result=request.result,
-        error=request.error,
+        error=client_error if request.status == "FAILED" else None,
         webhook_pending=request.webhook_pending,
     )
     instance_id = payload["instance_id"]

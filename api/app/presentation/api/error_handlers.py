@@ -4,7 +4,7 @@
 
 import logging
 from datetime import UTC, datetime
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
@@ -24,7 +24,7 @@ from app.domain.common.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
-from app.infrastructure.errors import safe_error_message
+from app.infrastructure.errors import generic_error_message, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,6 @@ class ErrorResponse(BaseModel):
     detail: str = Field(..., description="Detailed error message")
     timestamp: datetime = Field(..., description="Error timestamp")
     code: Optional[str] = Field(default=None, description="Optional error code")
-    context: Optional[Dict[str, Any]] = Field(
-        default=None, description="Additional context"
-    )
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -57,7 +54,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -72,7 +68,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -87,7 +82,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -102,7 +96,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -117,7 +110,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -132,7 +124,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -147,7 +138,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -162,7 +152,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -177,7 +166,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -192,7 +180,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -207,7 +194,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code=getattr(exc, "code", None),
-                context=getattr(exc, "context", None),
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -225,10 +211,6 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=safe_error_message(exc),
                 timestamp=datetime.now(UTC),
                 code="DATABASE_ERROR",
-                context={
-                    "status_code": status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    "exception_type": type(exc).__name__,
-                },
             ).model_dump(mode="json", exclude_none=True),
         )
 
@@ -241,12 +223,8 @@ def register_error_handlers(app: FastAPI) -> None:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=ErrorResponse(
                 error="InternalServerError",
-                detail="An unexpected error occurred",
+                detail=generic_error_message(),
                 timestamp=datetime.now(UTC),
                 code="UNKNOWN_500_ERROR",
-                context={
-                    "status_code": status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    "exception_type": type(exc).__name__,
-                },
             ).model_dump(mode="json", exclude_none=True),
         )

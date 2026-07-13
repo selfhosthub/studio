@@ -172,7 +172,13 @@ async def upload_user_avatar(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
 
-        is_admin = current_user["role"] in ["admin", "super_admin"]
+        # Org-scoped: an admin may act only on users of their own org (RLS is
+        # bypassed under a superuser DB role, so the route enforces this).
+        # super_admin crosses orgs, matching verify_admin_access semantics.
+        is_admin = current_user["role"] == "super_admin" or (
+            current_user["role"] == "admin"
+            and current_user.get("org_id") == str(user.organization_id)
+        )
         is_self = str(current_user["id"]) == str(user_id)
 
         if not is_self and not is_admin:
@@ -301,7 +307,13 @@ async def delete_user_avatar(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
 
-        is_admin = current_user["role"] in ["admin", "super_admin"]
+        # Org-scoped: an admin may act only on users of their own org (RLS is
+        # bypassed under a superuser DB role, so the route enforces this).
+        # super_admin crosses orgs, matching verify_admin_access semantics.
+        is_admin = current_user["role"] == "super_admin" or (
+            current_user["role"] == "admin"
+            and current_user.get("org_id") == str(user.organization_id)
+        )
         is_self = str(current_user["id"]) == str(user_id)
 
         if not is_self and not is_admin:

@@ -307,7 +307,7 @@ async def set_comfyui_visibility(
 async def get_comfyui_catalog(
     category: Optional[str] = Query(None, description="Filter by category"),
     tier: Optional[str] = Query(None, description="Filter by tier: community, plus"),
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_super_admin),
     provider_repo: ProviderRepository = Depends(get_provider_repository),
     db: AsyncSession = Depends(get_db_session),
     catalog_repo: SQLAlchemyMarketplaceCatalogRepository = Depends(
@@ -459,7 +459,7 @@ async def get_installed_comfyui(
 async def install_comfyui(
     namespace: str,
     slug: str,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_super_admin),
     service: WorkflowService = Depends(get_workflow_service),
     db: AsyncSession = Depends(get_db_session),
     provider_repo: ProviderRepository = Depends(get_provider_repository),

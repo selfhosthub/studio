@@ -177,8 +177,10 @@ if [ ! -f "$WORKSPACE_ENV" ]; then
     GEN_WORKER="$(openssl rand -hex 32)"
     GEN_ENCRYPTION="$(openssl rand -base64 32 | tr '+/' '-_')"
     GEN_PG_PASSWORD=""
+    GEN_APP_PASSWORD=""
     if [ "$SHAPE" = "full" ]; then
         GEN_PG_PASSWORD="$(openssl rand -hex 32)"
+        GEN_APP_PASSWORD="$(openssl rand -hex 32)"
     fi
 
     {
@@ -195,6 +197,8 @@ if [ ! -f "$WORKSPACE_ENV" ]; then
             # SHS_DATABASE_URL is supplied by the launcher (console/compose).
             echo "POSTGRES_PASSWORD=$GEN_PG_PASSWORD"
             echo "SHS_DATABASE_URL=postgresql+asyncpg://postgres:${GEN_PG_PASSWORD}@localhost:5432/selfhost_studio"
+            # Greenfield Full serves requests as the restricted shs_app role (bootstrap provisions it from this URL).
+            echo "SHS_DATABASE_APP_URL=postgresql+asyncpg://shs_app:${GEN_APP_PASSWORD}@localhost:5432/selfhost_studio"
         fi
         # nginx front-door vars: written for BOTH shapes so first boot self-seeds
         # them and later edits (e.g. the CF wizard writing a real domain) persist.

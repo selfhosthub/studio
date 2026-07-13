@@ -49,6 +49,29 @@ except (
     RICH_AVAILABLE = False
 
 
+# Third-party loggers pinned to WARNING by setup_logging(). Parent names only -
+# children inherit, and setLevel works on names whose library is not imported yet.
+NOISY_LOGGERS = (
+    # HTTP clients - worker polling creates too much noise
+    "httpx",
+    "httpcore",
+    "urllib3",
+    "asyncio",
+    "hpack",
+    # Whisper subtitle path (video worker) - numba emits bytecode/SSA traces
+    "numba",
+    "whisper",
+    "faster_whisper",
+    # Media/image processing
+    "PIL",
+    "matplotlib",
+    # Model + file caching
+    "filelock",
+    "fsspec",
+    "charset_normalizer",
+)
+
+
 # --- Job context for correlation_id propagation ---
 # Set when a job is claimed, cleared when done. A log filter reads this and
 # injects correlation_id into every LogRecord during job execution.
@@ -430,13 +453,10 @@ def setup_logging(default_level: str = "INFO") -> None:
     root.handlers.clear()
     root.addHandler(handler)
 
-    # Suppress noisy HTTP client loggers - worker polling creates too much noise
-    # Actual errors will still surface via exception handling in worker code
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
-    logging.getLogger("hpack").setLevel(logging.WARNING)
+    # Pin third-party loggers so LOG_LEVEL=DEBUG only surfaces our own modules.
+    # Actual errors will still surface via exception handling in worker code.
+    for _name in NOISY_LOGGERS:
+        logging.getLogger(_name).setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

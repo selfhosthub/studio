@@ -202,7 +202,7 @@ async def import_prompt(
     except json.JSONDecodeError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON: {str(e)}",
+            detail=f"Uploaded file is not valid JSON (line {e.lineno}, column {e.colno}).",
         )
     except Exception:
         logger.exception("Failed to read uploaded prompt file")

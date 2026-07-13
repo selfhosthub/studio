@@ -38,7 +38,7 @@ from app.infrastructure.auth.websocket_auth import (
 )
 from app.infrastructure.messaging.event_bus import EventBus
 from app.infrastructure.messaging.pg_notify import notify_instance, notify_organization
-from app.infrastructure.persistence.database import get_db_session
+from app.infrastructure.persistence.database import get_db_session_service
 from app.presentation.api.dependencies import (
     CurrentUser,
     get_instance_service_for_ws,
@@ -58,7 +58,7 @@ async def instance_websocket_endpoint(
     websocket: WebSocket,
     instance_id: str,
     instance_service: InstanceService = Depends(get_instance_service_for_ws),
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
 ):
     """Instance-scoped feed. Auth via Bearer.<token> in Sec-WebSocket-Protocol; ?token= deprecated."""
     user: Optional[Dict[str, Any]] = None
@@ -177,6 +177,9 @@ async def instance_websocket_endpoint(
         rate_limiter = make_rate_limiter()
 
         while True:
+            # Release the DB connection before blocking on receive - an open
+            # transaction would pin a pool slot for the socket's lifetime.
+            await session.rollback()
             try:
                 try:
                     data = await asyncio.wait_for(

@@ -267,6 +267,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.debug(f"Schema-presence check skipped: {e}")
 
+        # Boot-time RLS posture check: loud warning on single-URL deployments
+        # (runtime role = postgres, RLS inert); fail-closed once the operator
+        # opts into the restricted role via DATABASE_APP_URL.
+        from app.infrastructure.persistence.rls_boot_check import (
+            check_runtime_rls_posture,
+        )
+
+        assert db.engine is not None
+        await check_runtime_rls_posture(
+            db.engine,
+            fail_closed=settings.DATABASE_APP_URL is not None,
+        )
+
         # Seed system_settings maintenance row (idempotent - ON CONFLICT DO NOTHING)
         try:
             from app.infrastructure.maintenance.seed import seed_maintenance_row
@@ -310,7 +323,7 @@ async def lifespan(app: FastAPI):
         # Initialize result processor for direct step result processing
         assert db.session_factory is not None, "Database not initialized"
         result_processor = ResultProcessor(
-            session_factory=db.session_factory,
+            session_factory=db.get_service_session_factory(),
             broadcast_instance_update_fn=_broadcast_instance_update,
             broadcast_notification_fn=_broadcast_notification,
             event_bus=get_event_bus(),
@@ -341,7 +354,7 @@ async def lifespan(app: FastAPI):
                 name="periodic_cleanup",
                 interval_seconds=settings.PERIODIC_CLEANUP_INTERVAL_SECONDS,
                 callback=build_cleanup_callback(
-                    session_factory=db.session_factory,
+                    session_factory=db.get_service_session_factory(),
                     notifier=result_processor.notifier,
                     process_result_fn=result_processor.process_result,
                 ),
@@ -356,7 +369,7 @@ async def lifespan(app: FastAPI):
                 name="schedule_trigger",
                 interval_seconds=settings.SCHEDULE_TICK_INTERVAL_SECONDS,
                 callback=build_schedule_callback(
-                    session_factory=db.session_factory,
+                    session_factory=db.get_service_session_factory(),
                     event_bus=get_event_bus(),
                     process_result_fn=result_processor.process_result,
                     notifier=result_processor.notifier,

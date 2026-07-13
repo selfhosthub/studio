@@ -56,6 +56,10 @@ services:
     environment:
       - SHS_WORKER_TYPE=audio
       - HF_HOME=/workspace/models/huggingface
+      # 0 = never evict (default, unchanged behaviour). Set to e.g. 300 and an idle
+      # worker drops Chatterbox and hands its VRAM back, so ComfyUI on the same GPU
+      # is not squeezed by a model nothing is using.
+      - SHS_AUDIO_MODEL_IDLE_SECONDS=${SHS_AUDIO_MODEL_IDLE_SECONDS:-0}
     volumes:
       - ${SHS_WORKSPACE_HOST:-~/.studio}:/workspace
     extra_hosts: *extra-hosts

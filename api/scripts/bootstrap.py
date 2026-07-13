@@ -404,7 +404,123 @@ async def ensure_schema():
     success = await apply_rls()
     if not success:
         raise Exception("Failed to apply RLS policies")
+
+    # Restricted runtime role: provisioned only when the operator opted in
+    # via SHS_DATABASE_APP_URL. Runs AFTER migrations + RLS so grants cover
+    # every table. Idempotent; failure blocks boot (the API would fail its
+    # fail-closed RLS check anyway).
+    app_url = os.getenv("SHS_DATABASE_APP_URL", "")
+    if app_url:
+        print("📋 Provisioning restricted app role...")
+        await provision_app_role(db_url, app_url.replace("+asyncpg", ""))
     return True
+
+
+async def provision_app_role(privileged_url: str, app_url: str) -> None:
+    """Create/refresh the restricted runtime role from the app URL's credentials.
+
+    Greenfield role: LOGIN only - NOSUPERUSER, NOBYPASSRLS, NOCREATEDB,
+    NOCREATEROLE, owns nothing (owners bypass FORCE-less RLS). DML grants
+    plus default privileges so tables added by future migrations (created by
+    the privileged role) stay readable without re-provisioning.
+    """
+    import asyncpg
+    from urllib.parse import unquote, urlsplit
+
+    parts = urlsplit(app_url)
+    role = unquote(parts.username or "")
+    password = unquote(parts.password or "")
+    if not role or not password:
+        raise RuntimeError(
+            "SHS_DATABASE_APP_URL must embed the app role's username and password"
+        )
+    if not role.replace("_", "").isalnum():
+        raise RuntimeError(f"App role name {role!r} must be alphanumeric/underscore")
+    database = (parts.path or "").lstrip("/")
+
+    conn = await asyncpg.connect(privileged_url)
+    try:
+        migrator = await conn.fetchval("SELECT current_user")
+        # Without CREATEROLE, a pre-created role with correct attributes still provisions (grants need only ownership).
+        can_manage_roles = await conn.fetchval(
+            "SELECT rolsuper OR rolcreaterole FROM pg_roles "
+            "WHERE rolname = current_user"
+        )
+        existing = await conn.fetchrow(
+            "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1", role
+        )
+        escaped = password.replace("'", "''")
+        if existing is None:
+            if not can_manage_roles:
+                raise RuntimeError(
+                    f"Cannot create app role {role}: {migrator} lacks CREATEROLE. "
+                    f"Either grant it (ALTER ROLE {migrator} CREATEROLE;) or "
+                    f"pre-create the role manually as a DB admin:\n"
+                    f"  CREATE ROLE {role} LOGIN PASSWORD '<password-from-"
+                    f"SHS_DATABASE_APP_URL>' NOSUPERUSER NOBYPASSRLS "
+                    f"NOCREATEDB NOCREATEROLE NOINHERIT;"
+                )
+            await conn.execute(
+                f"CREATE ROLE {role} LOGIN PASSWORD '{escaped}' "
+                "NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+            )
+            print(f"   Created role {role}")
+        elif existing[0] or existing[1]:
+            raise RuntimeError(
+                f"App role {role} exists with rolsuper={bool(existing[0])}, "
+                f"rolbypassrls={bool(existing[1])} - it would bypass RLS. "
+                "Recreate it without those attributes."
+            )
+        elif can_manage_roles:
+            # Keep attributes + password in sync with the configured URL.
+            await conn.execute(
+                f"ALTER ROLE {role} LOGIN PASSWORD '{escaped}' "
+                "NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+            )
+            print(f"   Role {role} exists - attributes/password refreshed")
+        else:
+            print(
+                f"   Role {role} pre-exists with restricted attributes; "
+                f"{migrator} lacks CREATEROLE - skipping attribute/password "
+                "sync (manual mode: the operator owns the role's password)"
+            )
+
+        await conn.execute(f'GRANT CONNECT ON DATABASE "{database}" TO {role}')
+        await conn.execute(f"GRANT USAGE ON SCHEMA public TO {role}")
+        await conn.execute(
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES "
+            f"IN SCHEMA public TO {role}"
+        )
+        await conn.execute(
+            f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}"
+        )
+        # Future migration-created objects inherit the grants automatically.
+        await conn.execute(
+            f"ALTER DEFAULT PRIVILEGES FOR ROLE {migrator} IN SCHEMA public "
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}"
+        )
+        await conn.execute(
+            f"ALTER DEFAULT PRIVILEGES FOR ROLE {migrator} IN SCHEMA public "
+            f"GRANT USAGE, SELECT ON SEQUENCES TO {role}"
+        )
+
+        flags = await conn.fetchrow(
+            "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1", role
+        )
+        assert flags is not None and not flags[0] and not flags[1]
+        owned = await conn.fetchval(
+            "SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner "
+            "WHERE r.rolname = $1 AND c.relkind = 'r'",
+            role,
+        )
+        if owned:
+            raise RuntimeError(
+                f"App role {role} owns {owned} table(s) - owners bypass RLS "
+                "without FORCE; re-own them to the migration role"
+            )
+        print(f"✅ App role {role} provisioned (non-superuser, non-BYPASSRLS, owns nothing)")
+    finally:
+        await conn.close()
 
 
 async def run_bootstrap():

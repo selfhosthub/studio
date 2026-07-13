@@ -19,6 +19,7 @@ from app.domain.common.value_objects import Role
 from app.infrastructure.logging.request_context import update_request_identity
 from app.infrastructure.persistence.database import get_db_session
 from app.infrastructure.persistence.models import OrganizationModel, UserModel
+from app.infrastructure.persistence.rls_posture import set_user_claim_posture
 
 SECRET_KEY: str = settings.JWT_SECRET_KEY
 ALGORITHM = "HS256"
@@ -160,6 +161,11 @@ async def get_current_user(
         user_uuid = uuid.UUID(str(user_id))
     except ValueError:
         raise credentials_exception
+
+    # Quarantined self-lookup claim: lets this SELECT pass the users
+    # self-lookup RLS policy under the restricted runtime role. The claim is
+    # the unverified JWT sub - everything trusted below comes from the row.
+    await set_user_claim_posture(session, str(user_uuid))
 
     row = (
         await session.execute(

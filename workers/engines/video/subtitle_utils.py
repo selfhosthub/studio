@@ -292,19 +292,23 @@ def generate_ass_subtitles(
 
         # Generate dialogue lines with word highlighting
         for phrase_idx, phrase in enumerate(phrases):
-            phrase_text = _escape_ass_text(" ".join(w["word"] for w in phrase))
-            if all_caps:
-                phrase_text = phrase_text.upper()
-
+            # Escape per word, not on the joined phrase: highlighting substitutes
+            # by index below, and a text substitution would also match the word
+            # inside longer words ("a" inside "chain") and every repeat of it.
+            phrase_words = []
             for word_idx, word in enumerate(phrase):
-                word_start = word.get("start", 0.0)
-                word_end = word.get("end", word_start)
                 raw_word = word.get("word", "")
                 if not raw_word:
                     logger.warning(
                         f"Whisper word missing 'word' key at index {word_idx}"
                     )
-                word_text = _escape_ass_text(raw_word.upper() if all_caps else raw_word)
+                phrase_words.append(
+                    _escape_ass_text(raw_word.upper() if all_caps else raw_word)
+                )
+
+            for word_idx, word in enumerate(phrase):
+                word_start = word.get("start", 0.0)
+                word_end = word.get("end", word_start)
 
                 # Determine end time for this subtitle line
                 if word_idx < len(phrase) - 1:
@@ -320,10 +324,12 @@ def generate_ass_subtitles(
                     )
 
                 # Highlight current word
-                highlighted_text = phrase_text.replace(
-                    word_text,
-                    f"{{\\c&H{highlight_color_ass}&\\3c&H{outline_color_ass}&\\bord{outline_width * 2}}}{word_text}{{\\r}}",
+                parts = list(phrase_words)
+                parts[word_idx] = (
+                    f"{{\\c&H{highlight_color_ass}&\\3c&H{outline_color_ass}&"
+                    f"\\bord{outline_width * 2}}}{parts[word_idx]}{{\\r}}"
                 )
+                highlighted_text = " ".join(parts)
 
                 # Format timestamps
                 start_ts = _format_ass_timestamp(word_start)

@@ -29,11 +29,16 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────────────────────────────
 
     DATABASE_URL: str = Field(description="Postgres connection URL. Required.")
+    # Restricted-role URL for request serving (shs_app). Falls back to
+    # DATABASE_URL when unset; bootstrap/Alembic/seeding always use DATABASE_URL.
+    DATABASE_APP_URL: Optional[str] = Field(default=None)
     DB_POOL_SIZE: int = Field(default=20)
     DB_MAX_OVERFLOW: int = Field(default=30)
     DB_POOL_TIMEOUT: int = Field(default=10)
     DB_POOL_RECYCLE: int = Field(default=1800)
     TEST_DATABASE_URL: Optional[str] = Field(default=None)
+    # Max concurrent top-level result-processing sessions (pool-exhaustion guard).
+    RESULT_PROCESSING_CONCURRENCY: int = Field(default=8, ge=1)
 
     # ── Security ─────────────────────────────────────────────────────────
 
@@ -226,7 +231,7 @@ class Settings(BaseSettings):
 
     # ── Validators ───────────────────────────────────────────────────────
 
-    @field_validator("DATABASE_URL", "TEST_DATABASE_URL")
+    @field_validator("DATABASE_URL", "DATABASE_APP_URL", "TEST_DATABASE_URL")
     @classmethod
     def validate_database_url(cls, v: Optional[str]) -> Optional[str]:
         """Force asyncpg driver on Postgres URLs."""

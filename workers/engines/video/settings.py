@@ -25,7 +25,10 @@ class VideoSettings(BaseSettings):
     DEFAULT_SMOOTHNESS: int = 3
     FFMPEG_ENCODER: str = "libx264"
     FFMPEG_LOGGING_LEVEL: str = "warning"
-    FFMPEG_TIMEOUT_SECONDS: int = 1800
+    # A wedged ffmpeg (GPU driver stall, deadlocked encoder) is indistinguishable
+    # from a slow one, so this is how long a hang stays silent. Raise it only if a
+    # legitimate render is being killed.
+    FFMPEG_TIMEOUT_SECONDS: int = 300
     # Short timeout for the single-frame thumbnail-extract ffmpeg call.
     THUMBNAIL_EXTRACT_TIMEOUT_S: int = 30
     VIDEO_CACHE_DIR: str | None = None

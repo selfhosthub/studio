@@ -9,7 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.audit.models import (
     AuditAction,
@@ -43,6 +43,64 @@ def _is_audit_org_fk_violation(exc: IntegrityError) -> bool:
         return "organization_id" in constraint_name
     message = str(orig) if orig is not None else str(exc)
     return "organization_id" in message and "audit_events" in message
+
+
+class SessionPerCallAuditEventRepository(AuditEventRepositoryABC):
+    """Opens a short-lived session per call.
+
+    Audit writes commit independently of any request transaction (a 403's
+    log-then-raise row survives the request rollback) and hold no
+    request-long pool connection.
+    """
+
+    def __init__(self, session_factory: "async_sessionmaker[AsyncSession]"):
+        self._session_factory = session_factory
+
+    async def create(self, event: AuditEvent) -> AuditEvent:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).create(event)
+
+    async def get_by_id(self, event_id: UUID) -> Optional[AuditEvent]:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).get_by_id(event_id)
+
+    async def list_by_organization(
+        self, *args: Any, **kwargs: Any
+    ) -> List[AuditEvent]:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).list_by_organization(
+                *args, **kwargs
+            )
+
+    async def list_system_events(self, *args: Any, **kwargs: Any) -> List[AuditEvent]:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).list_system_events(
+                *args, **kwargs
+            )
+
+    async def list_all_events(self, *args: Any, **kwargs: Any) -> List[AuditEvent]:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).list_all_events(*args, **kwargs)
+
+    async def list_by_resource(self, *args: Any, **kwargs: Any) -> List[AuditEvent]:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).list_by_resource(
+                *args, **kwargs
+            )
+
+    async def list_by_actor(self, *args: Any, **kwargs: Any) -> List[AuditEvent]:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).list_by_actor(*args, **kwargs)
+
+    async def count_by_organization(self, *args: Any, **kwargs: Any) -> int:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).count_by_organization(
+                *args, **kwargs
+            )
+
+    async def count_all(self, *args: Any, **kwargs: Any) -> int:
+        async with self._session_factory() as session:
+            return await AuditEventRepository(session).count_all(*args, **kwargs)
 
 
 class AuditEventRepository(AuditEventRepositoryABC):

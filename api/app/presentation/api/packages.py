@@ -938,8 +938,8 @@ async def install_all_from_catalog(
         except HTTPException as e:
             failed.append({"package": package_id, "error": e.detail})
         except Exception as e:
-            failed.append({"package": package_id, "error": str(e)})
-            logger.error(f"Failed to install {package_id} from catalog: {e}")
+            failed.append({"package": package_id, "error": safe_error_message(e)})
+            logger.exception(f"Failed to install {package_id} from catalog")
 
     # 4. Validation: compare active providers vs catalog entries
     final_installed = await pkg_service.get_active_provider_slugs()

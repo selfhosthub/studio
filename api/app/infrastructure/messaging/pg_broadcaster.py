@@ -27,7 +27,7 @@ from uuid import UUID
 
 import asyncpg
 
-from app.infrastructure.persistence.database import DATABASE_URL
+from app.infrastructure.persistence.database import RUNTIME_DATABASE_URL
 
 if TYPE_CHECKING:
     from app.presentation.websockets.manager import ConnectionManager
@@ -95,7 +95,7 @@ class PgBroadcaster:
                 delay = min(delay * 2, _RECONNECT_MAX)
 
     async def _connect_and_listen(self) -> None:
-        dsn = _raw_dsn(DATABASE_URL)
+        dsn = _raw_dsn(RUNTIME_DATABASE_URL)
         conn = await asyncpg.connect(dsn)
         self._conn = conn
         logger.info("PgBroadcaster: connected, registering LISTEN channels")

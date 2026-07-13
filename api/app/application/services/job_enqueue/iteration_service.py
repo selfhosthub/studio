@@ -419,7 +419,8 @@ class IterationJobEnqueuer:
 
             # Apply scene expansion + file URL resolution so the
             # per-iteration http_request body is byte-equivalent to what
-            # the worker would compute.
+            # the worker would compute. Local workers expand item_groups
+            # themselves at render time.
             iter_job_cfg = resolved_iteration_config.get("job") or {}
             iter_params = iter_job_cfg.get("parameters")
             if isinstance(iter_params, dict):
@@ -428,6 +429,7 @@ class IterationJobEnqueuer:
                         iter_params,
                         org_id=str(organization_id),
                         instance_id=str(instance_id),
+                        expand_groups=not endpoint.local_worker,
                     )
                 )
 
@@ -636,6 +638,7 @@ class IterationJobEnqueuer:
                     iter_params,
                     org_id=str(organization_id),
                     instance_id=str(instance_id),
+                    expand_groups=not endpoint.local_worker,
                 )
             )
 

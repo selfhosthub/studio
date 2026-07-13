@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 
+# Hardware encoders reject frames below a minimum dimension (NVENC: "Frame
+# Dimension less than the minimum supported value"), so the probe frame must be
+# large enough that a rejection means the encoder is unusable, not undersized.
+_PROBE_FRAME_SIZE = "256x256"
+
+
 def _encoder_works(name: str) -> bool:
     """Test if an encoder actually works by encoding a single frame.
 
@@ -34,7 +40,7 @@ def _encoder_works(name: str) -> bool:
                 "-f",
                 "lavfi",
                 "-i",
-                "color=black:s=16x16:d=0.04:r=25",
+                f"color=black:s={_PROBE_FRAME_SIZE}:d=0.04:r=25",
                 "-frames:v",
                 "1",
                 "-c:v",
@@ -46,10 +52,24 @@ def _encoder_works(name: str) -> bool:
             capture_output=True,
             text=True,
             timeout=settings.SUBPROCESS_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,
         )
-        return result.returncode == 0
-    except (OSError, subprocess.SubprocessError):
+        if result.returncode != 0:
+            logger.warning(
+                f"Encoder probe for {name} failed (exit {result.returncode}): "
+                f"{_last_ffmpeg_error(result.stderr)}"
+            )
+            return False
+        return True
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f"Encoder probe for {name} could not run: {type(e).__name__}")
         return False
+
+
+def _last_ffmpeg_error(stderr: str, tail: int = 3) -> str:
+    """Return the tail of ffmpeg's stderr; its trailing lines carry the cause."""
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    return " | ".join(lines[-tail:]) if lines else "no stderr output"
 
 
 def _verify_configured_encoder() -> str:

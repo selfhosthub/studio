@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import logging
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 import httpx
@@ -14,6 +15,9 @@ from shared.settings import settings
 from engines.video.settings import settings as video_settings
 
 logger = logging.getLogger(__name__)
+
+# Subtitle fonts shipped with the worker. Flat: libass does not recurse into it.
+BUNDLED_FONTS_DIR = Path(__file__).resolve().parent / "fonts"
 
 
 def create_http_client(
@@ -128,8 +132,15 @@ def run_ffmpeg(
     effective_timeout = timeout or FFMPEG_TIMEOUT
 
     try:
+        # stdin=DEVNULL: an inherited tty makes ffmpeg poll for keypresses,
+        # spinning a core on select() and letting a stray keystroke kill a
+        # render. Docker workers get no tty; native ones inherit the operator's.
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=effective_timeout
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=effective_timeout,
+            stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{description} timed out after {effective_timeout}s")
@@ -248,6 +259,11 @@ def extract_audio_for_transcription(
     logger.debug(f"Extracted audio: {input_path} -> {output_path}")
 
 
+def _escape_filter_path(path: str) -> str:
+    """Escape a path for use as an ffmpeg filter option value."""
+    return path.replace("\\", "\\\\").replace(":", "\\:")
+
+
 def burn_subtitles(
     video_path: str,
     ass_path: str,
@@ -257,7 +273,11 @@ def burn_subtitles(
     """Burn ASS subtitles into video using the detected hardware encoder."""
     from .utils import get_encode_args, _COMMON_COLOR_ARGS, _COMMON_OUTPUT_ARGS
 
-    escaped_ass = ass_path.replace("\\", "\\\\").replace(":", "\\:")
+    escaped_ass = _escape_filter_path(ass_path)
+    # libass resolves the ASS style's Fontname through fontconfig, which sees
+    # only system-installed fonts. Point it at the bundled ones so a native
+    # worker renders identically to the container. fontsdir is not recursive.
+    escaped_fonts = _escape_filter_path(str(BUNDLED_FONTS_DIR))
     cmd = [
         "ffmpeg",
         "-y",
@@ -266,7 +286,7 @@ def burn_subtitles(
         "-i",
         video_path,
         "-vf",
-        f"ass={escaped_ass}",
+        f"ass={escaped_ass}:fontsdir={escaped_fonts}",
     ]
     cmd += get_encode_args(quality)
     cmd += _COMMON_COLOR_ARGS

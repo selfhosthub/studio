@@ -21,20 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Tests don't rsync to prod; read the pin from the manifest engine block
-      # (rsync'd source of truth, asserted equal to the dev-side guard test).
-      GUARD: contracts/launch-manifest.json
+      GUARD: api/tests/unit/contracts/test_unit_contracts__postgres_version.py
     steps:
       - uses: actions/checkout@v6
 
-      - name: Read pinned versions from the manifest
+      - name: Read pinned versions from the guard
         id: pinned
         run: |
           set -euo pipefail
-          MAJOR=$(jq -er '.engine.postgres_major' "$GUARD")
-          VERSION=$(jq -er '.engine.pgvector_version' "$GUARD")
-          # engine.image is pgvector/pgvector:<ver>-pg<major>-trixie@sha256:<digest>
-          DIGEST=$(jq -er '.engine.image' "$GUARD" | grep -oE 'sha256:[0-9a-f]+')
+          MAJOR=$(grep -oP 'EXPECTED_MAJOR = \K\d+' "$GUARD")
+          VERSION=$(grep -oP 'PGVECTOR_VERSION = "\K[^"]+' "$GUARD")
+          DIGEST=$(grep -oP 'PGVECTOR_DIGEST = "\K[^"]+' "$GUARD")
           echo "major=$MAJOR"     >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST"   >> "$GITHUB_OUTPUT"

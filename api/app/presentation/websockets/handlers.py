@@ -31,7 +31,7 @@ from app.infrastructure.auth.websocket_auth import (
 )
 from app.application.services.instance_service import InstanceService
 from app.infrastructure.messaging.event_bus import EventBus
-from app.infrastructure.persistence.database import get_db_session
+from app.infrastructure.persistence.database import get_db_session_service
 from app.presentation.api.dependencies import (
     CurrentUser,
     get_instance_service_for_ws,
@@ -92,7 +92,7 @@ async def websocket_endpoint(
     websocket: WebSocket,
     instance_id: Optional[str] = None,
     organization_id: Optional[str] = None,
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
     instance_service: InstanceService = Depends(get_instance_service_for_ws),
 ):
     """
@@ -243,6 +243,9 @@ async def websocket_endpoint(
 
     try:
         while True:
+            # Release the DB connection before blocking on receive - an open
+            # transaction would pin a pool slot for the socket's lifetime.
+            await session.rollback()
             try:
                 try:
                     data = await asyncio.wait_for(

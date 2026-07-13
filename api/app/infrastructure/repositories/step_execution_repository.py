@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import List, Optional
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.common.exceptions import EntityNotFoundError
@@ -194,13 +194,11 @@ class SQLAlchemyStepExecutionRepository(StepExecutionRepository):
         return [self._to_domain(model) for model in models]
 
     async def reset_to_queued(self, step_execution_ids: List[uuid.UUID]) -> int:
+        # Callers run on service-postured sessions (rls_posture); no inline GUC.
         from sqlalchemy import update
 
         if not step_execution_ids:
             return 0
-        await self.session.execute(
-            text("SELECT set_config('app.is_service_account', 'true', true)")
-        )
         stmt = (
             update(StepExecutionModel)
             .where(StepExecutionModel.id.in_(step_execution_ids))
@@ -225,9 +223,6 @@ class SQLAlchemyStepExecutionRepository(StepExecutionRepository):
 
         if not step_execution_ids:
             return 0
-        await self.session.execute(
-            text("SELECT set_config('app.is_service_account', 'true', true)")
-        )
         stmt = (
             update(StepExecutionModel)
             .where(StepExecutionModel.id.in_(step_execution_ids))

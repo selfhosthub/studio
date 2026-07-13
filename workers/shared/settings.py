@@ -14,6 +14,7 @@ RunPod) fall back to envs/.env.dev + envs/.env.local directly.
 """
 
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,6 +43,10 @@ class SharedSettings(BaseSettings):
     # ── Core (optional) ──────────────────────────────────────────────────
     WORKER_TYPE: str = "general"
     WORKER_NAME: str | None = None  # auto-generated in worker_base if unset
+    # "local" | "remote"; None autodetects from the workspace layout. Declare it
+    # when the autodetect is wrong - a host that once ran the API keeps a
+    # WORKSPACE_ROOT/orgs/ tree the autodetect reads as a shared mount.
+    STORAGE_MODE: Literal["local", "remote"] | None = None
 
     # ── Logging ──────────────────────────────────────────────────────────
     LOG_COLORS: bool = True

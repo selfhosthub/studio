@@ -134,10 +134,20 @@ class GenericHTTPAdapter(BaseProviderAdapter):
 
             success_status = self.response_config.get("success_status", [200, 201])
             if response.status_code not in success_status:
-                error_message = self._extract_error_message(response)
+                logger.error(
+                    f"Provider {self._provider_name} returned "
+                    f"HTTP {response.status_code} for service {service_id}",
+                    extra={
+                        "provider": self._provider_name,
+                        "service_id": service_id,
+                        "organization_id": str(organization_id),
+                        "status_code": response.status_code,
+                        "upstream_body": self._extract_error_message_for_log(response),
+                    },
+                )
                 return ProviderExecutionResult(
                     success=False,
-                    error=f"HTTP {response.status_code}: {error_message}",
+                    error=f"The provider request failed (HTTP {response.status_code}).",
                     execution_time_ms=execution_time_ms,
                 )
 
@@ -528,7 +538,9 @@ class GenericHTTPAdapter(BaseProviderAdapter):
 
         return extracted if extracted else response_data
 
-    def _extract_error_message(self, response: httpx.Response) -> str:
+    def _extract_error_message_for_log(self, response: httpx.Response) -> str:
+        """Extract upstream error text. Log-only - the return value is the raw
+        third-party response body and must never reach a client-visible field."""
         try:
             error_data = response.json()
             error_path = self.error_config.get("error_message_path", "$.error")

@@ -35,18 +35,22 @@ class ResultPublisher:
         status: str,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
+        error_code: Optional[str] = None,
         job_id: Optional[str] = None,
         webhook_pending: bool = False,
     ) -> bool:
         """Publish a step result to the API; returns True on success.
 
-        ``webhook_pending`` tells the API the request fired async and released
-        without a result; the generation id rides in ``result``.
+        ``error`` is log-only detail; the client-visible message is derived by
+        the API from ``error_code``. ``webhook_pending`` tells the API the request
+        fired async and released without a result; the generation id rides in
+        ``result``.
         """
         payload: Dict[str, Any] = {
             "status": status,
             "result": result or {},
             "error": error,
+            "error_code": error_code,
             "webhook_pending": webhook_pending,
         }
         if job_id:

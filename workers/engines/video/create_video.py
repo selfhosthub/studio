@@ -370,13 +370,9 @@ def _build_filter_chain(
     crop_filter = ""
     pad_filter = ""
 
-    # FILTER: SCALE UP
     scale_up_width, scale_up_height = calculate_scale_up_dimensions(
         input_width, input_height, output_width, output_height, smoothness
     )
-    scale_up_filter = f"scale={int(scale_up_width)}:{int(scale_up_height)}"
-
-    logger.debug(f"Scale UP: {scale_up_width}x{scale_up_height}")
 
     if input_aspect_ratio == output_aspect_ratio:
         # MATCHING ASPECT RATIOS
@@ -452,8 +448,19 @@ def _build_filter_chain(
             logger.debug(f"Pad X: {pad_x}, Pad Y: {pad_y}")
             pad_filter = f"pad={int(output_width)}:{int(output_height)}:{pad_x}:{pad_y}:{padding_color}"
 
-    # Scale down filter (always applied after zoom)
-    scale_down_filter = f"scale={int(scale_down_width)}:{int(scale_down_height)}"
+    # FILTER: SCALE UP - supersample so zoompan has sub-pixel headroom. zoompan
+    # is its only consumer (pan feeds into it), so a static clip would upscale
+    # and immediately downscale for nothing.
+    if zoom_filter:
+        scale_up_filter = f"scale={int(scale_up_width)}:{int(scale_up_height)}"
+        logger.debug(f"Scale UP: {scale_up_width}x{scale_up_height}")
+        # zoompan's default output is hd720. Without s= it renders the
+        # supersampled frame down to 720p and a trailing scale stretches it back
+        # up. Sizing it here makes that trailing scale redundant.
+        zoom_filter += f":s={int(scale_down_width)}x{int(scale_down_height)}"
+    else:
+        # Static clip: scale straight to the target size.
+        scale_down_filter = f"scale={int(scale_down_width)}:{int(scale_down_height)}"
 
     # Visual effects filters (j2v parity)
     flip_filter = ""
@@ -482,9 +489,9 @@ def _build_filter_chain(
         fade_out_filter = f"fade=t=out:st={fade_start}:d={float(fade_out)}"
 
     # Build filter chain in order:
-    # 1. scale_up - enlarge for quality
-    # 2. zoom - Ken Burns effect
-    # 3. scale_down - fit to output
+    # 1. scale_up - supersample for zoompan (empty when static)
+    # 2. zoom - Ken Burns effect, sized to the scale-down via s=
+    # 3. scale_down - fit to output (empty when zooming; zoompan already did it)
     # 4. flip - horizontal/vertical flip
     # 5. rotate - rotation angle
     # 6. crop/pad - aspect ratio adjustment
