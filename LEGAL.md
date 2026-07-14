@@ -21,16 +21,18 @@ Studio is developed using a combination of human authorship and AI-assisted tool
 
 ### 2. Acquisition and Acceptance of Terms
 
-The entity that downloads, installs, or connects to any software component, model file, or third-party service is the entity that accepts the associated license terms, terms of use, and conduct policies. This principle applies uniformly across the entire Studio ecosystem:
+Studio and each third-party component or service remain subject to their own applicable terms, regardless of who performs the technical installation or configuration. The deploying or consuming party is responsible for compliance with those terms:
 
 - **Studio source code** - governed by the Studio Use License
 - **Third-party tools** (ComfyUI, FFmpeg, Whisper, etc.) - each governed by their own respective licenses
 - **AI model files** (Flux, SDXL, SD1.5, LoRAs, VAEs, ControlNet models, etc.) - each governed by their own respective licenses
 - **Third-party API services** (OpenAI, Anthropic, Google, Leonardo AI, Stripe, etc.) - each governed by their own terms of service
 
-No party - including agencies, consultants, resellers, or any other intermediary - may deliver, transfer, or bundle these components to another party. Each deploying or consuming party must obtain them directly, through their own actions, from the applicable public distribution channels or service providers.
+Agencies and consultants may obtain, provide, and install Studio source code for individual clients as part of bespoke service engagements permitted by Sections 1(c)-(e) of the Studio Use License. This does not permit selling Studio source code as a standalone product, offering automated or self-service instance provisioning, or distributing pre-configured Studio deployment artifacts.
 
-Agencies and consultants may guide the acquisition process, assist with configuration, and install their own workflow intellectual property (configurations, templates, field mappings, branding assets). The underlying software, tools, and models must be obtained by the client.
+No party - including agencies, consultants, resellers, or any other intermediary - may deliver, transfer, or bundle third-party tools or AI model files to another party. Each deploying or consuming party must obtain those components directly, through their own actions, from the applicable public distribution channels. Third-party service accounts and credentials must likewise be obtained from the applicable service providers by the party that will use them.
+
+Agencies and consultants may guide the acquisition process, assist with configuration, and install their own workflow intellectual property (configurations, templates, field mappings, branding assets, and proprietary marketplace packages).
 
 ### 3. Permitted Uses
 
@@ -56,17 +58,18 @@ You build solutions for clients using Studio.
 
 Permitted:
 - Build workflows on your own instance during development
-- Guide or assist clients in downloading and installing their own Studio deployment - the client must acquire the Software, third-party tools, and AI model files themselves through public distribution channels
-- Install workflow configurations, templates, field mappings, and branding assets on the client's running deployment - these are your intellectual property
+- Install or deploy one Studio instance for each individual client as part of a bespoke service engagement, or guide or assist the client in downloading and installing their own Studio deployment
+- Install your own workflow configurations, templates, field mappings, branding assets, and proprietary marketplace packages on the client's running deployment - these are your intellectual property
 - Charge for consulting, installation, configuration, training, and support
 
 Not permitted:
-- Deliver, transfer, or bundle Studio source code, third-party tools (ComfyUI, FFmpeg, Whisper), or AI model files to clients - the client must download and install these components themselves, thereby accepting each component's license terms
-- Redistribute advanced marketplace packages to clients via file transfer, bundled images, or any method other than direct download from the official marketplace
+- Deliver, transfer, or bundle third-party tools (ComfyUI, FFmpeg, Whisper) or AI model files to clients - the client must obtain these components directly through the applicable public distribution channels
+- Redistribute marketplace packages to clients via file transfer, bundled images, or any method other than direct download from the official marketplace
+- Use, share, lend, or proxy an agency's or consultant's marketplace membership, entitlement token, or credentials to obtain Plus marketplace packages or updates to them for a client's deployment
 - Operate a single instance and sell access to multiple unrelated client organizations as a managed platform (this is the SaaS operator model - see below)
 - Offer automated or templated "Studio-in-a-box" provisioning to clients
 
-Each client who wants ongoing access to marketplace updates, new providers, or bug fixes must obtain their own marketplace membership.
+Each client who wants ongoing access to Plus marketplace packages, including new versions, providers, or package fixes, must obtain and use their own marketplace membership and entitlement token.
 
 **SaaS Operator**
 
@@ -242,4 +245,4 @@ If you are deploying Studio to run a business:
 
 ---
 
-**Last Updated:** 2026-02-13
+**Last Updated:** 2026-07-12
