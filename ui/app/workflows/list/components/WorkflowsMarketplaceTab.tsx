@@ -25,6 +25,7 @@ import {
   installWorkflowFromMarketplace,
   uninstallMarketplaceWorkflow,
   refreshWorkflowsCatalog,
+  getEntitlementTokenStatus,
 } from '@/shared/api';
 import type {
   MarketplaceWorkflow,
@@ -67,6 +68,7 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
   const [viewDetail, setViewDetail] = useState<MarketplaceWorkflowDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [tokenConfigured, setTokenConfigured] = useState(false);
 
   // Catalog list omits the step DAG/connections to stay lean; fetch the full
   // workflow detail on row-click (super-admin pre-install view). A ref guards
@@ -124,11 +126,13 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
     setLoading(true);
     setError(null);
     try {
-      const [catalog] = await Promise.all([
+      const [catalog, tokenStatus] = await Promise.all([
         getWorkflowsCatalog(),
+        getEntitlementTokenStatus().catch(() => ({ configured: false })),
         refreshInstalledWorkflows(),
       ]);
       setCatalogWorkflows(catalog.workflows);
+      setTokenConfigured(tokenStatus.configured);
       setFilterOptions(catalog.filter_options);
       reportWarnings(catalog.warnings || []);
     } catch (err: unknown) {
@@ -345,10 +349,17 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
             Refresh
           </button>
         )}
-        {catalogWorkflows.some((wf) => wf.tier === 'community' && !installedIds.has(wf.id)) && (
+        {(catalogWorkflows.some((wf) => wf.tier === 'community' && !installedIds.has(wf.id)) ||
+          (tokenConfigured &&
+            catalogWorkflows.some((wf) => wf.tier === 'plus' && !installedIds.has(wf.id)))) && (
           <InstallAllDropdown
-            hasCommunity
-            hasPlus={false}
+            hasCommunity={catalogWorkflows.some(
+              (wf) => wf.tier === 'community' && !installedIds.has(wf.id),
+            )}
+            hasPlus={
+              tokenConfigured &&
+              catalogWorkflows.some((wf) => wf.tier === 'plus' && !installedIds.has(wf.id))
+            }
             installing={bulkInstalling}
             onInstall={handleInstallAllByTier}
           />
@@ -500,7 +511,7 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
                               )}
                             </button>
                           )
-                        ) : wf.tier === 'plus' ? (
+                        ) : wf.tier === 'plus' && !tokenConfigured ? (
                           <span
                             className="action-btn-locked"
                             title="Plus workflow - requires entitlement token"
