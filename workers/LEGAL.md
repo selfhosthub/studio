@@ -173,10 +173,10 @@ The developers of Studio do not hold, manage, or have visibility into operator A
 
 ### 6. Marketplace Packages
 
-The Studio Marketplace provides optional provider packages, services, and templates that extend Studio's capabilities. These packages are licensed separately from the Studio platform under their own terms (the Marketplace Terms of Service).
+The Studio Marketplace provides optional provider packages, services, and templates that extend Studio's capabilities. These packages are licensed separately from the Studio platform under their own terms (the Studio Marketplace Package License).
 
 **Operators and users are responsible for:**
-- Complying with the Marketplace Terms of Service for any packages they install
+- Complying with the Studio Marketplace Package License for any packages they install
 - Obtaining marketplace packages only through the official marketplace distribution channel
 - Not redistributing, sideloading, bundling, or transferring marketplace packages to other deployments
 - Understanding that marketplace membership and package access are non-transferable

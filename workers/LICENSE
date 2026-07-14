@@ -74,8 +74,9 @@ parties is not.
 
 3. MARKETPLACE PACKAGES
 
-The Studio Marketplace ("studio-marketplace") provides optional provider packages,
-services, and templates under separate terms. Marketplace packages:
+The Studio Marketplace (the studio-community and studio-plus repositories)
+provides optional provider packages, services, and templates under separate
+terms. Marketplace packages:
 
   (a) Are licensed separately from this Software under their own terms.
 
@@ -83,8 +84,8 @@ services, and templates under separate terms. Marketplace packages:
       third-party deployments. Each deploying party must obtain marketplace
       packages directly from the official marketplace.
 
-  (c) Are subject to the Marketplace Terms of Service, which govern access,
-      usage, and distribution.
+  (c) Are subject to the Studio Marketplace Package License, which governs
+      access, usage, and distribution.
 
 For clarity: workflow configurations that reference marketplace packages
 may be freely shared or sold. The marketplace packages themselves may not.
