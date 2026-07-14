@@ -62,7 +62,13 @@ RUN test -n "${STUDIO_VERSION}" \
 # Optional. CI passes --build-arg GIT_SHA=$(git rev-parse HEAD); local builds
 # leave it empty. Surfaced via /api/v1/system/version for restore preflight.
 ARG GIT_SHA=""
-LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.title="Self-Host Studio" \
+      org.opencontainers.image.description="Self-hosted media workflow orchestration and automation" \
+      org.opencontainers.image.vendor="Self-Host Hub" \
+      org.opencontainers.image.source="https://github.com/selfhosthub/studio" \
+      org.opencontainers.image.licenses="LicenseRef-Studio-Use-License" \
+      org.opencontainers.image.version="${STUDIO_VERSION}"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -121,6 +127,9 @@ ENV PATH="/app/api/.venv/bin:$PATH" \
 
 # Shared contracts package, imported by both api and workers as `contracts.*`.
 COPY contracts/ /app/contracts/
+
+# The image carries the full Studio source, so the license notice ships with it.
+COPY LICENSE LEGAL.md /app/
 
 # Deployment shape - read by entrypoint and by studio-console for shape-aware behavior.
 RUN echo -n "core" > /etc/studio-shape && chmod 0644 /etc/studio-shape

@@ -93,7 +93,7 @@ After the stack is up:
 1. Open the UI at `http://localhost:3000` (or your configured URL)
 2. Log in with your email and the password you set during setup
 3. Verify the System Organization exists
-4. Configure the **Entitlement Token** (Settings → Secrets) to unlock advanced providers and workflows from the Plus catalog. Get your token at [SelfHostHub Community](https://www.skool.com/selfhostinnovators). A dashboard banner will remind you if this is unconfigured.
+4. Configure the **Entitlement Token** (Settings → Secrets) to unlock the Plus catalog of providers and workflows. Get your token at [SelfHost Innovators](https://www.skool.com/selfhostinnovators). A dashboard banner will remind you if this is unconfigured.
 5. Add provider credentials for any providers you plan to use (Settings → Providers)
 6. Back up `~/.studio/.env` - losing `SHS_CREDENTIAL_ENCRYPTION_KEY` makes stored credentials unrecoverable
 

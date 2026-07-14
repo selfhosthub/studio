@@ -1,6 +1,6 @@
 Studio Use License
 
-Copyright (c) 2025 Kawika Ohumukini. All rights reserved.
+Copyright (c) 2025-2026 Kawika Ohumukini. All rights reserved.
 
 This license governs the use of the Studio software platform ("Software"),
 including its API, frontend, worker, and documentation components.
@@ -49,9 +49,13 @@ You may not:
       whose primary function is deploying, hosting, or managing Software
       instances on behalf of others.
 
-  (b) Create, distribute, or sell pre-configured images, containers,
-      deployment packages, automation, or infrastructure templates that
-      contain or install the Software for third-party use.
+  (b) Distribute or sell pre-configured images, containers, deployment
+      packages, automation, or infrastructure templates that contain or
+      install the Software for third-party use.
+
+      Installing the Software on a client's own infrastructure using the
+      official Studio Console, as part of a service engagement, is
+      permitted and is not distribution under this section.
 
   (c) Fork or rebrand the Software for resale or distribution as a
       competing workflow automation platform or service.
@@ -89,6 +93,9 @@ terms. Marketplace packages:
 
 For clarity: workflow configurations that reference marketplace packages
 may be freely shared or sold. The marketplace packages themselves may not.
+
+Forking the public catalog repository to propose a contribution is
+permitted. Publishing or distributing packages from such a fork is not.
 
 
 4. USER-CREATED CONTENT

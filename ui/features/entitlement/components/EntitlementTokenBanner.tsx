@@ -58,14 +58,14 @@ export default function EntitlementTokenBanner() {
         <div className="flex items-center gap-2 text-info">
           <KeyRound size={14} className="flex-shrink-0" />
           <span>
-            Unlock advanced providers and workflows.{' '}
+            Unlock the Plus catalog of providers and workflows.{' '}
             <a
-              href="https://skool.com/selfhostinnovators"
+              href="https://www.skool.com/selfhostinnovators"
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold underline hover:no-underline inline-flex items-center gap-1"
             >
-              Join the Community
+              Join SelfHost Innovators
               <ExternalLink size={12} />
             </a>
             {' '}to get your Entitlement Token, then{' '}

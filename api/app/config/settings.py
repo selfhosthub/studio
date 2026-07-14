@@ -143,7 +143,6 @@ class Settings(BaseSettings):
     GRACE_HOURS_BLUEPRINTS: int = Field(default=72)
     GRACE_HOURS_STORAGE: int = Field(default=168)
     GRACE_HOURS_WORKFLOWS: int = Field(default=72)
-    LICENSE_CACHE_TTL: int = Field(default=86400)
     LIMIT_BUFFER_BLUEPRINTS: int = Field(default=5)
     LIMIT_BUFFER_STORAGE_MB: int = Field(default=1024)
     LIMIT_BUFFER_USERS: int = Field(default=3)

@@ -358,7 +358,6 @@ All have sensible defaults - only override when needed. Loaded from `api/app/con
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SHS_LICENSE_CACHE_TTL` | 86400 | LemonSqueezy license validation cache (seconds, 24h) |
 | `SHS_AVATAR_MAX_FILE_SIZE` | 5242880 | Max avatar upload size (bytes, 5 MiB) |
 | `SHS_WEBHOOK_SECRET_LENGTH` | 32 | Generated webhook secret length (chars) |
 | `SHS_WEBHOOK_TOKEN_LENGTH` | 24 | Generated webhook token length (chars) |

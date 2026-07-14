@@ -247,7 +247,7 @@ async def create_entitlement_token_secret(
 ) -> None:
     """Create a protected ENTITLEMENT_TOKEN secret if one doesn't exist.
 
-    The token gives access to the Plus catalog (advanced providers/workflows).
+    The token gives access to the Plus catalog.
     If SHS_ENTITLEMENT_TOKEN is set in the environment,
     the secret is created pre-populated and active. Otherwise a blank placeholder
     is created for the super-admin to configure later via the dashboard.
@@ -270,9 +270,9 @@ async def create_entitlement_token_secret(
         secret_type="bearer",
         secret_data={"token": token_value} if token_value else {},
         description=(
-            "Get your token from the SelfHostHub Community"
+            "Get your token from SelfHost Innovators"
             " (https://www.skool.com/selfhostinnovators)"
-            " to access advanced providers and workflows."
+            " to access the Plus catalog of providers and workflows."
         ),
         is_active=bool(token_value),
         is_protected=True,

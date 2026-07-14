@@ -26,7 +26,11 @@ RUN uv sync --frozen --no-dev --no-cache
 FROM python:3.12-slim
 
 ARG GIT_SHA=""
-LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.title="Self-Host Studio API" \
+      org.opencontainers.image.vendor="Self-Host Hub" \
+      org.opencontainers.image.source="https://github.com/selfhosthub/studio" \
+      org.opencontainers.image.licenses="LicenseRef-Studio-Use-License"
 
 ENV PYTHONUNBUFFERED=1 \
     PORT=8000 \
@@ -52,6 +56,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy entrypoint to root and make executable
 COPY --chown=appuser:appgroup scripts/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod 755 /docker-entrypoint.sh
+
+# Image carries the API source, so the license notice ships with it.
+COPY --chown=appuser:appgroup LICENSE LEGAL.md /app/
 
 EXPOSE 8000
 

@@ -434,6 +434,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
+        license_info={
+            "name": "Studio Use License",
+            "url": "https://github.com/selfhosthub/studio/blob/main/LICENSE",
+        },
+        terms_of_service="https://github.com/selfhosthub/studio/blob/main/LEGAL.md",
     )
 
     # Parse CORS origins from settings

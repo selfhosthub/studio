@@ -45,7 +45,7 @@ You deploy and operate Studio for your own use.
 Permitted:
 - Run workflows and sell the output (images, video, text, data, etc.)
 - Create workflow configurations and templates and sell them
-- Use basic and advanced marketplace packages on your own instance
+- Use Community and Plus marketplace packages on your own instance
 - Modify the Software for your own use
 
 Not permitted:
@@ -59,6 +59,7 @@ You build solutions for clients using Studio.
 Permitted:
 - Build workflows on your own instance during development
 - Install or deploy one Studio instance for each individual client as part of a bespoke service engagement, or guide or assist the client in downloading and installing their own Studio deployment
+- Use the official Studio Console to install and configure a client's deployment on their own infrastructure
 - Install your own workflow configurations, templates, field mappings, branding assets, and proprietary marketplace packages on the client's running deployment - these are your intellectual property
 - Charge for consulting, installation, configuration, training, and support
 
@@ -67,7 +68,7 @@ Not permitted:
 - Redistribute marketplace packages to clients via file transfer, bundled images, or any method other than direct download from the official marketplace
 - Use, share, lend, or proxy an agency's or consultant's marketplace membership, entitlement token, or credentials to obtain Plus marketplace packages or updates to them for a client's deployment
 - Operate a single instance and sell access to multiple unrelated client organizations as a managed platform (this is the SaaS operator model - see below)
-- Offer automated or templated "Studio-in-a-box" provisioning to clients
+- Sell or distribute a "Studio-in-a-box" product: an image, template, or automation that contains or installs Studio, offered to third parties
 
 Each client who wants ongoing access to Plus marketplace packages, including new versions, providers, or package fixes, must obtain and use their own marketplace membership and entitlement token.
 
@@ -236,7 +237,7 @@ If you are deploying Studio to run a business:
 
 1. **Read the [Studio Use License](LICENSE)** to understand what is permitted
 2. **Get professional counsel** (legal, tax, financial) before going live with paying customers
-3. **Read the [Super Admin Guide](docs/production/super_admin.md)** for deployment and compliance considerations
+3. **Read the [Super Admin Guide](https://github.com/selfhosthub/studio/blob/main/docs/production/super-admin.md)** for deployment and compliance considerations
 4. **Review the terms of service** for every third-party API and AI/LLM provider you integrate
 5. **Configure your instance** with appropriate terms, privacy policy, and disclosures
 6. **Set up proper communications** for subscription lifecycle events

@@ -25,6 +25,11 @@ RUN npm run build
 FROM node:24-alpine AS runner
 WORKDIR /app
 
+LABEL org.opencontainers.image.title="Self-Host Studio UI" \
+      org.opencontainers.image.vendor="Self-Host Hub" \
+      org.opencontainers.image.source="https://github.com/selfhosthub/studio" \
+      org.opencontainers.image.licenses="LicenseRef-Studio-Use-License"
+
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
@@ -40,6 +45,9 @@ COPY --from=builder /app/.next/static ./.next/static
 # Runtime env injection entrypoint
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
+
+# Image carries the UI source, so the license notice ships with it.
+COPY LICENSE LEGAL.md /app/
 
 # Change ownership to nextjs user
 RUN chown -R nextjs:nodejs /app

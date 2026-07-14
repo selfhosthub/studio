@@ -26,6 +26,13 @@ COPY shared/ shared/
 COPY engines/__init__.py engines/__init__.py
 COPY engines/transfer/ engines/transfer/
 
+# Image carries Studio worker source, so the license notice ships with it.
+LABEL org.opencontainers.image.title="Self-Host Studio worker (transfer)" \
+      org.opencontainers.image.vendor="Self-Host Hub" \
+      org.opencontainers.image.source="https://github.com/selfhosthub/studio" \
+      org.opencontainers.image.licenses="LicenseRef-Studio-Use-License"
+COPY LICENSE LEGAL.md /app/
+
 # Create non-root user
 RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app && mkdir -p /workspace && chown -R worker:worker /workspace
 

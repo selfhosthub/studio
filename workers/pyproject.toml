@@ -1,8 +1,13 @@
 [project]
 name = "studio-worker"
-version = "1.1.0"
+version = "1.1.1"
 description = "Studio workflow job workers"
 requires-python = ">=3.12"
+license = "LicenseRef-Studio-Use-License"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Kawika Ohumukini"}
+]
 dependencies = [
     "httpx>=0.28.1",
     "psutil>=5.9.0",

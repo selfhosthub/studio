@@ -54,6 +54,13 @@ COPY engines/comfyui/ engines/comfyui/
 COPY engines/comfyui_remote/comfyui_init.py engines/comfyui/__init__.py
 COPY engines/comfyui_remote/ engines/comfyui_remote/
 
+# Image carries Studio worker source, so the license notice ships with it.
+LABEL org.opencontainers.image.title="Self-Host Studio worker (comfyui_remote)" \
+      org.opencontainers.image.vendor="Self-Host Hub" \
+      org.opencontainers.image.source="https://github.com/selfhosthub/studio" \
+      org.opencontainers.image.licenses="LicenseRef-Studio-Use-License"
+COPY LICENSE LEGAL.md /app/
+
 # Create non-root user
 RUN groupadd -r worker && useradd -r -g worker -d /app/worker -s /sbin/nologin worker && chown -R worker:worker /app/worker && mkdir -p /workspace && chown -R worker:worker /workspace
 

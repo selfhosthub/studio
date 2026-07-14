@@ -8,13 +8,13 @@ package-data = {"app" = ["**/*.py"]}
 
 [project]
 name = "studio-api"
-version = "1.1.0"
+version = "1.1.1"
 description = "Production-ready workflow orchestration SaaS framework built with Domain-Driven Design"
-readme = "README.md"
 requires-python = ">=3.12,<3.14"
-# No license field, no OSI classifier: the LICENSE at the repo root governs.
+license = "LicenseRef-Studio-Use-License"
+license-files = ["LICENSE"]
 authors = [
-    {name = "Studio Framework Contributors", email = "hello@example.com"}
+    {name = "Kawika Ohumukini"}
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

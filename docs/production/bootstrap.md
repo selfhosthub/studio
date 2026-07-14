@@ -271,7 +271,7 @@ If the key is lost and there is no backup, encrypted provider credentials in the
 
 ## Related Docs
 
-- [`super_admin.md`](super_admin.md) - super admin role, capabilities, and first-login guide
+- [`super-admin.md`](super-admin.md) - super admin role, capabilities, and first-login guide
 - [`env-vars.md`](env-vars.md) - operator-tunable environment variables (timeouts, limits, polling)
 - [`docker-images.md`](docker-images.md) - image build details
 - [`deployment-matrix.md`](deployment-matrix.md) - deployment shapes and decision tree
