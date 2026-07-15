@@ -21,9 +21,14 @@ cd "$REPO_DIR"
 
 CONFIG=".github/codeql/config.yml"
 PARSER="scripts/parse-codeql-sarif.py"
+CODEQL_REQUIRED="${CODEQL_REQUIRED:-0}"
 
 if ! command -v codeql >/dev/null 2>&1; then
-    echo "▸ codeql CLI not installed — skipping scan (brew install --cask codeql)"
+    if [[ "$CODEQL_REQUIRED" == "1" ]]; then
+        echo "✗ codeql CLI not installed and CODEQL_REQUIRED=1 (install from github.com/github/codeql-cli-binaries)" >&2
+        exit 1
+    fi
+    echo "▸ codeql CLI not installed, skipping scan. Set CODEQL_REQUIRED=1 to make this a hard fail."
     exit 0
 fi
 [[ -f "$CONFIG" ]] || { echo "✗ missing $CONFIG" >&2; exit 1; }
