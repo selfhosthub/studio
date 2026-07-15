@@ -16,7 +16,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.bashrc           # macOS default shell is zsh - use ~/.zshrc instead
 
 # 2. Install studio-console
-uv tool install https://github.com/selfhosthub/studio-console/releases/download/v1.0.0/studio_console-1.0.0-py3-none-any.whl
+uv tool install https://github.com/selfhosthub/studio-console/releases/download/v1.3.3/studio_console-1.3.3-py3-none-any.whl
 
 # 3. Run
 studio-console
@@ -123,7 +123,7 @@ Provider packages, content catalogs, and marketplace packages are deployed separ
 | Environment variables reference | [production/env-vars.md](docs/production/env-vars.md) |
 | Docker images | [production/docker-images.md](docs/production/docker-images.md) |
 | Logging | [production/logging.md](docs/production/logging.md) |
-| Super-admin setup | [production/super_admin.md](docs/production/super_admin.md) |
+| Super-admin setup | [production/super-admin.md](docs/production/super-admin.md) |
 
 ## Tech Stack
 
