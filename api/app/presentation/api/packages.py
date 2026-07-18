@@ -55,6 +55,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _local_provider_data(package) -> dict | None:
+    """Read a provider's JSON from a local source, or None if not available locally."""
+    if not package.path:
+        return None
+    from app.config.sources import is_remote, local_path, source_for_tier
+
+    source = source_for_tier(package.tier)
+    if is_remote(source):
+        return None
+    local_pkg = local_path(source, "/app", package.path)
+    if not local_pkg.exists():
+        return None
+    try:
+        return json.loads(local_pkg.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"Failed to load local provider from {local_pkg}: {e}")
+        return None
+
+
 # SSRF guard for install_from_url: resolve the admin-supplied host, reject any
 # non-public resolved IP, and pin the connection to a validated IP (keeping the
 # hostname for SNI/cert) so a DNS rebind can't swap it to an internal target
@@ -884,8 +903,9 @@ async def install_all_from_catalog(
 
         try:
             installer = ProviderInstaller()
-            if package.download_url:
-                # Download the unified JSON and install from the parsed dict.
+            # Local source (dev / self-hosted) is tried first, then download_url.
+            provider_data = _local_provider_data(package)
+            if provider_data is None and package.download_url:
                 token = None
                 if package.tier == "plus":
                     token = await get_entitlement_token(
@@ -894,20 +914,20 @@ async def install_all_from_catalog(
                 provider_data = await download_provider_package(
                     package.download_url, token
                 )
-                install_result = await installer.install_from_data(
-                    provider_data,
-                    session,
-                    uuid.UUID(current_user["id"]),
-                    allow_reserved=True,
-                )
-            else:
+            if provider_data is None:
                 failed.append(
                     {
                         "package": package_id,
-                        "error": "No download_url in catalog",
+                        "error": "No local file or download_url in catalog",
                     }
                 )
                 continue
+            install_result = await installer.install_from_data(
+                provider_data,
+                session,
+                uuid.UUID(current_user["id"]),
+                allow_reserved=True,
+            )
 
             if not install_result.success:
                 failed.append(
@@ -960,4 +980,87 @@ async def install_all_from_catalog(
         message=f"Installed {total} packages from catalog"
         + (f", {len(skipped)} skipped" if skipped else "")
         + (f", {len(failed)} failed" if failed else ""),
+    )
+
+
+@router.post(
+    "/install/{namespace}/{slug}",
+    response_model=PackageInstallResponse,
+    summary="Install one provider from the marketplace catalog",
+    description="Looks up a provider in the active catalog by id and installs it, "
+    "reading the local source first and falling back to its download_url. "
+    "Super admin only.",
+)
+async def install_provider_from_catalog(
+    namespace: str,
+    slug: str,
+    current_user: Dict[str, Any] = Depends(require_super_admin),
+    session: AsyncSession = Depends(get_db_session),
+    secret_repo: OrganizationSecretRepository = Depends(
+        get_organization_secret_repository
+    ),
+    catalog_repo: SQLAlchemyMarketplaceCatalogRepository = Depends(
+        get_marketplace_catalog_repository
+    ),
+) -> PackageInstallResponse:
+    """Install a single provider by catalog id, local source first then download_url."""
+    from app.domain.provider.models import CatalogType
+
+    package_id = f"{namespace}/{slug}"
+    catalog = await get_catalog_from_database(catalog_repo, CatalogType.PROVIDERS)
+    if not catalog:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Marketplace catalog not available",
+        )
+
+    package = next((p for p in catalog.packages if p.id == package_id), None)
+    if not package:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Provider '{package_id}' not found in catalog",
+        )
+
+    provider_data = _local_provider_data(package)
+    if provider_data is None and package.download_url:
+        token = None
+        if package.tier == "plus":
+            token = await get_entitlement_token(current_user["org_id"], secret_repo)
+            if not token:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="ENTITLEMENT_TOKEN not configured. Add it via Settings > Secrets.",
+                )
+        provider_data = await download_provider_package(package.download_url, token)
+    if provider_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No local file or download_url for this provider",
+        )
+
+    installer = ProviderInstaller()
+    result = await installer.install_from_data(
+        provider_data, session, uuid.UUID(current_user["id"]), allow_reserved=True
+    )
+    if not result.success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.error or "Install failed",
+        )
+
+    await session.commit()
+    try:
+        registry = get_adapter_registry()
+        await register_single_provider(session, registry, result.provider_id)
+    except Exception as e:
+        logger.warning(f"Could not register adapter for {package_id}: {e}")
+    await sync_provider_doc(package_id, tier=package.tier)
+
+    return PackageInstallResponse(
+        success=True,
+        package_name=package_id,
+        version=result.version,
+        provider_name=result.provider_name,
+        provider_id=str(result.provider_id),
+        services_installed=result.services_installed or [],
     )

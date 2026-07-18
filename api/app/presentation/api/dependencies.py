@@ -65,7 +65,7 @@ def namespaced_id(
 ) -> str:
     """Reassemble and validate a two-segment namespaced id from the path.
 
-    Routes expose namespaced ids as `/{namespace}/{slug}` — two distinct path
+    Routes expose namespaced ids as `/{namespace}/{slug}` - two distinct path
     segments matching the on-disk `<namespace>/<slug>.json` layout and the DB
     check constraint. This dependency joins them into the canonical
     `namespace/slug` string and runs `validate_safe_package_name`, so handlers
@@ -336,6 +336,17 @@ async def get_user_repository_bypass(
     yield SQLAlchemyUserRepository(session)
 
 
+async def get_user_repository_for_member_write(
+    user: dict[str, Any] = Depends(get_current_user),
+    rls_repo: UserRepository = Depends(get_user_repository),
+    bypass_repo: UserRepository = Depends(get_user_repository_bypass),
+) -> UserRepository:
+    """Super-admin provisions members cross-org via the service-posture repo; org-admins stay RLS-scoped."""
+    if user.get("role") == "super_admin":
+        return bypass_repo
+    return rls_repo
+
+
 async def get_workflow_repository(
     session: AsyncSession = Depends(get_db_session_rls),
 ) -> AsyncGenerator[WorkflowRepository, None]:
@@ -482,6 +493,21 @@ async def get_organization_service(
     event_bus: EventBus = Depends(get_event_bus),
     password_service: PasswordService = Depends(get_password_service),
 ) -> OrganizationService:
+    return OrganizationService(
+        organization_repository=organization_repo,
+        user_repository=user_repo,
+        event_bus=event_bus,
+        password_service=password_service,
+    )
+
+
+async def get_organization_member_service(
+    organization_repo: OrganizationRepository = Depends(get_organization_repository),
+    user_repo: UserRepository = Depends(get_user_repository_for_member_write),
+    event_bus: EventBus = Depends(get_event_bus),
+    password_service: PasswordService = Depends(get_password_service),
+) -> OrganizationService:
+    """Member-create service: super-admin writes cross-org under service posture."""
     return OrganizationService(
         organization_repository=organization_repo,
         user_repository=user_repo,
@@ -672,10 +698,10 @@ async def get_org_file_service(
 
 
 async def get_org_file_service_bypass(
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
     event_bus: EventBus = Depends(get_event_bus),
 ) -> OrgFileService:
-    """Without RLS. Only for worker endpoints authenticating via X-Worker-Secret header."""
+    """Service posture. Only for worker endpoints, which carry no user org context."""
     resource_repo = SQLAlchemyOrgFileRepository(session)
     instance_repo = SQLAlchemyInstanceRepository(session)
     workflow_repo = SQLAlchemyWorkflowRepository(session)
@@ -760,8 +786,9 @@ async def get_system_health_service(
 
 
 async def get_package_management_service(
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
 ) -> PackageManagementService:
+    """Service posture. Package management writes provider_credentials across every org."""
     return PackageManagementService(session=session)
 
 

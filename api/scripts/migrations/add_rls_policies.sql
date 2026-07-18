@@ -42,6 +42,21 @@ EXCEPTION
 END;
 $$ LANGUAGE plpgsql STABLE;
 
+-- Super-admin posture helper. NULLIF guards the empty string: a pooled
+-- connection that once served a super-admin resets the GUC to '', not unset,
+-- and ''::boolean throws.
+CREATE OR REPLACE FUNCTION is_super_admin() RETURNS boolean AS $$
+BEGIN
+    RETURN COALESCE(
+        NULLIF(current_setting('app.is_super_admin', true), '')::boolean,
+        false
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN false;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
 -- Self-lookup claim helper. QUARANTINED: app.current_user_id is set from the
 -- UNVERIFIED JWT sub before the row is read, so it must only ever power the
 -- SELECT-only users_self_lookup policy below. Never reference it in any other
@@ -178,7 +193,7 @@ CREATE POLICY audit_events_visibility ON audit_events
     FOR SELECT
     USING (
         -- Super admin sees everything (org events + system events where org_id is null)
-        current_setting('app.is_super_admin', true)::boolean = true
+        is_super_admin()
         OR (
             -- Org admin sees their org's events only (not system events)
             organization_id IS NOT NULL

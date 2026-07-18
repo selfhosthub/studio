@@ -270,35 +270,6 @@ WORKER_TYPES: Dict[str, WorkerTypeConfig] = {
             "gpu_memory": "4Gi",  # Chatterbox is relatively lightweight
         },
     ),
-    "comfyui-remote": WorkerTypeConfig(
-        type_id="comfyui-remote",
-        display_name="ComfyUI Remote Worker",
-        description="Lightweight worker that calls external ComfyUI server (RunPod, cloud GPU, etc.)",
-        queue_name="comfyui_image_jobs",  # Same queue as embedded - they're interchangeable
-        # NOTE: queue_labels MUST include queue_name for JWT authorization
-        queue_labels=["comfyui_image_jobs", "comfyui", "remote", "shs-comfyui"],
-        capabilities={
-            "type": "comfyui-remote",
-            "provider": "shs-comfyui",
-            "handles": ["comfyui_image_jobs"],
-            "gpu": False,  # No GPU needed in container - GPU is on remote server
-            "max_concurrent_jobs": 4,  # Can handle more since no local GPU constraint
-            "operations": [
-                "comfyui_txt2img",
-            ],
-            "features": [
-                "text_to_image",
-                "customizable_workflows",
-                "remote_execution",  # Distinguishes from embedded
-            ],
-        },
-        service_types=set(),  # ComfyUI handles its own services
-        resource_requirements={
-            "cpu": "0.5",
-            "memory": "512Mi",
-            "gpu": None,  # No GPU required
-        },
-    ),
     "transfer": WorkerTypeConfig(
         type_id="transfer",
         display_name="Transfer Worker",

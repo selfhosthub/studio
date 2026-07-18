@@ -32,9 +32,9 @@ from app.presentation.api.dependencies import (
     get_audit_service,
     get_current_user,
     get_organization_repository,
+    get_organization_member_service,
     get_organization_service,
     get_provider_service,
-    get_user_repository,
     get_user_repository_bypass,
     get_workflow_repository,
     require_admin,
@@ -197,7 +197,7 @@ async def list_organization_stats(
     ),
     user: Dict[str, Any] = Depends(require_super_admin),
     org_repo: OrganizationRepository = Depends(get_organization_repository),
-    user_repo: UserRepository = Depends(get_user_repository),
+    user_repo: UserRepository = Depends(get_user_repository_bypass),
     workflow_repo: WorkflowRepository = Depends(get_workflow_repository),
 ):
     """List organizations with member/workflow/storage stats. Requires SUPER_ADMIN."""
@@ -441,7 +441,7 @@ async def get_organization_members(
     limit: int = Query(settings.API_PAGE_LIMIT_DEFAULT, ge=1, le=settings.API_PAGE_MAX),
     verified_org_id: UUID = Depends(verify_org_access),
     user: Dict[str, Any] = Depends(get_current_user),
-    service: OrganizationService = Depends(get_organization_service),
+    service: OrganizationService = Depends(get_organization_member_service),
 ):
     """
     List organization members.
@@ -486,7 +486,7 @@ async def create_organization_member(
     organization_id: UUID,
     user_request: UserCreateRequest,
     user: Dict[str, Any] = Depends(require_admin),
-    service: OrganizationService = Depends(get_organization_service),
+    service: OrganizationService = Depends(get_organization_member_service),
 ):
     """
     Add a new member to organization.
@@ -521,7 +521,7 @@ async def remove_organization_member(
     organization_id: UUID,
     user_id: UUID,
     user: Dict[str, Any] = Depends(require_admin),
-    service: OrganizationService = Depends(get_organization_service),
+    service: OrganizationService = Depends(get_organization_member_service),
 ):
     """
     Remove a member from organization.
@@ -638,7 +638,7 @@ async def update_user_as_admin(
     user_id: UUID,
     update_data: AdminUserUpdateRequest,
     user: Dict[str, Any] = Depends(require_admin),
-    service: OrganizationService = Depends(get_organization_service),
+    service: OrganizationService = Depends(get_organization_member_service),
     audit_service: AuditService = Depends(get_audit_service),
 ):
     """

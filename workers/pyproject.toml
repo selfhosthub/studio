@@ -1,6 +1,6 @@
 [project]
 name = "studio-worker"
-version = "1.1.1"
+version = "1.1.2"
 description = "Studio workflow job workers"
 requires-python = ">=3.12"
 license = "LicenseRef-Studio-Use-License"

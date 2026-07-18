@@ -1,6 +1,6 @@
 # workers/engines/comfyui/settings.py
 
-"""ComfyUI-engine settings. Imported by both engines/comfyui and engines/comfyui_remote."""
+"""ComfyUI-engine settings."""
 
 from pathlib import Path
 

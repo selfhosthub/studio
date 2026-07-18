@@ -30,7 +30,7 @@ COPY shared/requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
 # Copy and install ComfyUI worker requirements
-COPY engines/comfyui_remote/requirements.txt requirements.comfyui.txt
+COPY engines/comfyui/requirements.txt requirements.comfyui.txt
 RUN uv pip install --system --no-cache -r requirements.comfyui.txt
 
 # Copy shared contracts package
@@ -42,9 +42,6 @@ COPY shared/ shared/
 # Copy engine code
 COPY engines/__init__.py engines/__init__.py
 COPY engines/comfyui/ engines/comfyui/
-# Swap __init__.py to exclude ComfyUIServer (no local ComfyUI in this image)
-COPY engines/comfyui_remote/comfyui_init.py engines/comfyui/__init__.py
-COPY engines/comfyui_remote/ engines/comfyui_remote/
 
 # Image carries Studio worker source, so the license notice ships with it.
 LABEL org.opencontainers.image.title="Self-Host Studio worker (comfyui)" \

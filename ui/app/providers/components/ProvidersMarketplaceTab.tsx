@@ -4,8 +4,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { MarketplacePackage, PackageVersion, ProviderTier, ServiceType, SERVICE_TYPE_LABELS, SERVICE_TYPES } from '@/entities/provider';
-import { getMarketplaceCatalog, getEntitlementTokenStatus, installPackageFromUrl, uninstallPackage, checkPackageUsage, refreshProvidersCatalog } from '@/shared/api';
+import { MarketplacePackage, ProviderTier, ServiceType, SERVICE_TYPE_LABELS, SERVICE_TYPES } from '@/entities/provider';
+import { getMarketplaceCatalog, getEntitlementTokenStatus, installPackageFromCatalog, reinstallPackage, uninstallPackage, checkPackageUsage, refreshProvidersCatalog } from '@/shared/api';
 import { useUser } from '@/entities/user';
 import { PAGINATION } from '@/shared/lib/constants';
 import { ChevronDown, ChevronUp, Download, Lock, Bug, RefreshCw, HelpCircle } from 'lucide-react';
@@ -246,21 +246,36 @@ export function ProvidersMarketplaceTab({ isSuperAdmin }: ProvidersMarketplaceTa
     if (pkg.versions && pkg.versions.length > 0) {
       setVersionSelectPackage(pkg);
     } else if (pkg.download_url) {
-      handleInstallVersion(pkg, { version: pkg.version || '1.0.0', download_url: pkg.download_url });
+      handleInstallVersion(pkg);
     }
   };
 
   // Handle install from selected version
-  const handleInstallVersion = async (pkg: MarketplacePackage, version: PackageVersion) => {
+  const handleInstallVersion = async (pkg: MarketplacePackage) => {
     setVersionSelectPackage(null);
     setInstalling(pkg.id);
     setActionError(null);
     try {
-      await installPackageFromUrl(version.download_url, pkg.tier === 'plus');
+      await installPackageFromCatalog(pkg.id);
       await fetchCatalog(false);
     } catch (err: unknown) {
       console.error('Failed to install package:', err);
       setActionError(err instanceof Error ? err.message : 'Failed to install package');
+    } finally {
+      setInstalling(null);
+    }
+  };
+
+  // Reactivate a deactivated provider from the database (no download).
+  const handleActivate = async (pkg: MarketplacePackage) => {
+    setInstalling(pkg.id);
+    setActionError(null);
+    try {
+      await reinstallPackage(pkg.id);
+      await fetchCatalog(false);
+    } catch (err: unknown) {
+      console.error('Failed to activate package:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to activate package');
     } finally {
       setInstalling(null);
     }
@@ -286,11 +301,8 @@ export function ProvidersMarketplaceTab({ isSuperAdmin }: ProvidersMarketplaceTa
     let installed = 0;
     for (const pkg of available) {
       try {
-        const url = pkg.latest_url || pkg.download_url || pkg.versions?.[0]?.download_url;
-        if (url) {
-          await installPackageFromUrl(url, pkg.tier === 'plus');
-          installed++;
-        }
+        await installPackageFromCatalog(pkg.id);
+        installed++;
       } catch {
         // Continue installing remaining packages
       }
@@ -629,7 +641,7 @@ export function ProvidersMarketplaceTab({ isSuperAdmin }: ProvidersMarketplaceTa
                       )}
                       {pkg.status === 'deactivated' && isSuperAdmin && (
                         <button
-                          onClick={() => handleInstallClick(pkg)}
+                          onClick={() => handleActivate(pkg)}
                           disabled={installing === pkg.id}
                           className="action-btn-install"
                         >
@@ -719,7 +731,7 @@ export function ProvidersMarketplaceTab({ isSuperAdmin }: ProvidersMarketplaceTa
         <VersionSelectModal
           package={versionSelectPackage}
           onClose={() => setVersionSelectPackage(null)}
-          onInstall={(version) => handleInstallVersion(versionSelectPackage, version)}
+          onInstall={() => handleInstallVersion(versionSelectPackage)}
           isInstalling={installing === versionSelectPackage.id}
         />
       )}

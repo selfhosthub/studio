@@ -13,14 +13,16 @@ The fastest way to manage a self-hosted Studio instance ([Docker](https://docs.d
 ```bash
 # 1. Install uv (one-time)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc           # macOS default shell is zsh - use ~/.zshrc instead
+source ~/.bashrc           # macOS default shell is zsh, use ~/.zshrc instead
 
-# 2. Install studio-console
-uv tool install https://github.com/selfhosthub/studio-console/releases/download/v1.3.3/studio_console-1.3.3-py3-none-any.whl
+# 2. Install studio-console (isolated CLI, recommended)
+uv tool install studio-console
 
 # 3. Run
 studio-console
 ```
+
+No uv and don't want it? `pip install studio-console` works anywhere Python 3.8+ is available. It installs into the active environment instead of an isolated one, so a virtualenv is a good idea.
 
 On first run with no `~/.studio/.env`, the setup wizard launches automatically. It validates Docker, generates secrets, prompts for an admin email and domain, writes `~/.studio/.env`, pulls images, and starts `postgres + api + ui`.
 

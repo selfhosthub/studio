@@ -277,6 +277,23 @@ export async function installPackageFromUrl(
 // [a-zA-Z0-9._-] per half (validate_safe_package_name), so the id interpolates
 // directly with no encoding needed.
 
+export async function installPackageFromCatalog(
+  packageId: string
+): Promise<PackageInstallResponse> {
+  return apiRequest<PackageInstallResponse>(`/packages/install/${packageId}`, {
+    method: 'POST',
+  });
+}
+
+// Reactivate a soft-deleted provider from the database. No download or disk read.
+export async function reinstallPackage(
+  packageId: string
+): Promise<PackageInstallResponse> {
+  return apiRequest<PackageInstallResponse>(`/packages/${packageId}/reinstall`, {
+    method: 'POST',
+  });
+}
+
 /** Pre-uninstall check - returns affected workflows and blueprints. */
 export async function checkPackageUsage(packageName: string): Promise<PackageUsageInfo> {
   return apiRequest<PackageUsageInfo>(`/packages/${packageName}/usage`);

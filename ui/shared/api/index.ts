@@ -228,6 +228,8 @@ export {
   type CatalogRefreshResponse,
   uploadPackage,
   installPackageFromUrl,
+  installPackageFromCatalog,
+  reinstallPackage,
   checkPackageUsage,
   uninstallPackage,
   getAuditEvents,
