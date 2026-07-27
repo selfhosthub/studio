@@ -1,6 +1,6 @@
 {
   "name": "studio-dashboard",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "author": "Kawika Ohumukini",
@@ -38,14 +38,14 @@
     "@xyflow/react": "^12.10.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.479.0",
-    "next": "^16.2.6",
+    "next": "^16.2.11",
     "react": "^19.2.4",
     "react-datepicker": "^9.1.0",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
     "react-player": "^2.16.0",
     "remark-gfm": "^4.0.1",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.0",
     "uuid": "^14.0.0"
   },
   "devDependencies": {
@@ -66,7 +66,7 @@
     "jest-environment-jsdom": "^29.7.0",
     "openapi-typescript": "^7.10.1",
     "pngjs": "^7.0.0",
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.18",
     "prettier": "^3.2.5",
     "tailwindcss": "^4.2.2",
     "tesseract.js": "^7.0.0",
@@ -85,6 +85,7 @@
     "babel-plugin-istanbul": "^7.0.0",
     "next": {
       "postcss": "^8.5.10"
-    }
+    },
+    "sharp": "^0.35.0"
   }
 }

@@ -1,3 +1,0 @@
-# Transfer Worker Dependencies
-# No additional dependencies beyond shared/requirements.txt
-# Transfer worker is intentionally minimal — httpx (in shared) handles streaming.

@@ -1,6 +1,6 @@
 [project]
-name = "studio-worker"
-version = "1.1.2"
+name = "studio-workers"
+version = "1.2.0"
 description = "Studio workflow job workers"
 requires-python = ">=3.12"
 license = "LicenseRef-Studio-Use-License"
@@ -20,6 +20,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+audio = [
+    "chatterbox-tts",
+    "torch",
+    "soundfile",
+]
+comfyui = [
+    "websocket-client>=1.6.0",
+]
+video = [
+    "openai-whisper>=20231117",
+    "faster-whisper>=1.0.0",
+]
 test = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -51,7 +63,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["shared", "engines"]
+source = ["studio_workers"]
 branch = true
 omit = [
     "*/tests/*",
@@ -68,5 +80,9 @@ exclude_lines = [
 show_missing = true
 
 [tool.setuptools.packages.find]
-include = ["shared*", "engines*"]
+include = ["studio_workers*"]
 exclude = ["tests*", "docker*", "typestubs*"]
+
+[tool.setuptools.package-data]
+"studio_workers.engines.comfyui" = ["presets/*.json", "workflows/*.json"]
+"studio_workers.engines.video" = ["fonts/*", "fonts/licenses/*"]

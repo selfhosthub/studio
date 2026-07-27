@@ -1,0 +1,27 @@
+# Dated accept-risk file for the release-train image scan (trivy --ignorefile).
+# Each entry: the CVE, an expiry, and a comment naming the pinning package and
+# the image it ships in. The release owner reads every entry at the accept-risk
+# gate of the release it rides in. Trivy re-flags an entry the day its exp: passes; expiry
+# is the forcing function to revisit the pin, not a renewal reminder.
+# Single writer: studio-dev. Reaches the scanner (studio) via the release rsync.
+
+# chatterbox-tts 0.1.7 pins diffusers 0.29.0; ships in studio-worker-audio.
+CVE-2026-44513 exp:2026-10-31
+CVE-2026-45804 exp:2026-10-31
+
+# chatterbox-tts 0.1.7 pins transformers 5.2.0; ships in studio-worker-audio.
+CVE-2026-4372 exp:2026-10-31
+CVE-2026-5241 exp:2026-10-31
+
+# starlette 0.52.1, transitive tail of gradio (itself pinned by chatterbox-tts
+# and uninstalled from the audio image at build; starlette stays). Ships in
+# studio-worker-audio.
+CVE-2026-48818 exp:2026-10-31
+CVE-2026-54283 exp:2026-10-31
+
+# cloudflared 2026.7.3 (latest upstream, built 2026-07-23) bundles
+# google.golang.org/grpc v1.81.1 and Go stdlib 1.26.4; fixes exist upstream
+# (grpc 1.82.1, Go 1.26.5) but no cloudflared release carries them yet.
+# Ships in studio-core and studio-full.
+GHSA-hrxh-6v49-42gf exp:2026-09-30
+CVE-2026-39822 exp:2026-09-30

@@ -25,6 +25,9 @@ RUN npm run build
 FROM node:24-alpine AS runner
 WORKDIR /app
 
+# Standalone runtime execs node directly; drop the npm/corepack CLIs
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+
 LABEL org.opencontainers.image.title="Self-Host Studio UI" \
       org.opencontainers.image.vendor="Self-Host Hub" \
       org.opencontainers.image.source="https://github.com/selfhosthub/studio" \

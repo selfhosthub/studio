@@ -45,11 +45,11 @@ done
 IMAGES=(
     "studio-api|api|api/Dockerfile|1"
     "studio-ui|ui|ui/Dockerfile|0"
-    "studio-worker-general|workers|workers/engines/general/Dockerfile|1"
-    "studio-worker-transfer|workers|workers/engines/transfer/Dockerfile|1"
-    "studio-worker-video|workers|workers/engines/video/Dockerfile|1"
-    "studio-worker-comfyui|workers|workers/engines/comfyui/Dockerfile|1"
-    "studio-worker-audio|workers|workers/engines/audio/Dockerfile|1"
+    "studio-worker-general|workers|workers/studio_workers/engines/general/Dockerfile|1"
+    "studio-worker-transfer|workers|workers/studio_workers/engines/transfer/Dockerfile|1"
+    "studio-worker-video|workers|workers/studio_workers/engines/video/Dockerfile|1"
+    "studio-worker-comfyui|workers|workers/studio_workers/engines/comfyui/Dockerfile|1"
+    "studio-worker-audio|workers|workers/studio_workers/engines/audio/Dockerfile|1"
     "studio-core|.|Dockerfile|0"
     "studio-full|.|Dockerfile.full|0"
 )

@@ -44,7 +44,7 @@ RUN uv sync --frozen --no-dev --no-cache --no-install-project
 COPY api/ .
 RUN uv sync --frozen --no-dev --no-cache
 
-COPY workers/shared/requirements.txt /tmp/worker-requirements.txt
+COPY workers/studio_workers/requirements.txt /tmp/worker-requirements.txt
 RUN uv pip install --python /app/api/.venv/bin/python --no-cache -r /tmp/worker-requirements.txt
 
 # --- Stage 2b: Build pgvector from source ---
@@ -134,7 +134,7 @@ RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen
 
 # cloudflared from upstream binary release. Cloudflare's apt repo doesn't
 # carry trixie (Debian 13) yet; binary works on both amd64 and arm64.
-ARG CLOUDFLARED_VERSION=2025.1.1
+ARG CLOUDFLARED_VERSION=2026.7.3
 RUN ARCH="$(dpkg --print-architecture)" \
     && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${ARCH}" \
         -o /usr/local/bin/cloudflared \
@@ -142,7 +142,9 @@ RUN ARCH="$(dpkg --print-architecture)" \
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* \
+    # SSR runs node directly; drop the npm/corepack CLIs from the runtime image
+    && rm -rf /usr/lib/node_modules /usr/bin/npm /usr/bin/npx /usr/bin/corepack
 
 # --- studio-console (in-container operator tool) ---
 # Installed into /opt/uv-tools with the shim on /usr/local/bin so the binary
@@ -184,10 +186,12 @@ COPY --from=ui-builder /app/.next/static ./.next/static
 
 # --- Workers ---
 WORKDIR /app/worker
-COPY workers/shared/ shared/
-COPY workers/engines/__init__.py engines/__init__.py
-COPY workers/engines/general/ engines/general/
-COPY workers/engines/transfer/ engines/transfer/
+COPY workers/studio_workers/*.py studio_workers/
+COPY workers/studio_workers/adapters/ studio_workers/adapters/
+COPY workers/studio_workers/utils/ studio_workers/utils/
+COPY workers/studio_workers/engines/__init__.py studio_workers/engines/__init__.py
+COPY workers/studio_workers/engines/general/ studio_workers/engines/general/
+COPY workers/studio_workers/engines/transfer/ studio_workers/engines/transfer/
 
 # --- Supervisord ---
 RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor /var/log/postgresql

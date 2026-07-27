@@ -2,8 +2,9 @@ name: Release images
 
 # Triggered by `vX.Y.Z` tag push (created by scripts/release.sh).
 # Builds the 9 studio images, pushes to ghcr.io/selfhosthub/* with tags
-# :X.Y.Z and :latest. 7 images are multi-arch (amd64+arm64); 2 are amd64-only
-# (worker-audio bundles CUDA, studio-full targets single-container x86 hosts).
+# :X.Y.Z and :latest. 8 images are multi-arch (amd64+arm64); only worker-audio
+# is amd64-only (bundles CUDA). studio-full is core + in-container Postgres,
+# both arch-neutral, so it builds arm64 for Apple-silicon / Ampere / Graviton.
 #
 # Multi-arch is built natively, NOT under QEMU: each {image, arch} leg runs on a
 # native runner (amd64 -> ubuntu-24.04, arm64 -> ubuntu-24.04-arm) and pushes by
@@ -47,15 +48,15 @@ jobs:
 
           # Pinned studio-console version baked into Bundled + All-in-one images.
           # Source: versions.json (.studio_console), rsynced from studio-app's release config.
-          # No fallback default — a missing/empty value fails the workflow before any build runs.
+          # No fallback default - a missing/empty value fails the workflow before any build runs.
           # The Dockerfiles also reject an empty ARG, but failing here gives a clearer error.
           if [[ ! -f versions.json ]]; then
-            echo "::error::versions.json missing — studio-app release config did not sync"
+            echo "::error::versions.json missing - studio-app release config did not sync"
             exit 1
           fi
           CONSOLE_VERSION="$(jq -er '.studio_console' versions.json 2>/dev/null || true)"
           if [[ -z "$CONSOLE_VERSION" || "$CONSOLE_VERSION" == "null" ]]; then
-            echo "::error::versions.json has no .studio_console field — bump studio-app's release config to pin a console version"
+            echo "::error::versions.json has no .studio_console field - bump studio-app's release config to pin a console version"
             exit 1
           fi
           echo "console_version=$CONSOLE_VERSION  (baked into studio-core + studio-full)"
@@ -78,11 +79,11 @@ jobs:
           images='[
             {"image":"studio-api","context":"api","dockerfile":"api/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
             {"image":"studio-ui","context":"ui","dockerfile":"ui/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-general","context":"workers","dockerfile":"workers/engines/general/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-transfer","context":"workers","dockerfile":"workers/engines/transfer/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-video","context":"workers","dockerfile":"workers/engines/video/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-comfyui","context":"workers","dockerfile":"workers/engines/comfyui/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-audio","context":"workers","dockerfile":"workers/engines/audio/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64"]},
+            {"image":"studio-worker-general","context":"workers","dockerfile":"workers/studio_workers/engines/general/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-transfer","context":"workers","dockerfile":"workers/studio_workers/engines/transfer/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-video","context":"workers","dockerfile":"workers/studio_workers/engines/video/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-comfyui","context":"workers","dockerfile":"workers/studio_workers/engines/comfyui/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-audio","context":"workers","dockerfile":"workers/studio_workers/engines/audio/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64"]},
             {"image":"studio-core","context":".","dockerfile":"Dockerfile","contracts":false,"bakes_console":true,"arches":["amd64","arm64"]},
             {"image":"studio-full","context":".","dockerfile":"Dockerfile.full","contracts":false,"bakes_console":true,"arches":["amd64","arm64"]}
           ]'
@@ -229,5 +230,5 @@ jobs:
         run: |
           set -euo pipefail
           CURRENT="$(gh release view "$TAG" --json body --jq '.body')"
-          APPEND=$'\n\n## Baked tools\n\n- `studio-console` **'"$CONSOLE_VERSION"$'** — baked into `studio-core` and `studio-full` images.'
+          APPEND=$'\n\n## Baked tools\n\n- `studio-console` **'"$CONSOLE_VERSION"$'** - baked into `studio-core` and `studio-full` images.'
           printf '%s%s' "$CURRENT" "$APPEND" | gh release edit "$TAG" --notes-file -
