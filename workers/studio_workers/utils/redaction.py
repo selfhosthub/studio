@@ -5,7 +5,7 @@
 Extend the contracts package directly; do not add symbols here.
 """
 
-from contracts.redaction import (
+from studio_workers.contracts.redaction import (
     PII_KEYS,
     REDACTED_PLACEHOLDER,
     SENSITIVE_KEYS,

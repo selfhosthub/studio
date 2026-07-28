@@ -20,6 +20,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 from studio_workers.settings import settings
+from studio_workers.utils.cf_access import cf_access_headers
 
 # Configuration
 API_BASE_URL: str = settings.API_BASE_URL
@@ -57,6 +58,7 @@ class HTTPJobClient:
             headers={
                 "X-Worker-Secret": self.worker_secret,
                 "Content-Type": "application/json",
+                **cf_access_headers(),
             },
         )
 

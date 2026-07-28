@@ -19,7 +19,7 @@ RUN uv sync --frozen --no-dev --no-cache --no-install-project
 
 # Copy source and install project
 COPY . .
-COPY --from=contracts . /app/contracts/
+COPY --from=contracts . /app/studio_workers/contracts/
 RUN uv sync --frozen --no-dev --no-cache
 
 # --- Stage 2: Runner (no compiler, no build tools) ---

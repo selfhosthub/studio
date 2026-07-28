@@ -1,4 +1,4 @@
-# contracts/step_result.py
+# workers/studio_workers/contracts/step_result.py
 
 """Step Result Contract: minimal worker → API payload shape."""
 

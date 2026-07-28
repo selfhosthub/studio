@@ -23,7 +23,7 @@ from app.infrastructure.persistence.models import (
     ProviderServiceModel,
 )
 from app.infrastructure.services.package_version_service import PackageVersionService
-from contracts.webhook_completion import audit_provider_webhook_completion
+from studio_workers.contracts.webhook_completion import audit_provider_webhook_completion
 
 logger = logging.getLogger(__name__)
 

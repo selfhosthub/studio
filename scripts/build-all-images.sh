@@ -40,16 +40,17 @@ done
 [[ -z "$VERSION" ]] && VERSION="$(cat VERSION)"
 
 # name|context|dockerfile|contracts  — mirrors the CI build matrix.
-# contracts=1 passes --build-context contracts=contracts (a named build
-# context, not an image); the Dockerfile's `COPY --from=contracts` needs it.
+# contracts=1 passes --build-context contracts=workers/studio_workers/contracts
+# (a named build context, not an image); the Dockerfile's `COPY --from=contracts`
+# needs it. Worker images carry contracts inside the package tree.
 IMAGES=(
     "studio-api|api|api/Dockerfile|1"
     "studio-ui|ui|ui/Dockerfile|0"
-    "studio-worker-general|workers|workers/studio_workers/engines/general/Dockerfile|1"
-    "studio-worker-transfer|workers|workers/studio_workers/engines/transfer/Dockerfile|1"
-    "studio-worker-video|workers|workers/studio_workers/engines/video/Dockerfile|1"
-    "studio-worker-comfyui|workers|workers/studio_workers/engines/comfyui/Dockerfile|1"
-    "studio-worker-audio|workers|workers/studio_workers/engines/audio/Dockerfile|1"
+    "studio-worker-general|workers|workers/studio_workers/engines/general/Dockerfile|0"
+    "studio-worker-transfer|workers|workers/studio_workers/engines/transfer/Dockerfile|0"
+    "studio-worker-video|workers|workers/studio_workers/engines/video/Dockerfile|0"
+    "studio-worker-comfyui|workers|workers/studio_workers/engines/comfyui/Dockerfile|0"
+    "studio-worker-audio|workers|workers/studio_workers/engines/audio/Dockerfile|0"
     "studio-core|.|Dockerfile|0"
     "studio-full|.|Dockerfile.full|0"
 )
@@ -75,7 +76,7 @@ build_one() {
     local log="$LOG_DIR/$name.log"
 
     local ctx_arg=""
-    [[ "$contracts" == "1" ]] && ctx_arg="--build-context contracts=contracts"
+    [[ "$contracts" == "1" ]] && ctx_arg="--build-context contracts=workers/studio_workers/contracts"
 
     echo "==> Building $REGISTRY/$name:$VERSION"
     # shellcheck disable=SC2086

@@ -11,6 +11,7 @@ import {
   ErrorState,
   EmptyState,
   Modal,
+  UserAvatar,
 } from "@/shared/ui";
 import { useState, useEffect, useMemo } from "react";
 import { PAGINATION } from '@/shared/lib/constants';
@@ -45,6 +46,8 @@ export default function OrganizationUsersPage() {
   const [inviteForm, setInviteForm] = useState({
     email: '',
     username: '',
+    first_name: '',
+    last_name: '',
     password: '',
     confirmPassword: '',
     role: 'user' as 'user' | 'admin' | 'super_admin',
@@ -219,11 +222,13 @@ export default function OrganizationUsersPage() {
         inviteForm.email,
         inviteForm.password,
         inviteForm.role,
-        inviteForm.username || undefined
+        inviteForm.username || undefined,
+        inviteForm.first_name || undefined,
+        inviteForm.last_name || undefined
       );
       toast({ title: 'User created', description: 'User created and added to organization successfully!', variant: 'success' });
       setShowInviteModal(false);
-      setInviteForm({ email: '', username: '', password: '', confirmPassword: '', role: 'user' });
+      setInviteForm({ email: '', username: '', first_name: '', last_name: '', password: '', confirmPassword: '', role: 'user' });
       // Reload members list
       const members = await getOrganizationMembers(orgId);
       setMembers(members);
@@ -304,71 +309,85 @@ export default function OrganizationUsersPage() {
               description={searchTerm ? 'Try adjusting your search term.' : 'No members in this organization.'}
             />
           ) : (
-          <div className="px-4 py-4 space-y-2">
-            {paginatedMembers.map((member) => {
-              const isMemberSuperAdmin = member.role === 'super_admin';
-              const isCurrentUserSuperAdmin = user?.role === 'super_admin';
-              // Check if member is the only admin in the org
-              const adminCount = members.filter(m => m.role === 'admin').length;
-              const isOnlyAdmin = member.role === 'admin' && adminCount === 1;
-              // Hide remove for super_admin users and sole org admins
-              const canRemove = !isMemberSuperAdmin && !isOnlyAdmin;
-              // Super admins can edit anyone; others can edit non-super_admins
-              const canEdit = canManageUsers && (isCurrentUserSuperAdmin || !isMemberSuperAdmin);
-              // Show action row if either edit or remove is available
-              const showActions = canEdit || canRemove;
-
-              return (
-                <div
-                  key={member.id}
-                  className="p-3 bg-surface rounded-md"
-                >
-                  {/* Top row: user info and role badge */}
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <span className="font-medium text-primary">{member.username}</span>
-                      <span className="text-sm text-secondary ml-2 hidden sm:inline">
-                        {member.email}
-                      </span>
-                      <p className="text-sm text-secondary truncate sm:hidden">
-                        {member.email}
-                      </p>
-                    </div>
-                    <StatusBadge
-                      status={member.role}
-                      variant={
-                        member.role === 'admin'
-                          ? 'info'
-                          : member.role === 'super_admin'
-                            ? 'error'
-                            : 'default'
-                      }
-                    />
-                  </div>
-                  {/* Bottom row: action buttons */}
-                  {showActions && (
-                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-primary">
-                      {canEdit && (
-                        <ActionButton
-                          variant="change"
-                          onClick={() => handleEditUser(member)}
-                        >
-                          Edit
-                        </ActionButton>
-                      )}
-                      {canRemove && (
-                        <ActionButton
-                          variant="destructive"
-                          onClick={() => handleRemoveMember(member.id, member.username)}
-                        >
-                          Remove
-                        </ActionButton>
-                      )}
-                    </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-primary">
+              <thead className="bg-surface">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">User</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Email</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Role</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Status</th>
+                  {canManageUsers && (
+                    <th className="px-4 py-3 text-right text-xs font-medium text-secondary uppercase">Actions</th>
                   )}
-                </div>
-              );
-            })}
+                </tr>
+              </thead>
+              <tbody className="bg-card divide-y divide-primary">
+                {paginatedMembers.map((member) => {
+                  const isMemberSuperAdmin = member.role === 'super_admin';
+                  const isCurrentUserSuperAdmin = user?.role === 'super_admin';
+                  // Check if member is the only admin in the org
+                  const adminCount = members.filter(m => m.role === 'admin').length;
+                  const isOnlyAdmin = member.role === 'admin' && adminCount === 1;
+                  // Hide remove for super_admin users and sole org admins
+                  const canRemove = !isMemberSuperAdmin && !isOnlyAdmin;
+                  // Super admins can edit anyone; others can edit non-super_admins
+                  const canEdit = canManageUsers && (isCurrentUserSuperAdmin || !isMemberSuperAdmin);
+
+                  return (
+                    <tr key={member.id}>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <UserAvatar user={member} sizeClassName="w-8 h-8" />
+                          <div className="ml-3">
+                            <div className="text-sm font-medium text-primary">
+                              {member.first_name && member.last_name
+                                ? `${member.first_name} ${member.last_name}`
+                                : member.username}
+                            </div>
+                            <div className="text-sm text-secondary">@{member.username}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-secondary">
+                        {member.email}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <StatusBadge
+                          status={member.role}
+                          variant={member.role === 'admin' ? 'warning' : member.role === 'super_admin' ? 'error' : 'default'}
+                        />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <StatusBadge
+                          status={member.is_active !== false ? 'active' : 'inactive'}
+                          variant={member.is_active !== false ? 'success' : 'default'}
+                        />
+                      </td>
+                      {canManageUsers && (
+                        <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
+                          <div className="flex justify-end gap-2">
+                            {canEdit && (
+                              <ActionButton variant="change" onClick={() => handleEditUser(member)}>
+                                Edit
+                              </ActionButton>
+                            )}
+                            {canRemove && (
+                              <ActionButton
+                                variant="destructive"
+                                onClick={() => handleRemoveMember(member.id, member.username)}
+                              >
+                                Remove
+                              </ActionButton>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
           )}
         </div>
@@ -429,6 +448,33 @@ export default function OrganizationUsersPage() {
               <p className="mt-1 text-xs text-secondary">
                 If not provided, will use the part before @ in email
               </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="first_name" className="form-label">
+                  First Name (optional)
+                </label>
+                <input
+                  type="text"
+                  id="first_name"
+                  value={inviteForm.first_name}
+                  onChange={(e) => setInviteForm({ ...inviteForm, first_name: e.target.value })}
+                  className="form-input"
+                />
+              </div>
+              <div>
+                <label htmlFor="last_name" className="form-label">
+                  Last Name (optional)
+                </label>
+                <input
+                  type="text"
+                  id="last_name"
+                  value={inviteForm.last_name}
+                  onChange={(e) => setInviteForm({ ...inviteForm, last_name: e.target.value })}
+                  className="form-input"
+                />
+              </div>
             </div>
 
             <div>
@@ -494,7 +540,7 @@ export default function OrganizationUsersPage() {
               onClick={() => {
                 setShowInviteModal(false);
                 setInviteError(null);
-                setInviteForm({ email: '', username: '', password: '', confirmPassword: '', role: 'user' });
+                setInviteForm({ email: '', username: '', first_name: '', last_name: '', password: '', confirmPassword: '', role: 'user' });
               }}
               className="mt-3 w-full inline-flex justify-center rounded-md border border-primary shadow-sm px-4 py-2 bg-card text-base font-medium text-secondary hover:bg-surface focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >

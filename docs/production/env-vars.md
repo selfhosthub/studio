@@ -78,6 +78,9 @@ The URL vars are the single biggest source of botched deploys. There are five of
 | `SHS_WS_URL` | - | WebSocket URL injected into the UI container as `NEXT_PUBLIC_WS_URL`. Required. |
 | `SHS_CORS_ORIGINS` | - | Comma-separated allowed origins. Must include the UI origin and any external embedders. Required. |
 | `SHS_NGINX_PORT` | `80` | Host port the bundled nginx binds to. The `api` and `ui` services are not exposed to the host directly - nginx is the single entry point. |
+| `SHS_PUBLISH_INTERNAL_BIND` | `127.0.0.1` | Launch-time (console) override for where internal ports (API 8000, supervisord 9001) are published on the host. Set to `0.0.0.0` or a LAN IP to expose them beyond localhost. See [worker-access.md](worker-access.md) before widening it. |
+| `SHS_CF_ACCESS_CLIENT_ID` | - | Worker-side, optional. Cloudflare Access service-token id, sent as a `CF-Access-Client-Id` header on every worker API call. Pairs with a path-scoped Access app on `<api-hostname>/internal/*`. |
+| `SHS_CF_ACCESS_CLIENT_SECRET` | - | Worker-side, optional. The matching service-token secret, sent as `CF-Access-Client-Secret`. Both unset means no Access headers (the default). |
 
 #### URL vars worked example
 

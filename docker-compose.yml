@@ -43,6 +43,9 @@ services:
 
     environment:
       - SHS_WORKSPACE_ROOT=/workspace
+    ports:
+      # Localhost-only API publish for native same-host workers.
+      - "127.0.0.1:8000:8000"
     volumes:
       - ${SHS_WORKSPACE_HOST:?SHS_WORKSPACE_HOST is required}:/workspace
     depends_on:

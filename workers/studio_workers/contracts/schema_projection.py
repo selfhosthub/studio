@@ -1,4 +1,4 @@
-# contracts/schema_projection.py
+# workers/studio_workers/contracts/schema_projection.py
 
 """
 Schema-based projection for request and result payloads.

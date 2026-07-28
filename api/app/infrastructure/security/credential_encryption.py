@@ -7,7 +7,7 @@ import os
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from contracts.redaction import is_sensitive_key
+from studio_workers.contracts.redaction import is_sensitive_key
 from cryptography.fernet import Fernet
 
 from app.config.settings import settings

@@ -1,4 +1,4 @@
-# contracts/log_schema.py
+# workers/studio_workers/contracts/log_schema.py
 
 """
 Log Schema Contract: canonical JSON log field names and verbosity tiers.

@@ -1,4 +1,4 @@
-# contracts/workspace_paths.py
+# workers/studio_workers/contracts/workspace_paths.py
 
 """Shared workspace-path helpers for API ↔ worker file naming.
 
@@ -6,7 +6,7 @@ The API has historically been the sole writer of `/workspace/orgs/`,
 so the filename-sanitization rule lived inside the upload-resource
 service. With workers now writing directly to that tree when
 `storage_mode=local`, both sides must agree on the same sanitization
-*byte-for-byte* — or the API stats the wrong path and falls back to
+*byte-for-byte* - or the API stats the wrong path and falls back to
 HTTP upload, defeating the optimization.
 
 Keep this module dependency-free (stdlib only) so both `api/` and

@@ -60,7 +60,7 @@ class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         import json
 
-        from contracts.log_schema import (
+        from studio_workers.contracts.log_schema import (
             VERBOSITY_FULL,
             VERBOSITY_STANDARD,
             format_timestamp,

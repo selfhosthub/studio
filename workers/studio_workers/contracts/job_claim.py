@@ -1,4 +1,4 @@
-# contracts/job_claim.py
+# workers/studio_workers/contracts/job_claim.py
 
 """
 Job Claim Contract: API → Worker payload shape.

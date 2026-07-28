@@ -1,4 +1,4 @@
-# contracts/group_expansion.py
+# workers/studio_workers/contracts/group_expansion.py
 
 """
 Group expansion - template fan-out via circular array pull.

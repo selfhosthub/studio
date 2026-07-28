@@ -13,7 +13,7 @@ from datetime import datetime, UTC
 from typing import Any, Dict, List, Optional
 
 from app.config.settings import settings
-from contracts.webhook_completion import WEBHOOK_MODE
+from studio_workers.contracts.webhook_completion import WEBHOOK_MODE
 from app.application.services.image_presets import apply_image_presets
 from app.application.services.job_enqueue.variable_resolver import VariableResolver
 from app.infrastructure.errors import safe_error_message
@@ -369,7 +369,7 @@ class JobEnqueueService:
             and webhook_svc_meta.get("webhook_completion")
         ):
             # Targeted regen: the API already reset one row and passes its
-            # API-assigned (index, count, group). Enqueue exactly that slot —
+            # API-assigned (index, count, group). Enqueue exactly that slot -
             # never re-fan a length-1 source (which would mint index 0, count 1,
             # a new group). §4.5 / I-15.
             if iteration_metadata and iteration_metadata.get("iteration_index") is not None:
@@ -445,7 +445,7 @@ class JobEnqueueService:
             # cross-step form values (keyed as {step_id}.{field}) and anything else
             # the service doesn't declare, so the worker's request body and the UI's
             # Request Data panel both reflect the true contract.
-            from contracts.schema_projection import project_by_schema
+            from studio_workers.contracts.schema_projection import project_by_schema
 
             job_params = resolved_step_config.get("job", {}).get("parameters")
             if isinstance(job_params, dict):

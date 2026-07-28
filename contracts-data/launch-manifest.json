@@ -18,9 +18,9 @@
       },
       "ports": [
         {"container": 80, "name": "nginx", "protocol": "tcp", "healthcheck": true, "primary": true, "description": "Single front-door origin. nginx routes /api,/ws → API and / → UI. Publish this port; point cloudflared and external proxies here. Listen port follows SHS_NGINX_PORT (default 80)."},
-        {"container": 8000, "name": "api", "protocol": "tcp", "internal": true, "description": "API process behind nginx. Not host-facing; reachable only via nginx /api,/ws routes."},
+        {"container": 8000, "name": "api", "protocol": "tcp", "internal": true, "localhost_publish": "127.0.0.1", "description": "API process behind nginx. internal keeps pre-1.4.1 consoles from publishing it on all interfaces; localhost_publish tells newer consoles to publish 127.0.0.1:8000 so native same-host workers (studio-workers PyPI) can poll /internal/*, which nginx never routes. Localhost-published means any local process on the host can reach it."},
         {"container": 3000, "name": "ui", "protocol": "tcp", "internal": true, "description": "UI process behind nginx. Not host-facing; reachable only via nginx /."},
-        {"container": 9001, "name": "supervisor", "protocol": "tcp"}
+        {"container": 9001, "name": "supervisor", "protocol": "tcp", "internal": true, "localhost_publish": "127.0.0.1", "description": "supervisord web UI. Auth-gated by SHS_SUPERVISOR_USER/PASSWORD; published on 127.0.0.1 only, SHS_PUBLISH_INTERNAL_BIND widens it for LAN use."}
       ],
       "volumes": [
         {
@@ -136,9 +136,9 @@
       },
       "ports": [
         {"container": 80, "name": "nginx", "protocol": "tcp", "healthcheck": true, "primary": true, "description": "Single front-door origin. nginx routes /api,/ws → API and / → UI. Publish this port; point cloudflared and external proxies here. Listen port follows SHS_NGINX_PORT (default 80)."},
-        {"container": 8000, "name": "api", "protocol": "tcp", "internal": true, "description": "API process behind nginx. Not host-facing; reachable only via nginx /api,/ws routes."},
+        {"container": 8000, "name": "api", "protocol": "tcp", "internal": true, "localhost_publish": "127.0.0.1", "description": "API process behind nginx. internal keeps pre-1.4.1 consoles from publishing it on all interfaces; localhost_publish tells newer consoles to publish 127.0.0.1:8000 so native same-host workers (studio-workers PyPI) can poll /internal/*, which nginx never routes. Localhost-published means any local process on the host can reach it."},
         {"container": 3000, "name": "ui", "protocol": "tcp", "internal": true, "description": "UI process behind nginx. Not host-facing; reachable only via nginx /."},
-        {"container": 9001, "name": "supervisor", "protocol": "tcp"}
+        {"container": 9001, "name": "supervisor", "protocol": "tcp", "internal": true, "localhost_publish": "127.0.0.1", "description": "supervisord web UI. Auth-gated by SHS_SUPERVISOR_USER/PASSWORD; published on 127.0.0.1 only, SHS_PUBLISH_INTERNAL_BIND widens it for LAN use."}
       ],
       "volumes": [
         {

@@ -34,7 +34,7 @@ COPY studio_workers/engines/comfyui/requirements.txt requirements.comfyui.txt
 RUN uv pip install --system --no-cache -r requirements.comfyui.txt
 
 # Copy shared contracts package
-COPY --from=contracts . /app/worker/contracts/
+COPY studio_workers/contracts/ studio_workers/contracts/
 
 # Copy worker runtime (engine dirs copied selectively below)
 COPY studio_workers/*.py studio_workers/

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from contracts.redaction import is_sensitive_key
+from studio_workers.contracts.redaction import is_sensitive_key
 
 from app.domain.audit.models import (
     AuditAction,

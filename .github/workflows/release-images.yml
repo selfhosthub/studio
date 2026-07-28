@@ -79,11 +79,11 @@ jobs:
           images='[
             {"image":"studio-api","context":"api","dockerfile":"api/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
             {"image":"studio-ui","context":"ui","dockerfile":"ui/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-general","context":"workers","dockerfile":"workers/studio_workers/engines/general/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-transfer","context":"workers","dockerfile":"workers/studio_workers/engines/transfer/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-video","context":"workers","dockerfile":"workers/studio_workers/engines/video/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-comfyui","context":"workers","dockerfile":"workers/studio_workers/engines/comfyui/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64","arm64"]},
-            {"image":"studio-worker-audio","context":"workers","dockerfile":"workers/studio_workers/engines/audio/Dockerfile","contracts":true,"bakes_console":false,"arches":["amd64"]},
+            {"image":"studio-worker-general","context":"workers","dockerfile":"workers/studio_workers/engines/general/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-transfer","context":"workers","dockerfile":"workers/studio_workers/engines/transfer/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-video","context":"workers","dockerfile":"workers/studio_workers/engines/video/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-comfyui","context":"workers","dockerfile":"workers/studio_workers/engines/comfyui/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64","arm64"]},
+            {"image":"studio-worker-audio","context":"workers","dockerfile":"workers/studio_workers/engines/audio/Dockerfile","contracts":false,"bakes_console":false,"arches":["amd64"]},
             {"image":"studio-core","context":".","dockerfile":"Dockerfile","contracts":false,"bakes_console":true,"arches":["amd64","arm64"]},
             {"image":"studio-full","context":".","dockerfile":"Dockerfile.full","contracts":false,"bakes_console":true,"arches":["amd64","arm64"]}
           ]'
@@ -140,7 +140,7 @@ jobs:
           # org.opencontainers.image.version (which would track studio-app itself).
           # Operators can query the baked version with `docker inspect`.
           labels: ${{ matrix.bakes_console && format('com.selfhosthub.console.version={0}', needs.guard.outputs.console_version) || '' }}
-          build-contexts: ${{ matrix.contracts && 'contracts=contracts' || '' }}
+          build-contexts: ${{ matrix.contracts && 'contracts=workers/studio_workers/contracts' || '' }}
           # Cache scope is arch-qualified: each arch builds separately, so a shared
           # scope would let the two legs clobber each other's cache.
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}

@@ -11,6 +11,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 from studio_workers.settings import settings
+from studio_workers.utils.cf_access import cf_access_headers
 from studio_workers.utils.dead_letter import write_dead_letter
 
 _TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED"})
@@ -28,7 +29,11 @@ class ResultPublisher:
         token = self._token_getter()
         if not token:
             raise RuntimeError("Worker JWT not available - not yet registered")
-        return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            **cf_access_headers(),
+        }
 
     def publish_step_result(
         self,

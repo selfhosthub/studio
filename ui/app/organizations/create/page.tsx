@@ -106,7 +106,9 @@ export default function CreateOrganizationPage() {
           adminForm.email,
           adminForm.password,
           'admin',
-          adminForm.username
+          adminForm.username,
+          adminForm.first_name || undefined,
+          adminForm.last_name || undefined
         );
       }
 

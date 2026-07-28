@@ -40,7 +40,7 @@ COPY studio_workers/engines/video/requirements.txt requirements.video.txt
 RUN uv pip install --system --no-cache -r requirements.video.txt
 
 # Copy shared contracts package
-COPY --from=contracts . /app/contracts/
+COPY studio_workers/contracts/ studio_workers/contracts/
 
 # Copy worker runtime (engine dirs copied selectively below)
 COPY studio_workers/*.py studio_workers/

@@ -125,10 +125,10 @@ WORKDIR /app/api
 COPY --from=python-builder /app/api/.venv .venv
 COPY --from=python-builder /app/api .
 ENV PATH="/app/api/.venv/bin:$PATH" \
-    PYTHONPATH="/app"
+    PYTHONPATH="/app:/app/worker"
 
-# Shared contracts package, imported by both api and workers as `contracts.*`.
-COPY contracts/ /app/contracts/
+# Launch manifest at its frozen path - studio-console and the entrypoint read it here.
+COPY contracts-data/launch-manifest.json /app/contracts/launch-manifest.json
 
 # The image carries the full Studio source, so the license notice ships with it.
 COPY LICENSE LEGAL.md /app/
@@ -149,6 +149,7 @@ COPY --from=ui-builder /app/.next/static ./.next/static
 WORKDIR /app/worker
 COPY workers/studio_workers/*.py studio_workers/
 COPY workers/studio_workers/adapters/ studio_workers/adapters/
+COPY workers/studio_workers/contracts/ studio_workers/contracts/
 COPY workers/studio_workers/utils/ studio_workers/utils/
 COPY workers/studio_workers/engines/__init__.py studio_workers/engines/__init__.py
 COPY workers/studio_workers/engines/general/ studio_workers/engines/general/

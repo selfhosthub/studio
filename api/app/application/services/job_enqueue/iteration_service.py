@@ -30,7 +30,7 @@ from app.application.services.job_enqueue.parameter_resolution import (
     resolve_step_parameters,
 )
 from app.application.services.job_enqueue.variable_resolver import VariableResolver
-from contracts.webhook_completion import (
+from studio_workers.contracts.webhook_completion import (
     WEBHOOK_MODE,
     EXECUTION_TOKEN_ROUTING,
     GENERATION_ID_ROUTING,
@@ -521,9 +521,9 @@ class IterationJobEnqueuer:
         """Enqueue ONE webhook job for an already-reset iteration slot (§4.5 / I-15).
 
         Identity (index/count/group) is supplied by the caller from the canonical
-        rows — never a fresh fan-out — and the existing row is reused (no new row,
+        rows - never a fresh fan-out - and the existing row is reused (no new row,
         no new group). Duplicates enqueue_iteration_jobs' per-job build for the
-        targeted-regen path; both collapse into the fan-in arbiter when it lands —
+        targeted-regen path; both collapse into the fan-in arbiter when it lands -
         see instance-lifecycle.md §4.5.
         """
         credential_id = await self.endpoint_resolver.resolve_step_credential(
@@ -665,7 +665,7 @@ class IterationJobEnqueuer:
             "previous_step_results": previous_step_results or {},
             "workflow_name": workflow_snapshot.get("name", ""),
             "created_at": datetime.now(UTC).isoformat(),
-            # Iteration metadata — API-assigned, not re-derived.
+            # Iteration metadata - API-assigned, not re-derived.
             "iteration_index": iteration_index,
             "iteration_count": iteration_count,
             "iteration_group_id": iteration_group_id,

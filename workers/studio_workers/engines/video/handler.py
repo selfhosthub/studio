@@ -28,7 +28,7 @@ from studio_workers.engines.video import (
 )
 from studio_workers.engines.video.normalize import _extract_subtitles
 from studio_workers.utils.redaction import redact_url
-from contracts.group_expansion import expand_group, AUTO_DURATION_PADDING_S
+from studio_workers.contracts.group_expansion import expand_group, AUTO_DURATION_PADDING_S
 
 logger = logging.getLogger(__name__)
 

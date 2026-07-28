@@ -1,4 +1,4 @@
-# contracts/downloaded_file.py
+# workers/studio_workers/contracts/downloaded_file.py
 
 """
 Downloaded File Contract: API → Worker transport shape.

@@ -14,6 +14,7 @@ from typing import Callable, Optional
 import httpx
 
 from studio_workers.settings import settings
+from studio_workers.utils.cf_access import cf_access_headers
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class FileUploadClient:
         token = self._token_getter()
         if not token:
             raise RuntimeError("Worker JWT not available - not yet registered")
-        return {"Authorization": f"Bearer {token}"}
+        return {"Authorization": f"Bearer {token}", **cf_access_headers()}
 
     def upload(
         self,

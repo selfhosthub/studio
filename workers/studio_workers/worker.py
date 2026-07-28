@@ -90,6 +90,8 @@ def get_worker_handler(worker_type: str):
 def wait_for_api(retry_interval: int = 5, max_retries: int = 0) -> bool:
     import httpx
 
+    from studio_workers.utils.cf_access import cf_access_headers
+
     api_base_url = settings.API_BASE_URL
     health_url = f"{api_base_url}/health"
     attempt = 0
@@ -98,7 +100,7 @@ def wait_for_api(retry_interval: int = 5, max_retries: int = 0) -> bool:
         attempt += 1
         try:
             with httpx.Client(timeout=settings.HEALTH_CHECK_TIMEOUT_S) as client:
-                response = client.get(health_url)
+                response = client.get(health_url, headers=cf_access_headers())
                 if response.status_code == 200:
                     logger.info(f"API is available at {api_base_url}")
                     return True

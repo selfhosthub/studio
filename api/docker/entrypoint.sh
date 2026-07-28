@@ -40,7 +40,7 @@ SUPERVISORD_CONF="/etc/supervisor/supervisord.conf"
 PG_BIN="/usr/lib/postgresql/18/bin"
 PG_DATA="${SHS_PG_DATA:-/workspace/db}"
 # Read-only bind mount the launcher drops a raw CF tunnel token at (contract:
-# contracts/launch-manifest.json → consumed_secret_files). Must match console's
+# contracts-data/launch-manifest.json → consumed_secret_files). Must match console's
 # CF_TOKEN_MOUNT constant exactly.
 CF_TOKEN_MOUNT="/run/secrets/cf-token"
 
@@ -105,7 +105,7 @@ set_worker_numprocs() {
     rm -f "$tmp"
 }
 
-# When sourced (e.g. by tests), expose functions and stop — skip all boot work.
+# When sourced (e.g. by tests), expose functions and stop - skip all boot work.
 (return 0 2>/dev/null) && return 0
 
 # --- Read shape ----------------------------------------------------------
@@ -294,7 +294,7 @@ case "$SHAPE" in
         echo "Running bootstrap..."
         cd /app/api
         export SHS_WORKSPACE_ROOT=/workspace
-        PATH="/app/api/.venv/bin:$PATH" PYTHONPATH="/app/api" python3 scripts/bootstrap.py
+        PATH="/app/api/.venv/bin:$PATH" PYTHONPATH="/app/api:/app/worker" python3 scripts/bootstrap.py
 
         echo "Stopping temporary PostgreSQL (supervisord will manage it)..."
         su - postgres -c "$PG_BIN/pg_ctl -D $PG_DATA stop"
@@ -303,9 +303,9 @@ case "$SHAPE" in
         ;;
     core)
         # External Postgres via compose. Bootstrap reads SHS_DATABASE_URL.
-        # PYTHONPATH=/app/api so bootstrap's deferred `from scripts.*` imports resolve.
+        # PYTHONPATH covers /app/api (bootstrap's deferred `from scripts.*` imports) and /app/worker (api code imports studio_workers.contracts).
         cd /app/api
-        PATH="/app/api/.venv/bin:$PATH" PYTHONPATH="/app/api" python3 scripts/bootstrap.py
+        PATH="/app/api/.venv/bin:$PATH" PYTHONPATH="/app/api:/app/worker" python3 scripts/bootstrap.py
         ;;
 esac
 

@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 from app.config.settings import settings
 from app.infrastructure.security.asset_signing import build_signed_asset_path
-from contracts.group_expansion import expand_groups as _expand_groups_list
+from studio_workers.contracts.group_expansion import expand_groups as _expand_groups_list
 
 logger = logging.getLogger(__name__)
 

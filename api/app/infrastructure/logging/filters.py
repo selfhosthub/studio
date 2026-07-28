@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from contracts.redaction import (
+from studio_workers.contracts.redaction import (
     REDACTED_PLACEHOLDER,
     is_pii_key,
     is_sensitive_key,

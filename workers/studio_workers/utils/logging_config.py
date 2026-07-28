@@ -141,7 +141,7 @@ class SensitiveDataFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        from contracts.redaction import (
+        from studio_workers.contracts.redaction import (
             REDACTED_PLACEHOLDER,
             is_pii_key,
             is_sensitive_key,
@@ -170,7 +170,7 @@ class SensitiveDataFilter(logging.Filter):
 
 def _get_log_verbosity() -> str:
     """Resolve log verbosity from the contracts schema."""
-    from contracts.log_schema import get_log_verbosity
+    from studio_workers.contracts.log_schema import get_log_verbosity
 
     return get_log_verbosity()
 
@@ -325,7 +325,7 @@ class JsonFormatter(logging.Formatter):
         self.host = host
 
     def format(self, record: logging.LogRecord) -> str:
-        from contracts.log_schema import (
+        from studio_workers.contracts.log_schema import (
             VERBOSITY_FULL,
             VERBOSITY_STANDARD,
             format_timestamp,

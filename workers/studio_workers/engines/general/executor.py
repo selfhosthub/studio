@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional, List, Tuple
 import httpx
 from jsonpath_ng.ext import parse as jsonpath_parse
 
-from contracts.webhook_completion import EXECUTION_TOKEN_ROUTING
+from studio_workers.contracts.webhook_completion import EXECUTION_TOKEN_ROUTING
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ class JobExecutor:
             and not result.get("_webhook_pending")
             and result.get("status") != "QUEUED"
         ):
-            from contracts.schema_projection import project_by_schema
+            from studio_workers.contracts.schema_projection import project_by_schema
 
             result = project_by_schema(result, result_schema)
 

@@ -39,13 +39,16 @@ COPY studio_workers/engines/audio/requirements.txt requirements.audio.txt
 RUN uv pip install --system --no-cache -r requirements.audio.txt && \
     pip uninstall -y gradio gradio-client 2>/dev/null || true
 
-# resemble-perth uses pkg_resources (removed in setuptools>=70) and distutils
-# (removed from stdlib in 3.12, vendored by setuptools). Without this pin,
-# PerthImplicitWatermarker silently becomes None and crashes at runtime.
-RUN uv pip install --system --no-cache "setuptools<70"
+# resemble-perth needs pkg_resources (removed in setuptools 82, deprecation-warns in 81); >=78.1.1 has
+# the trivy-flagged CVE fixes. Without pkg_resources, PerthImplicitWatermarker
+# silently becomes None and TTS crashes at model init.
+RUN uv pip install --system --no-cache "setuptools>=78.1.1,<81"
+
+# Fail the build if the watermarker import chain breaks (no silent None).
+RUN python -c "from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker"
 
 # Copy shared contracts package
-COPY --from=contracts . /app/contracts/
+COPY studio_workers/contracts/ studio_workers/contracts/
 
 # Copy worker runtime (engine dirs copied selectively below)
 COPY studio_workers/*.py studio_workers/
@@ -62,9 +65,6 @@ LABEL org.opencontainers.image.title="Self-Host Studio worker (audio)" \
       org.opencontainers.image.source="https://github.com/selfhosthub/studio" \
       org.opencontainers.image.licenses="LicenseRef-Studio-Use-License"
 COPY LICENSE LEGAL.md /app/
-
-# Pull the patched setuptools
-RUN pip install --no-cache-dir "setuptools>=78.1.1"
 
 # Create non-root user
 RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app && mkdir -p /workspace/models/huggingface && chown -R worker:worker /workspace

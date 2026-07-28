@@ -1,4 +1,4 @@
-# contracts/redaction.py
+# workers/studio_workers/contracts/redaction.py
 
 """
 Authoritative redaction policy shared by api/ and workers/.

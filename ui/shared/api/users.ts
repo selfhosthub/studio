@@ -57,7 +57,7 @@ export async function updateCurrentUserProfile(updates: {
 
 /**
  * Upload a new avatar for a user. Self-only unless admin (enforced by backend).
- * Sends multipart/form-data — do NOT set Content-Type; the browser sets the boundary.
+ * Sends multipart/form-data - do NOT set Content-Type; the browser sets the boundary.
  * Returns the new avatar_url.
  */
 export async function uploadUserAvatar(userId: string, file: File): Promise<{ avatar_url: string }> {
@@ -110,7 +110,9 @@ export async function createAndInviteUser(
   email: string,
   password: string,
   role: 'user' | 'admin' | 'super_admin',
-  username?: string
+  username?: string,
+  firstName?: string,
+  lastName?: string
 ): Promise<UserProfile> {
   return apiRequest<UserProfile>(`/organizations/${orgId}/members`, {
     method: 'POST',
@@ -119,6 +121,8 @@ export async function createAndInviteUser(
       username: username || email.split('@')[0],
       password,
       role,
+      ...(firstName ? { first_name: firstName } : {}),
+      ...(lastName ? { last_name: lastName } : {}),
     }),
   });
 }

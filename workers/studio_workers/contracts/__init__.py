@@ -1,4 +1,4 @@
-# contracts/__init__.py
+# workers/studio_workers/contracts/__init__.py
 
 """
 Shared contract types between API and workers.
@@ -10,7 +10,7 @@ Both sides import from here - one source of truth.
 Python 3.11 compatible (workers use 3.11, API uses 3.12).
 """
 
-from contracts.log_schema import (
+from studio_workers.contracts.log_schema import (
     FIELD_CORRELATION_ID,
     FIELD_EXCEPTION,
     FIELD_EXTRA,
@@ -26,7 +26,7 @@ from contracts.log_schema import (
     format_timestamp,
     get_log_verbosity,
 )
-from contracts.redaction import (
+from studio_workers.contracts.redaction import (
     PII_KEYS,
     REDACTED_PLACEHOLDER,
     SENSITIVE_KEYS,
@@ -68,15 +68,15 @@ def __getattr__(name: str):
     """Lazy-import pydantic-dependent contracts to avoid pulling in pydantic
     for lightweight consumers (e.g., workers that only need log_schema)."""
     if name == "DownloadedFileContract":
-        from contracts.downloaded_file import DownloadedFileContract
+        from studio_workers.contracts.downloaded_file import DownloadedFileContract
 
         return DownloadedFileContract
     if name == "JobClaimContract":
-        from contracts.job_claim import JobClaimContract
+        from studio_workers.contracts.job_claim import JobClaimContract
 
         return JobClaimContract
     if name == "StepResultContract":
-        from contracts.step_result import StepResultContract
+        from studio_workers.contracts.step_result import StepResultContract
 
         return StepResultContract
     raise AttributeError(f"module 'contracts' has no attribute {name!r}")

@@ -15,6 +15,7 @@ from typing import Callable, Dict, Optional, Tuple
 import httpx
 
 from studio_workers.settings import settings
+from studio_workers.utils.cf_access import cf_access_headers
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,11 @@ class CredentialClient:
 
     def _auth_headers(self) -> Optional[Dict[str, str]]:
         """Build request headers; returns None if a JWT is expected but absent."""
-        headers = {"X-Worker-Secret": self.worker_secret, "Accept": "application/json"}
+        headers = {
+            "X-Worker-Secret": self.worker_secret,
+            "Accept": "application/json",
+            **cf_access_headers(),
+        }
         if self._token_getter is not None:
             token = self._token_getter()
             if not token:

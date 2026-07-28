@@ -23,7 +23,7 @@ from app.infrastructure.storage.workspace import (
     cleanup_resource_files,
     get_workspace_path,
 )
-from contracts.workspace_paths import (
+from studio_workers.contracts.workspace_paths import (
     sanitize_step_filename,
     step_output_virtual_path,
 )
@@ -232,7 +232,7 @@ class ResourceUploadService:
         has_thumbnail = False
         thumbnail_path = None
         if caller_thumbnail_content is not None:
-            # Caller (e.g. shs-video worker) supplied a pre-extracted thumbnail —
+            # Caller (e.g. shs-video worker) supplied a pre-extracted thumbnail -
             # the API can't extract a video poster frame itself (no ffmpeg).
             # Write it under the same naming convention generate_thumbnail uses.
             name_part = filename.rsplit(".", 1)[0]
@@ -315,7 +315,7 @@ class ResourceUploadService:
                 (worker lied about local mode, race with cleanup, or
                 bad mount). Caller should surface a classified 404 so
                 the worker falls back to multipart upload.
-            ValueError: size or checksum mismatch — the file on disk is
+            ValueError: size or checksum mismatch - the file on disk is
                 not what the worker said it wrote. Treated as a 422.
         """
         resource_id = uuid.uuid4()

@@ -48,6 +48,10 @@ class SharedSettings(BaseSettings):
     # WORKSPACE_ROOT/orgs/ tree the autodetect reads as a shared mount.
     STORAGE_MODE: Literal["local", "remote"] | None = None
 
+    # ── Cloudflare Access (optional service token) ───────────────────────
+    CF_ACCESS_CLIENT_ID: str | None = None
+    CF_ACCESS_CLIENT_SECRET: str | None = None
+
     # ── Logging ──────────────────────────────────────────────────────────
     LOG_COLORS: bool = True
     LOG_FORMAT: str = "rich"

@@ -1,4 +1,4 @@
-# contracts/webhook_completion.py
+# workers/studio_workers/contracts/webhook_completion.py
 
 """Declarative webhook-completion capability (catalog -> API -> worker).
 
@@ -61,6 +61,7 @@ def service_routing_mode(service: Dict[str, Any]) -> str:
     if isinstance(block, dict) and block.get("routing"):
         return block["routing"]
     return GENERATION_ID_ROUTING
+
 
 # Required keys on the PROVIDER-level ``webhook_completion`` envelope when any
 # service opts into webhook mode. ``failure_values`` is intentionally NOT here -
