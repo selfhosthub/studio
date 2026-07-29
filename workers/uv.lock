@@ -2941,8 +2941,7 @@ wheels = [
 
 [[package]]
 name = "studio-workers"
-version = "1.3.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "jsonpath-ng" },

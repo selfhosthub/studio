@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from studio_workers.contracts.version import WORKERS_VERSION
 from studio_workers.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -213,6 +214,7 @@ class WorkerBase(ABC):
 
             payload = {
                 "secret": self.worker_secret,
+                "worker_version": WORKERS_VERSION,
                 "name": self.worker_name,
                 "capabilities": self.capabilities,
                 "queue_labels": self.queue_labels,

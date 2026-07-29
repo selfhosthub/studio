@@ -70,6 +70,10 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
   const [detailError, setDetailError] = useState<string | null>(null);
   const [tokenConfigured, setTokenConfigured] = useState(false);
 
+  // Org roles never need the entitlement token: their catalog only contains
+  // platform-installed workflows, and org copy reads from package_versions.
+  const plusUnlocked = !isSuperAdmin || tokenConfigured;
+
   // Catalog list omits the step DAG/connections to stay lean; fetch the full
   // workflow detail on row-click (super-admin pre-install view). A ref guards
   // against a slow earlier fetch overwriting a later one.
@@ -248,7 +252,7 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
             ? 'Already installed'
             : `"${result.workflow_name}" installed`,
           description: parts.length > 0
-            ? `Install before running — ${parts.join('; ')}`
+            ? `Install before running - ${parts.join('; ')}`
             : undefined,
           variant: 'success',
           persistent: parts.length > 0,
@@ -350,14 +354,14 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
           </button>
         )}
         {(catalogWorkflows.some((wf) => wf.tier === 'community' && !installedIds.has(wf.id)) ||
-          (tokenConfigured &&
+          (plusUnlocked &&
             catalogWorkflows.some((wf) => wf.tier === 'plus' && !installedIds.has(wf.id)))) && (
           <InstallAllDropdown
             hasCommunity={catalogWorkflows.some(
               (wf) => wf.tier === 'community' && !installedIds.has(wf.id),
             )}
             hasPlus={
-              tokenConfigured &&
+              plusUnlocked &&
               catalogWorkflows.some((wf) => wf.tier === 'plus' && !installedIds.has(wf.id))
             }
             installing={bulkInstalling}
@@ -511,7 +515,7 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
                               )}
                             </button>
                           )
-                        ) : wf.tier === 'plus' && !tokenConfigured ? (
+                        ) : wf.tier === 'plus' && !plusUnlocked ? (
                           <span
                             className="action-btn-locked"
                             title="Plus workflow - requires entitlement token"

@@ -54,6 +54,7 @@ async def register_worker(
         result = await service.register_worker(
             secret=request.secret,
             name=request.name,
+            worker_version=request.worker_version,
             queue_id=request.queue_id,
             capabilities=request.capabilities,
             queue_labels=request.queue_labels,

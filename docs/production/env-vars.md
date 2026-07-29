@@ -81,6 +81,7 @@ The URL vars are the single biggest source of botched deploys. There are five of
 | `SHS_PUBLISH_INTERNAL_BIND` | `127.0.0.1` | Launch-time (console) override for where internal ports (API 8000, supervisord 9001) are published on the host. Set to `0.0.0.0` or a LAN IP to expose them beyond localhost. See [worker-access.md](worker-access.md) before widening it. |
 | `SHS_CF_ACCESS_CLIENT_ID` | - | Worker-side, optional. Cloudflare Access service-token id, sent as a `CF-Access-Client-Id` header on every worker API call. Pairs with a path-scoped Access app on `<api-hostname>/internal/*`. |
 | `SHS_CF_ACCESS_CLIENT_SECRET` | - | Worker-side, optional. The matching service-token secret, sent as `CF-Access-Client-Secret`. Both unset means no Access headers (the default). |
+| `SHS_ALLOW_WORKER_VERSION_MISMATCH` | `false` | API-side. The API refuses to register a worker whose `studio-workers` version differs from the one this release shipped with. Set to `1` to accept the worker anyway with a logged warning. Leave off in production: a mismatched worker can fail in ways that surface as job errors, not version errors. |
 
 #### URL vars worked example
 

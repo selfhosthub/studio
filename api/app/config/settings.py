@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     WORKER_SHARED_SECRET: str = Field(
         description="Shared secret for worker authentication. Required."
     )
+    ALLOW_WORKER_VERSION_MISMATCH: bool = Field(
+        default=False,
+        description="Accept workers whose studio-workers version differs from this API's; logs a warning instead of refusing registration.",
+    )
 
     # ── Auth Tokens ──────────────────────────────────────────────────────
 
@@ -247,7 +251,7 @@ def get_settings() -> Settings:
     """Build the singleton Settings on first call.
 
     Deferring the build to first call keeps `import app.config.settings`
-    cheap — modules that only need a value (Database, etc.) read it
+    cheap - modules that only need a value (Database, etc.) read it
     inside functions; tooling that doesn't (Alembic env.py importing
     Base) never triggers full env validation.
     """

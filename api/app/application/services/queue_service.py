@@ -2,8 +2,11 @@
 
 """Queue service for managing queues, workers, and jobs."""
 
+import logging
 from typing import Dict, List, Optional, Any
 import uuid
+
+from studio_workers.contracts.version import WORKERS_VERSION
 
 from app.config.settings import settings
 
@@ -35,6 +38,8 @@ from app.domain.queue.repository import (
     QueuedJobRepository,
 )
 from app.domain.instance_step.step_execution import StepExecutionStatus
+
+logger = logging.getLogger(__name__)
 
 
 class QueueService(QueueServiceInterface):
@@ -269,17 +274,32 @@ class QueueService(QueueServiceInterface):
         gpu_percent: Optional[float] = None,
         gpu_memory_percent: Optional[float] = None,
         storage_mode: str = "remote",
+        worker_version: Optional[str] = None,
     ) -> WorkerResponse:
         """Register a new worker via shared-secret self-registration.
 
         queue_id is optional; omit for general-purpose workers not bound to a specific queue.
 
         Raises:
-            ValidationError: If secret is invalid
+            ValidationError: If secret is invalid or worker_version mismatches
             EntityNotFoundError: If queue_id is provided but the queue doesn't exist
         """
         if secret != settings.WORKER_SHARED_SECRET:
             raise ValidationError("Invalid worker secret")
+
+        if worker_version != WORKERS_VERSION:
+            if settings.ALLOW_WORKER_VERSION_MISMATCH:
+                logger.warning(
+                    f"Worker '{name}' version {worker_version or 'unknown'} != expected "
+                    f"{WORKERS_VERSION}; allowed by SHS_ALLOW_WORKER_VERSION_MISMATCH"
+                )
+            else:
+                raise ValidationError(
+                    f"Worker version {worker_version or 'unknown'} does not match this API's "
+                    f"expected studio-workers version {WORKERS_VERSION}. Install the matching "
+                    f"studio-workers release, or set SHS_ALLOW_WORKER_VERSION_MISMATCH=1 on the "
+                    f"API to override."
+                )
 
         # Only validate queue exists if queue_id is provided
         if queue_id:

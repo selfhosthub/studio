@@ -13,6 +13,10 @@ from app.domain.queue.models import WorkerStatus
 
 class WorkerRegistrationRequest(BaseModel):
     secret: str = Field(..., description="Shared secret for worker registration")
+    worker_version: Optional[str] = Field(
+        default=None,
+        description="studio-workers version the worker runs; checked against the API's expected version",
+    )
     name: str = Field(..., min_length=1, max_length=255, description="Worker name")
     queue_id: Optional[UUID] = Field(
         None, description="Queue ID this worker services (optional for general workers)"

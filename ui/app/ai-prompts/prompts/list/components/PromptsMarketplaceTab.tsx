@@ -245,7 +245,7 @@ export function PromptsMarketplaceTab({ isSuperAdmin, onPromptsChanged }: Prompt
                               </button>
                             </div>
                           )
-                        ) : tpl.tier === 'plus' && !mp.tokenConfigured ? (
+                        ) : isSuperAdmin && tpl.tier === 'plus' && !mp.tokenConfigured ? (
                           <span
                             className="action-btn-locked"
                             title="Plus prompt - requires entitlement token"

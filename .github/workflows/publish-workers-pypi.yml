@@ -1,0 +1,57 @@
+name: publish-workers-pypi
+
+# Fires on the studio release tags that release.sh pushes (v1.2.8, ...). Builds
+# the studio-workers wheel + sdist from workers/ at the tagged commit and
+# publishes to PyPI via Trusted Publishing (OIDC, no token). The wheel version
+# is the workers component version (studio_workers/contracts/version.py), which
+# moves independently of the studio tag; when it did not move since the last
+# release, skip-existing makes the upload a no-op instead of a failure.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  # Manual button for the first publish or to re-run if an upload flakes.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel and sdist
+        working-directory: workers
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      # Fresh venv, base deps only: the wheel must install standalone and its
+      # dist metadata must carry the contracts version.
+      - name: Wheel installs and version matches contracts
+        working-directory: workers
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/pip install --quiet dist/*.whl
+          /tmp/smoke-venv/bin/python -c "
+          from importlib.metadata import version
+          from studio_workers.contracts.version import WORKERS_VERSION
+          got = version('studio-workers')
+          assert got == WORKERS_VERSION, f'wheel {got} != contracts {WORKERS_VERSION}'
+          print(f'studio-workers {got}')
+          "
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: workers/dist
+          skip-existing: true
