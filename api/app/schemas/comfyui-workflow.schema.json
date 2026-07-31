@@ -1,0 +1,294 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/selfhosthub/studio-community/main/schemas/comfyui-workflow.schema.json",
+  "version": "1.2.0",
+  "title": "Studio ComfyUI Workflow",
+  "description": "A ComfyUI workflow catalog package: Studio metadata + manifest + the native ComfyUI API graph in a single file. Metadata fields (slug, version, name, description, author, category) live at the top level; the manifest fields (service, models, capabilities, parameters, generation, node_mappings, outputs, requirements) declare everything the API, UI, and worker need to execute the package; the raw ComfyUI graph (numeric node IDs as keys) lives under the `graph` key, opaque to Studio and rendered by the worker after parameter injection. Manifest fields are optional at the schema level so pre-manifest packages keep validating; cross-field coherence (model references, node existence) is enforced by scripts/validate-comfyui-manifests.py.\n\nStability: future versions of this schema must remain backward-compatible with content authored against earlier versions of itself - once a package is published with a given version, it must continue to validate against the schema in force at install time. Add fields conservatively (optional first); promote to required only with a major schema revision and a migration story.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "slug",
+    "version",
+    "name",
+    "description",
+    "author",
+    "graph"
+  ],
+  "definitions": {
+    "nodeId": {
+      "type": "string",
+      "description": "A graph node ID (string-encoded integer).",
+      "pattern": "^[0-9]+$"
+    },
+    "inputPath": {
+      "type": "string",
+      "description": "Dotted literal path into a node spec (no expressions).",
+      "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$"
+    },
+    "nodeTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "path"],
+      "properties": {
+        "node": { "$ref": "#/definitions/nodeId" },
+        "path": { "$ref": "#/definitions/inputPath" }
+      }
+    },
+    "parameterSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "float", "boolean", "enum", "array"]
+        },
+        "required": { "type": "boolean" },
+        "default": {},
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "options": {
+          "type": "array",
+          "description": "Enum choices: bare strings, or value/label pairs when the UI label differs.",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["value", "label"],
+                "properties": {
+                  "value": { "type": "string" },
+                  "label": { "type": "string" }
+                }
+              }
+            ]
+          }
+        },
+        "scope": {
+          "type": "string",
+          "description": "\"api\" marks parameters the API consumes before enqueue; everything else reaches the worker.",
+          "enum": ["api"]
+        },
+        "title": { "type": "string" },
+        "when": {
+          "type": "string",
+          "description": "Name of a boolean parameter gating this one's visibility."
+        },
+        "ui": {
+          "type": "object",
+          "description": "UI rendering hints (section, rows, ...).",
+          "additionalProperties": true
+        }
+      },
+      "if": { "properties": { "type": { "const": "enum" } } },
+      "then": { "required": ["type", "options"] }
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "slug": {
+      "type": "string",
+      "description": "Stable identifier used as the catalog key. Must match the file basename.",
+      "pattern": "^[a-z][a-z0-9-]*/[a-z][a-z0-9-]*$"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the package.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable workflow name shown in the UI.",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "Short description of what the workflow does."
+    },
+    "author": {
+      "type": "string",
+      "description": "Package author."
+    },
+    "category": {
+      "type": "string",
+      "description": "Primary category for grouping in the UI (e.g. image, video, audio)."
+    },
+    "service": {
+      "type": "object",
+      "description": "Which service this package belongs to and how its jobs route.",
+      "additionalProperties": false,
+      "required": ["id", "queue", "media"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Groups packages into one service; packages sharing an id form its model enum.",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "queue": {
+          "type": "string",
+          "description": "Must name a pre-registered queue; unknown queues are rejected at install time.",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "media": {
+          "type": "string",
+          "enum": ["image", "video", "audio", "model3d"]
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "description": "Selectable model variants: literal node-input assignments applied when a model is selected, plus per-model parameter defaults.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "label": { "type": "string", "minLength": 1 },
+          "default": {
+            "type": "boolean",
+            "description": "Marks the default model for the service this package belongs to; at most one across all packages sharing service.id."
+          },
+          "defaults": {
+            "type": "object",
+            "description": "Parameter values overlaid on the package defaults when this model is selected.",
+            "additionalProperties": true
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["node", "path", "value"],
+              "properties": {
+                "node": { "$ref": "#/definitions/nodeId" },
+                "path": { "$ref": "#/definitions/inputPath" },
+                "value": {}
+              }
+            }
+          },
+          "required_models": {
+            "type": "array",
+            "description": "Filenames this model needs on disk; each must resolve to a package-level required_models entry.",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Feature flags driving UI visibility.",
+      "additionalProperties": false,
+      "properties": {
+        "negative_prompt": { "type": "boolean" },
+        "upscale": { "type": "boolean" },
+        "lora": { "type": "boolean" },
+        "batch": { "type": "boolean" },
+        "style_presets": { "type": "boolean" }
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "description": "All user-facing parameters and their UI hints. The manifest owns these; provider adapter-config is a shell.",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "$ref": "#/definitions/parameterSpec" }
+    },
+    "generation": {
+      "type": "object",
+      "description": "Model quality band the worker enforces when deriving generation dimensions.",
+      "additionalProperties": false,
+      "properties": {
+        "min_side": { "type": "integer", "minimum": 1 },
+        "max_side": { "type": "integer", "minimum": 1 },
+        "snap": { "type": "integer", "minimum": 1 },
+        "target_megapixels": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "node_mappings": {
+      "type": "object",
+      "description": "Parameter name (or worker-derived value like width/height) to the graph inputs it writes.",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "$ref": "#/definitions/nodeTarget" }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Where finished media leaves the graph.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["media", "node"],
+        "properties": {
+          "media": {
+            "type": "string",
+            "enum": ["image", "video", "audio", "model3d"]
+          },
+          "node": { "$ref": "#/definitions/nodeId" },
+          "class": { "type": "string" }
+        }
+      }
+    },
+    "requires_comfyui": {
+      "type": "string",
+      "description": "Minimum ComfyUI core version, e.g. \">=0.3.40\".",
+      "pattern": "^(>=|>|=)?\\d+\\.\\d+(\\.\\d+)?$"
+    },
+    "required_custom_nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["class", "pack", "repo"],
+        "properties": {
+          "class": { "type": "string", "minLength": 1 },
+          "pack": { "type": "string", "minLength": 1 },
+          "repo": { "type": "string", "format": "uri" }
+        }
+      }
+    },
+    "required_models": {
+      "type": "array",
+      "description": "Union of every distinct model file across all models[] entries; feeds the install-time notice and download tables.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["filename", "directory", "size_gb", "source_url", "license"],
+        "properties": {
+          "filename": { "type": "string", "minLength": 1 },
+          "directory": {
+            "type": "string",
+            "description": "ComfyUI models/ subdirectory, current names (diffusion_models, not unet).",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "size_gb": { "type": "number", "exclusiveMinimum": 0 },
+          "source_url": { "type": "string", "format": "uri" },
+          "license": { "type": "string", "minLength": 1 },
+          "access": {
+            "type": "string",
+            "description": "Independent of license. \"gated\": the source requires an account and browser terms acceptance; an unauthenticated fetch returns HTML, not weights. Omitted means open.",
+            "enum": ["open", "gated"]
+          }
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "description": "Native ComfyUI API graph - keys are node IDs (string-encoded integers), values are node specs. Opaque to Studio. The worker injects user parameters into this graph before submitting to ComfyUI.",
+      "additionalProperties": true
+    }
+  }
+}

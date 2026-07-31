@@ -25,17 +25,15 @@ from app.infrastructure.persistence.models import ComfyUIWorkflowModel
 
 logger = logging.getLogger(__name__)
 
-# Schema path candidates. Source of truth lives in studio-cat;
-# deploy mirrors to studio-community. The two layouts we run under:
-#   - Docker:  studio-cat mounted at /app/studio-cat  (api root = /app)
-#   - Host:    studio-cat at <monorepo>/studio-cat    (api root = <monorepo>/api)
-# The api package root is parents[2]; studio-cat sits beside it (Docker)
-# or one level above it (host).
+# Schema path candidates. The packaged copy ships inside the api image and is
+# the runtime source; studio-cat holds the authoring original (release check
+# asserts the two match). Dev/host layouts fall back to the studio-cat file.
 _API_ROOT = Path(__file__).resolve().parents[2]
 _SCHEMA_REL = Path("studio-cat") / "schemas" / "comfyui-workflow.schema.json"
 _SCHEMA_CANDIDATES = (
-    _API_ROOT / _SCHEMA_REL,           # Docker: /app/studio-cat/...
-    _API_ROOT.parent / _SCHEMA_REL,    # Host:   <monorepo>/studio-cat/...
+    Path(__file__).resolve().parents[1] / "schemas" / "comfyui-workflow.schema.json",
+    _API_ROOT / _SCHEMA_REL,           # Docker with studio-cat mounted
+    _API_ROOT.parent / _SCHEMA_REL,    # Host: <monorepo>/studio-cat/...
 )
 
 
