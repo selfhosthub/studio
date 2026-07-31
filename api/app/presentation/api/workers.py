@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.comfyui_catalog_hash import cached_catalog_hash
 from app.application.services.queue_service import QueueService
 from app.application.interfaces import EntityNotFoundError, ValidationError
 from app.domain.queue.models import WorkerStatus
@@ -152,17 +153,25 @@ async def worker_heartbeat(
             )
 
         token = None
+        comfyui_catalog_hash = None
         if not is_deregistered:
             worker = await worker_repo.get_by_id(worker_id)
             if worker:
+                queue_labels = worker.queue_labels or []
                 token = create_worker_token(
                     worker_id=str(worker.id),
-                    queue_labels=worker.queue_labels or [],
+                    queue_labels=queue_labels,
                     capabilities=worker.capabilities or {},
                 )
+                # comfyui workers get the catalog hash so they can flag a resync.
+                if any(label.startswith("comfyui") for label in queue_labels):
+                    comfyui_catalog_hash = await cached_catalog_hash(session)
 
         return WorkerHeartbeatResponse(
-            status="ok", deregistered=is_deregistered, token=token
+            status="ok",
+            deregistered=is_deregistered,
+            token=token,
+            comfyui_catalog_hash=comfyui_catalog_hash,
         )
     except ValueError:
         raise HTTPException(

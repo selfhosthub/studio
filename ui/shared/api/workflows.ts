@@ -76,10 +76,6 @@ export async function getOrganizationWorkflows(skip = 0, limit = 100): Promise<W
   return getWorkflows(undefined, skip, limit, 'organization');
 }
 
-export async function getWorkflowsByBlueprint(blueprintId: string, skip = 0, limit = 100): Promise<any[]> {
-  return apiRequest<any[]>(`/workflows/by-blueprint/${blueprintId}?skip=${skip}&limit=${limit}`);
-}
-
 export async function createWorkflow(workflowData: { name: string } & Record<string, unknown>): Promise<WorkflowResponse> {
   return apiRequest<WorkflowResponse>('/workflows/', {
     method: 'POST',
@@ -208,7 +204,7 @@ export interface TriggerSecretOption {
   shared_by_count: number;
 }
 
-/** The typed trigger-secret kinds — one credential per row. */
+/** The typed trigger-secret kinds - one credential per row. */
 export type TriggerSecretType = 'api_key' | 'webhook_hmac' | 'webhook_header' | 'webhook_jwt';
 
 /** List the org's reusable trigger secrets of one TYPE to share (admin only).

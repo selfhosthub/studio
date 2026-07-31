@@ -20,7 +20,6 @@ interface StepConfigPanelProps {
   onClose: () => void;
   previousSteps: Step[];
   allSteps?: Record<string, Step>;
-  mode?: 'workflow' | 'blueprint'; // Controls panel UI (outputs panel, save/run buttons)
   onSelectStep?: (stepId: string) => void; // Callback to select a different step
   // Save workflow props
   onSave?: () => void;
@@ -54,7 +53,6 @@ export function StepConfigPanel({
   onClose,
   previousSteps,
   allSteps,
-  mode = 'workflow',
   onSelectStep,
   onSave,
   isSaving,
@@ -345,7 +343,7 @@ export function StepConfigPanel({
       />
 
       {/* Outputs Panel - Separate sliding panel to the left of main panel (desktop only) */}
-      {!isMobile && mode === 'workflow' && (previousSteps.length > 0 || hasFormFieldsFromOtherSteps) && (
+      {!isMobile && (previousSteps.length > 0 || hasFormFieldsFromOtherSteps) && (
         <div
           ref={outputsPanelRef}
           style={{
@@ -450,7 +448,7 @@ export function StepConfigPanel({
           {/* Left section: Inputs toggle (icon only) */}
           <div className="flex items-center gap-2">
             {/* Toggle outputs panel button - icon only with badge */}
-            {mode === 'workflow' && (previousSteps.length > 0 || hasFormFieldsFromOtherSteps) && (
+            {(previousSteps.length > 0 || hasFormFieldsFromOtherSteps) && (
               <button
                 type="button"
                 onClick={() => setShowOutputsPanel(!showOutputsPanel)}
@@ -475,7 +473,7 @@ export function StepConfigPanel({
           </div>
 
           {/* Center section: Save + Auto-save */}
-          {mode === 'workflow' && onSave && (
+          {onSave && (
             <AutoSaveDropdown
               onSave={onSave}
               isSaving={isSaving}
@@ -487,7 +485,7 @@ export function StepConfigPanel({
           )}
 
           {/* Run button - small primary play icon */}
-          {mode === 'workflow' && onRun && (
+          {onRun && (
             <button
               onClick={onRun}
               disabled={isRunning}
@@ -536,7 +534,7 @@ export function StepConfigPanel({
         {/* Content */}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {/* Mobile only: Previous Step Outputs Panel as collapsible section at top */}
-          {isMobile && mode === 'workflow' && (previousSteps.length > 0 || hasFormFieldsFromOtherSteps) && showOutputsPanel && (
+          {isMobile && (previousSteps.length > 0 || hasFormFieldsFromOtherSteps) && showOutputsPanel && (
             <div className="border-b border-primary max-h-[40vh] overflow-y-auto flex-shrink-0">
               <PreviousStepOutputsPanel
                 previousSteps={previousSteps}

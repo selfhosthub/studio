@@ -10,6 +10,7 @@ from app.presentation.api import (
     audit,
     auth,
     comfyui_marketplace,
+    comfyui_packages_internal,
     docs,
     instances,
     org_files,
@@ -57,8 +58,6 @@ def register_routers(app: FastAPI, api_prefix: str = "/api/v1") -> None:
         tags=["Organizations"],
     )
     app.include_router(users.router, prefix=f"{api_prefix}/users", tags=["Users"])
-    # Blueprint routes disabled - feature is being redesigned (coming soon)
-    # app.include_router(blueprints.router, prefix=f"{api_prefix}/blueprints", tags=["Blueprints"])
     # workflows_marketplace must precede workflows: avoids /{workflow_id} catch-all
     app.include_router(
         workflows_marketplace.router,
@@ -99,6 +98,11 @@ def register_routers(app: FastAPI, api_prefix: str = "/api/v1") -> None:
         tags=["Worker Jobs"],
     )
     app.include_router(
+        comfyui_packages_internal.router,
+        prefix=f"{api_prefix}",  # router already has /internal prefix
+        tags=["ComfyUI Packages Internal"],
+    )
+    app.include_router(
         site_content.router, prefix=f"{api_prefix}/site-content", tags=["Site Content"]
     )
     app.include_router(
@@ -107,12 +111,6 @@ def register_routers(app: FastAPI, api_prefix: str = "/api/v1") -> None:
     app.include_router(
         packages.router, prefix=f"{api_prefix}/packages", tags=["Packages"]
     )
-    # Blueprint marketplace routes disabled - feature is being redesigned (coming soon)
-    # app.include_router(
-    #     blueprints_marketplace.router,
-    #     prefix=f"{api_prefix}/blueprints/marketplace",
-    #     tags=["Blueprints Marketplace"],
-    # )
     app.include_router(
         prompts_marketplace.router,
         prefix=f"{api_prefix}/prompts/marketplace",

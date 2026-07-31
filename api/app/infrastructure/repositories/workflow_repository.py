@@ -8,9 +8,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, inspect as sa_inspect, or_, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.domain.common.exceptions import EntityNotFoundError
 from app.domain.common.json_serialization import deserialize_steps, serialize_steps
@@ -106,23 +105,12 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
 
         tags_list = model.tags or []
 
-        # Safely access blueprint name without triggering lazy load (MissingGreenlet with asyncpg)
-        blueprint_name = None
-        state = sa_inspect(model)
-        if "blueprint" in state.dict and state.dict["blueprint"] is not None:
-            blueprint_obj = model.blueprint
-            if blueprint_obj is not None:
-                blueprint_name = blueprint_obj.name
-
         return Workflow(
             id=model.id,
             name=model.name,
             slug=model.slug,
             description=model.description,
             organization_id=model.organization_id,
-            blueprint_id=model.blueprint_id,
-            blueprint_name=blueprint_name,
-            blueprint_version=None,  # Not stored in DB model
             status=model.status,
             steps=steps,
             trigger_type=model.trigger_type,
@@ -228,7 +216,6 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             slug=workflow.slug,
             description=workflow.description,
             organization_id=workflow.organization_id,
-            blueprint_id=workflow.blueprint_id,
             status=workflow.status,  # type: ignore[assignment]  - domain enum assigned to SA column; SA type stubs expect Column type
             trigger_type=workflow.trigger_type,  # type: ignore[assignment]  - domain enum assigned to SA column; SA type stubs expect Column type
             priority=workflow.priority,  # type: ignore[assignment]  - domain enum assigned to SA column; SA type stubs expect Column type
@@ -405,32 +392,6 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
 
         return [self._to_domain(model, await self._load_latest_version(model.id)) for model in workflow_models]
 
-    async def find_workflows_using_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-        skip: int,
-        limit: int,
-    ) -> List[Workflow]:
-        stmt = select(WorkflowModel).where(WorkflowModel.blueprint_id == blueprint_id)
-
-        stmt = stmt.offset(skip).limit(limit)
-
-        result = await self.session.execute(stmt)
-        workflow_models = result.scalars().all()
-
-        return [self._to_domain(model, await self._load_latest_version(model.id)) for model in workflow_models]
-
-    async def has_workflows_for_blueprint(self, blueprint_id: uuid.UUID) -> bool:
-        stmt = (
-            select(func.count())
-            .select_from(WorkflowModel)
-            .where(WorkflowModel.blueprint_id == blueprint_id)
-        )
-        result = await self.session.execute(stmt)
-        count = result.scalar()
-
-        return bool(count and count > 0)
-
     async def find_workflows_ready_for_execution(
         self,
         organization_id: uuid.UUID,
@@ -457,10 +418,8 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         status: Optional[WorkflowStatus] = None,
         trigger_type: Optional[WorkflowTriggerType] = None,
     ) -> List[Workflow]:
-        stmt = (
-            select(WorkflowModel)
-            .options(selectinload(WorkflowModel.blueprint))
-            .where(WorkflowModel.organization_id == organization_id)
+        stmt = select(WorkflowModel).where(
+            WorkflowModel.organization_id == organization_id
         )
 
         if status is not None:
@@ -475,25 +434,6 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         workflow_models = result.scalars().all()
 
         return await self._models_to_domain(list(workflow_models))
-
-    async def list_by_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-        skip: int,
-        limit: int,
-        status: Optional[WorkflowStatus] = None,
-    ) -> List[Workflow]:
-        stmt = select(WorkflowModel).where(WorkflowModel.blueprint_id == blueprint_id)
-
-        if status is not None:
-            stmt = stmt.where(WorkflowModel.status == status)
-
-        stmt = stmt.offset(skip).limit(limit)
-
-        result = await self.session.execute(stmt)
-        workflow_models = result.scalars().all()
-
-        return [self._to_domain(model, await self._load_latest_version(model.id)) for model in workflow_models]
 
     async def list_active_scheduled(
         self,
@@ -608,25 +548,6 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
 
         return int(count) if count else 0
 
-    async def count_by_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-        skip: int,
-        limit: int,
-    ) -> int:
-        # skip and limit are part of interface contract but unused in count queries.
-        _ = skip, limit
-
-        stmt = (
-            select(func.count())
-            .select_from(WorkflowModel)
-            .where(WorkflowModel.blueprint_id == blueprint_id)
-        )
-        result = await self.session.execute(stmt)
-        count = result.scalar()
-
-        return int(count) if count else 0
-
     async def count_by_trigger_secret_id(self, secret_id: uuid.UUID) -> int:
         stmt = (
             select(func.count())
@@ -682,14 +603,10 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         status: Optional[WorkflowStatus] = None,
     ) -> List[Workflow]:
         """List personal workflows created by a specific user."""
-        stmt = (
-            select(WorkflowModel)
-            .options(selectinload(WorkflowModel.blueprint))
-            .where(
-                WorkflowModel.organization_id == organization_id,
-                WorkflowModel.created_by == created_by,
-                WorkflowModel.scope == "personal",
-            )
+        stmt = select(WorkflowModel).where(
+            WorkflowModel.organization_id == organization_id,
+            WorkflowModel.created_by == created_by,
+            WorkflowModel.scope == "personal",
         )
         if status is not None:
             stmt = stmt.where(WorkflowModel.status == status)
@@ -705,13 +622,9 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         status: Optional[WorkflowStatus] = None,
     ) -> List[Workflow]:
         """List organization-scoped workflows."""
-        stmt = (
-            select(WorkflowModel)
-            .options(selectinload(WorkflowModel.blueprint))
-            .where(
-                WorkflowModel.organization_id == organization_id,
-                WorkflowModel.scope == "organization",
-            )
+        stmt = select(WorkflowModel).where(
+            WorkflowModel.organization_id == organization_id,
+            WorkflowModel.scope == "organization",
         )
         if status is not None:
             stmt = stmt.where(WorkflowModel.status == status)
@@ -726,13 +639,9 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         limit: int,
     ) -> List[Workflow]:
         """List workflows pending publish approval."""
-        stmt = (
-            select(WorkflowModel)
-            .options(selectinload(WorkflowModel.blueprint))
-            .where(
-                WorkflowModel.organization_id == organization_id,
-                WorkflowModel.publish_status == PublishStatus.PENDING,
-            )
+        stmt = select(WorkflowModel).where(
+            WorkflowModel.organization_id == organization_id,
+            WorkflowModel.publish_status == PublishStatus.PENDING,
         )
         stmt = stmt.offset(skip).limit(limit)
         result = await self.session.execute(stmt)

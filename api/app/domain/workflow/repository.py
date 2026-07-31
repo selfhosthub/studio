@@ -43,17 +43,6 @@ class WorkflowRepository(ABC):
     ) -> List[Workflow]: ...
 
     @abstractmethod
-    async def find_workflows_using_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-        skip: int,
-        limit: int,
-    ) -> List[Workflow]: ...
-
-    @abstractmethod
-    async def has_workflows_for_blueprint(self, blueprint_id: uuid.UUID) -> bool: ...
-
-    @abstractmethod
     async def find_workflows_ready_for_execution(
         self,
         organization_id: uuid.UUID,
@@ -69,15 +58,6 @@ class WorkflowRepository(ABC):
         limit: int,
         status: Optional[WorkflowStatus] = None,
         trigger_type: Optional[WorkflowTriggerType] = None,
-    ) -> List[Workflow]: ...
-
-    @abstractmethod
-    async def list_by_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-        skip: int,
-        limit: int,
-        status: Optional[WorkflowStatus] = None,
     ) -> List[Workflow]: ...
 
     @abstractmethod
@@ -111,14 +91,6 @@ class WorkflowRepository(ABC):
     ) -> int: ...
 
     @abstractmethod
-    async def count_by_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-        skip: int,
-        limit: int,
-    ) -> int: ...
-
-    @abstractmethod
     async def count_by_trigger_secret_id(self, secret_id: uuid.UUID) -> int:
         """How many workflows reference this trigger OrganizationSecret (sharing)."""
         ...
@@ -128,7 +100,7 @@ class WorkflowRepository(ABC):
         self, secret_id: uuid.UUID
     ) -> List[Dict[str, Any]]:
         """Lightweight [{"id", "name"}] for every workflow referencing this trigger
-        secret — for the in-use warning before deletion and the reset that follows."""
+        secret - for the in-use warning before deletion and the reset that follows."""
         ...
 
     @abstractmethod

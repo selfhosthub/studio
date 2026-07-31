@@ -26,9 +26,6 @@ from app.infrastructure.repositories.queue_job_repository import (
 from app.infrastructure.repositories.queue_repository import (
     SQLAlchemyQueueRepository,
 )
-from app.infrastructure.repositories.blueprint_repository import (
-    SQLAlchemyBlueprintRepository,
-)
 from app.infrastructure.repositories.worker_repository import SQLAlchemyWorkerRepository
 from app.infrastructure.repositories.workflow_repository import (
     SQLAlchemyWorkflowRepository,
@@ -51,8 +48,6 @@ __all__ = [
     "SQLAlchemyQueueRepository",
     "SQLAlchemyWorkerRepository",
     "SQLAlchemyQueuedJobRepository",
-    # Blueprint repositories
-    "SQLAlchemyBlueprintRepository",
     # Workflow repositories
     "SQLAlchemyWorkflowRepository",
 ]

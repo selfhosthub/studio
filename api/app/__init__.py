@@ -3,8 +3,8 @@
 """
 Workflow Orchestration System
 
-A multi-tenant workflow orchestration system with support for blueprints,
-workflows, instances, and distributed job processing.
+A multi-tenant workflow orchestration system with support for workflows,
+instances, and distributed job processing.
 """
 
 from importlib.metadata import version

@@ -69,7 +69,7 @@ class WorkflowService:
     # ── Trigger-credential store (org_secrets single store) ──────────────
     # Trigger creds (api_key, webhook_secret, webhook_auth_value, webhook_jwt_secret)
     # live encrypted + recoverable in the OrganizationSecret the workflow references
-    # via trigger_secret_id — the ONLY place they're persisted. Each cred lives in
+    # via trigger_secret_id - the ONLY place they're persisted. Each cred lives in
     # its own TYPED secret (one cred per row); these helpers mint/repoint/clear that
     # secret and read it back for presence flags and auth.
 
@@ -90,7 +90,7 @@ class WorkflowService:
         cred per row; secret_type = TRIGGER_CRED_SECRET_TYPE[cred_key]). If the
         workflow's referenced secret is already of this type, update it in place
         (covers regenerate + shared-secret rotation); otherwise mint a new typed
-        secret and repoint the FK — the old secret persists (admin owns it). No-op
+        secret and repoint the FK - the old secret persists (admin owns it). No-op
         if no secret repo is wired (keeps unit constructions that omit it working)."""
         repo = self.organization_secret_repository
         if repo is None:
@@ -145,7 +145,7 @@ class WorkflowService:
     async def _build_response(self, workflow: Workflow) -> WorkflowResponse:
         """WorkflowResponse enriched with the trigger-cred presence/values that
         live in the referenced OrganizationSecret. `from_domain` is pure (no secret
-        access); these four fields are the sole reason this is async — they're
+        access); these four fields are the sole reason this is async - they're
         sourced here so the legacy workflow columns could be dropped."""
         response = WorkflowResponse.from_domain(workflow)
         data = await self._secret_data(workflow)
@@ -247,7 +247,6 @@ class WorkflowService:
             organization_id=command.organization_id,
             created_by=created_by,
             description=command.description,
-            blueprint_id=command.blueprint_id,
             steps=steps_dict,
             trigger_type=(
                 command.trigger_type
@@ -296,7 +295,7 @@ class WorkflowService:
     ) -> WorkflowResponse:
         workflow = await self._get_workflow_or_raise(workflow_id)
 
-        # Archiving a pending submission is reserved for its creator — an admin
+        # Archiving a pending submission is reserved for its creator - an admin
         # declines via reject, not archive.
         if command.status == WorkflowStatus.ARCHIVED:
             workflow.validate_can_be_archived(actor_id)
@@ -522,7 +521,7 @@ class WorkflowService:
         )
 
     async def trigger_secret_share_count(self, workflow_id: uuid.UUID) -> int:
-        """Public share count for a workflow's trigger secret — drives the UI's
+        """Public share count for a workflow's trigger secret - drives the UI's
         decision to keep Regenerate in the workflow (unshared) vs. point to the
         Secrets page (shared). 0 when no secret / no key is set."""
         workflow = await self._get_workflow_or_raise(workflow_id)
@@ -559,7 +558,7 @@ class WorkflowService:
     async def regenerate_trigger_secret_key(
         self, secret_id: uuid.UUID, organization_id: uuid.UUID
     ) -> Dict[str, Any]:
-        """Mint a fresh API key into an existing `workflow_trigger` secret — the
+        """Mint a fresh API key into an existing `workflow_trigger` secret - the
         deliberate rotation surface for a *shared* secret (the Secrets page). Every
         workflow referencing it immediately uses the new key. Returns the new key
         and how many workflows share it (the blast radius)."""
@@ -596,7 +595,7 @@ class WorkflowService:
     ) -> List[Dict[str, Any]]:
         """The org's trigger secrets of a single TYPE with a shared-by-N count, for
         the 'reference an existing secret' picker. Each cred lives in its own typed
-        row, so this filters on the `secret_type` column alone — no decrypting to
+        row, so this filters on the `secret_type` column alone - no decrypting to
         sniff which field is populated."""
         repo = self.organization_secret_repository
         if repo is None:
@@ -617,9 +616,9 @@ class WorkflowService:
     ) -> WorkflowResponse:
         """Point a workflow at an EXISTING `api_key` trigger secret (share it)
         instead of minting a new key, and switch it to the API trigger. Only API
-        keys are shareable — a webhook's URL token is per-workflow and its signing
+        keys are shareable - a webhook's URL token is per-workflow and its signing
         secret has no cross-workflow meaning, so webhook-typed secrets are rejected.
-        The previously-referenced secret (if any) is left intact — admin owns it."""
+        The previously-referenced secret (if any) is left intact - admin owns it."""
         workflow = await self._get_workflow_or_raise(workflow_id)
         repo = self.organization_secret_repository
         if repo is None:
@@ -657,7 +656,7 @@ class WorkflowService:
     async def reset_workflows_for_trigger_secret(
         self, secret_id: uuid.UUID
     ) -> int:
-        """Fall every workflow referencing this trigger secret back to manual — the
+        """Fall every workflow referencing this trigger secret back to manual - the
         secret is about to be deleted. Done in the app (not via the FK's SET NULL)
         because SET NULL nulls the link but leaves `trigger_type` stale at API /
         WEBHOOK, stranding the workflow as 'triggered but credential-less'. Returns
@@ -800,7 +799,6 @@ class WorkflowService:
             description=source.description,
             organization_id=organization_id,
             created_by=user_id,
-            blueprint_id=source.blueprint_id,
             steps=steps_dict,
             trigger_type=source.trigger_type,
             trigger_input_schema=source.trigger_input_schema,

@@ -28,14 +28,13 @@ ALTER TABLE notifications FORCE ROW LEVEL SECURITY;
 ALTER TABLE notification_channels FORCE ROW LEVEL SECURITY;
 ALTER TABLE org_files FORCE ROW LEVEL SECURITY;
 ALTER TABLE organization_secrets FORCE ROW LEVEL SECURITY;
-ALTER TABLE blueprints FORCE ROW LEVEL SECURITY;
 ALTER TABLE workflow_versions FORCE ROW LEVEL SECURITY;
 ALTER TABLE prompts FORCE ROW LEVEL SECURITY;
 
 -- Coverage enumeration (kept in sync with models.py organization_id columns):
 -- ENABLE+FORCE: users, workflows, instances, provider_credentials, queues,
 --   queued_jobs, notifications, notification_channels, org_files,
---   organization_secrets, blueprints, workflow_versions, prompts.
+--   organization_secrets, workflow_versions, prompts.
 -- ENABLE only: audit_events (writes must land from any posture; visibility
 --   policies scope reads).
 -- No organization_id, deliberately uncovered: organizations, providers,

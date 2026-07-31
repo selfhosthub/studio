@@ -9,7 +9,6 @@ export { getServerApiUrl };
 
 export interface PageVisibility {
   about: boolean;
-  blueprints: boolean;
   compliance: boolean;
   contact: boolean;
   docs: boolean;
@@ -22,7 +21,6 @@ export interface PageVisibility {
 // The API returns the admin-configured values; these only apply on fetch failure.
 const defaultVisibility: PageVisibility = {
   about: true,
-  blueprints: false,
   compliance: true,
   contact: true,
   docs: true,
@@ -52,7 +50,6 @@ export async function getPageVisibility(): Promise<PageVisibility> {
     const data = await response.json();
     return {
       about: data.about ?? false,
-      blueprints: data.blueprints ?? false,
       compliance: data.compliance ?? false,
       contact: data.contact ?? false,
       docs: data.docs ?? false,

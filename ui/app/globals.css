@@ -1787,7 +1787,7 @@ div:has(> img[style*="position:absolute"]) {
   color: var(--theme-text-primary);
 }
 
-/* --- Orange button variant (blueprints) --- */
+/* --- Orange button variant --- */
 .btn-orange {
   @apply px-4 py-2 rounded-md font-medium;
   background-color: #EA580C;

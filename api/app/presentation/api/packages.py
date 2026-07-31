@@ -513,7 +513,7 @@ async def install_from_url(
 async def list_installed_packages(
     package_type: str | None = Query(
         None,
-        description="Filter by type: provider, workflow, blueprint, comfyui, prompt. Default: all types.",
+        description="Filter by type: provider, workflow, comfyui, prompt. Default: all types.",
     ),
     current_user: Dict[str, Any] = Depends(require_super_admin),
     pkg_service: PackageManagementService = Depends(get_package_management_service),
@@ -545,16 +545,15 @@ class PackageUsageInfo(BaseModel):
     provider_slug: str | None
     provider_id: str | None
     workflow_count: int
-    blueprint_count: int
     affected_orgs: list[str]  # Organization names
-    details: list[dict[str, Any]]  # Workflow/blueprint names and org info
+    details: list[dict[str, Any]]  # Workflow names and org info
 
 
 @router.get(
     "/{namespace}/{slug}/usage",
     response_model=PackageUsageInfo,
     summary="Check package usage",
-    description="Check how many workflows and blueprints use this package's provider.",
+    description="Check how many workflows use this package's provider.",
 )
 async def check_package_usage(
     package_name: NamespacedId,
@@ -564,7 +563,7 @@ async def check_package_usage(
     """
     Check package usage before uninstalling.
 
-    Returns information about workflows and blueprints that use this provider.
+    Returns information about workflows that use this provider.
     """
     # Resolve provider slug from DB
     provider_slug = await pkg_service.resolve_provider_slug(package_name)
@@ -578,7 +577,6 @@ async def check_package_usage(
             provider_slug=provider_slug,
             provider_id=None,
             workflow_count=0,
-            blueprint_count=0,
             affected_orgs=[],
             details=[],
         )
@@ -590,7 +588,6 @@ async def check_package_usage(
         provider_slug=provider_slug,
         provider_id=provider_id,
         workflow_count=usage["workflow_count"],
-        blueprint_count=usage["blueprint_count"],
         affected_orgs=usage["affected_orgs"],
         details=usage["details"],
     )
@@ -602,7 +599,6 @@ class UninstallResponse(BaseModel):
     success: bool
     message: str
     workflows_affected: int
-    blueprints_affected: int
 
 
 @router.delete(
@@ -622,7 +618,7 @@ async def uninstall_package(
 
     Removes the package directory AND the provider/services from the database.
 
-    If workflows or blueprints use this provider:
+    If workflows use this provider:
     - Without force=true: Returns error with usage count
     - With force=true: Uninstalls anyway (workflows will be broken)
     """
@@ -630,7 +626,6 @@ async def uninstall_package(
     provider_slug = await pkg_service.resolve_provider_slug(package_name)
 
     workflows_affected = 0
-    blueprints_affected = 0
 
     # Delete from database
     if provider_slug:
@@ -642,15 +637,13 @@ async def uninstall_package(
                 # Check usage before uninstalling
                 usage = await pkg_service.get_provider_usage(str(provider_id))
                 workflows_affected = usage["workflow_count"]
-                blueprints_affected = usage["blueprint_count"]
 
-                if (workflows_affected > 0 or blueprints_affected > 0) and not force:
+                if workflows_affected > 0 and not force:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail={
-                            "message": f"Package is in use by {workflows_affected} workflow(s) and {blueprints_affected} blueprint(s). Use force=true to uninstall anyway.",
+                            "message": f"Package is in use by {workflows_affected} workflow(s). Use force=true to uninstall anyway.",
                             "workflows_affected": workflows_affected,
-                            "blueprints_affected": blueprints_affected,
                             "affected_orgs": usage["affected_orgs"],
                         },
                     )
@@ -677,14 +670,13 @@ async def uninstall_package(
             logger.error(f"Failed to soft-delete provider from database: {e}")
 
     message = f"Package '{package_name}' uninstalled successfully"
-    if workflows_affected > 0 or blueprints_affected > 0:
-        message += f" (WARNING: {workflows_affected} workflow(s) and {blueprints_affected} blueprint(s) may be broken)"
+    if workflows_affected > 0:
+        message += f" (WARNING: {workflows_affected} workflow(s) may be broken)"
 
     return UninstallResponse(
         success=True,
         message=message,
         workflows_affected=workflows_affected,
-        blueprints_affected=blueprints_affected,
     )
 
 
@@ -757,7 +749,7 @@ async def list_package_versions(
     package_slug: NamespacedId,
     package_type: str = Query(
         "provider",
-        description="Package type: provider, workflow, blueprint, comfyui, prompt.",
+        description="Package type: provider, workflow, comfyui, prompt.",
     ),
     current_user: Dict[str, Any] = Depends(require_super_admin),
     pkg_service: PackageManagementService = Depends(get_package_management_service),

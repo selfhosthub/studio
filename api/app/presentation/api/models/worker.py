@@ -113,6 +113,10 @@ class WorkerHeartbeatResponse(BaseModel):
         default=None,
         description="Refreshed JWT token (only included if worker is still registered)",
     )
+    comfyui_catalog_hash: Optional[str] = Field(
+        default=None,
+        description="Current ComfyUI catalog hash (only for workers serving comfyui queues)",
+    )
 
 
 class WorkerDeregistrationRequest(BaseModel):

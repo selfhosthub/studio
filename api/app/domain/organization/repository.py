@@ -51,9 +51,6 @@ class OrganizationRepository(ABC):
     async def count_active_users(self, organization_id: uuid.UUID) -> int: ...
 
     @abstractmethod
-    async def count_blueprints(self, organization_id: uuid.UUID) -> int: ...
-
-    @abstractmethod
     async def count_instances(self, organization_id: uuid.UUID) -> int: ...
 
     @abstractmethod

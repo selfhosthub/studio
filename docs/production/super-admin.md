@@ -51,7 +51,7 @@ The super admin has full platform control. These capabilities are exclusive to t
 
 ### Marketplace Catalogs
 
-- Upload and refresh catalogs for workflows, prompts, blueprints, and ComfyUI
+- Upload and refresh catalogs for workflows, prompts, and ComfyUI
 - View raw catalog data
 
 ### System Infrastructure

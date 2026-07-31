@@ -94,7 +94,6 @@ from app.application.services.provider_service import (
     ProviderService as ProviderServiceClass,
 )
 from app.application.services.queue_service import QueueService
-from app.application.services.blueprint_service import BlueprintService
 from app.application.services.webhook_service import WebhookService
 from app.application.services.form_field_resolver import FormFieldResolver
 from app.application.services.workflow_service import WorkflowService
@@ -119,7 +118,6 @@ from app.domain.queue.repository import (
     WorkerRepository,
 )
 from app.domain.prompt.repository import PromptRepository
-from app.domain.blueprint.repository import BlueprintRepository
 from app.domain.workflow.repository import WorkflowRepository
 from app.infrastructure.auth.jwt import RoleChecker, get_current_user
 from app.infrastructure.auth.password_service import PasswordService
@@ -176,9 +174,6 @@ from app.infrastructure.repositories.queue_repository import (
 )
 from app.infrastructure.repositories.prompt_repository import (
     SQLAlchemyPromptRepository,
-)
-from app.infrastructure.repositories.blueprint_repository import (
-    SQLAlchemyBlueprintRepository,
 )
 from app.infrastructure.repositories.worker_repository import (
     SQLAlchemyWorkerRepository,
@@ -353,12 +348,6 @@ async def get_workflow_repository(
     yield SQLAlchemyWorkflowRepository(session)
 
 
-async def get_blueprint_repository(
-    session: AsyncSession = Depends(get_db_session_rls),
-) -> AsyncGenerator[BlueprintRepository, None]:
-    yield SQLAlchemyBlueprintRepository(session)
-
-
 async def get_provider_repository(
     session: AsyncSession = Depends(get_db_session),
 ) -> AsyncGenerator[ProviderRepository, None]:
@@ -529,18 +518,6 @@ async def get_workflow_service(
         event_bus=event_bus,
         provider_repository=provider_repo,
         organization_secret_repository=secret_repo,
-    )
-
-
-async def get_blueprint_service(
-    blueprint_repo: BlueprintRepository = Depends(get_blueprint_repository),
-    organization_repo: OrganizationRepository = Depends(get_organization_repository),
-    event_bus: EventBus = Depends(get_event_bus),
-) -> BlueprintService:
-    return BlueprintService(
-        blueprint_repository=blueprint_repo,
-        organization_repository=organization_repo,
-        event_bus=event_bus,
     )
 
 

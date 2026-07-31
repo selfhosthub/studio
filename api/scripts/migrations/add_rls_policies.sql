@@ -282,22 +282,6 @@ CREATE POLICY organization_secrets_service_bypass ON organization_secrets
     WITH CHECK (is_service_account());
 
 -- ============================================================================
--- BLUEPRINTS TABLE
--- ============================================================================
-ALTER TABLE blueprints ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS blueprints_org_isolation ON blueprints;
-CREATE POLICY blueprints_org_isolation ON blueprints
-    USING (organization_id = current_org_id())
-    WITH CHECK (organization_id = current_org_id());
-
-DROP POLICY IF EXISTS blueprints_service_bypass ON blueprints;
-CREATE POLICY blueprints_service_bypass ON blueprints
-    FOR ALL
-    USING (is_service_account())
-    WITH CHECK (is_service_account());
-
--- ============================================================================
 -- WORKFLOW_VERSIONS TABLE
 -- ============================================================================
 ALTER TABLE workflow_versions ENABLE ROW LEVEL SECURITY;

@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Any, List, Set
 
+from studio_workers.contracts.queues import REGISTERED_QUEUES
+
 logger = logging.getLogger(__name__)
 
 
@@ -301,6 +303,10 @@ WORKER_TYPES: Dict[str, WorkerTypeConfig] = {
         },
     ),
 }
+
+# Every declared queue must be in the contracts allowlist packages validate against.
+_undeclared = {c.queue_name for c in WORKER_TYPES.values()} - REGISTERED_QUEUES
+assert not _undeclared, f"worker_types queues missing from REGISTERED_QUEUES: {_undeclared}"
 
 
 def get_worker_config(worker_type: str) -> WorkerTypeConfig:

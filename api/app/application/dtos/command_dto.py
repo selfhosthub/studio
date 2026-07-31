@@ -41,7 +41,6 @@ class BulkCommand(CommandBase):
 class CreateWorkflowCommand(CreateCommand):
     name: str
     description: Optional[str] = None
-    blueprint_id: Optional[uuid.UUID] = None
     client_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -117,22 +116,6 @@ class ActivateProviderCommand(StateTransitionCommand):
 
 
 class DeactivateProviderCommand(StateTransitionCommand):
-    pass
-
-
-class CreateBlueprintCommand(CreateCommand):
-    name: str
-    description: Optional[str] = None
-    category: str = "GENERAL"
-    steps: Dict[str, Any] = Field(default_factory=dict)
-    client_metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class PublishBlueprintCommand(StateTransitionCommand):
-    pass
-
-
-class ArchiveBlueprintCommand(StateTransitionCommand):
     pass
 
 

@@ -621,7 +621,6 @@ export default function SiteSettingsPage() {
                   { key: 'privacy', label: 'Privacy Policy', description: 'Privacy policy page' },
                   { key: 'support', label: 'Support', description: 'Support and help resources' },
                   { key: 'terms', label: 'Terms of Service', description: 'Terms of service page' },
-                  { key: 'blueprints', label: 'Blueprints', description: 'Blueprint vision page in the dashboard sidebar (coming soon feature)' },
                 ].map(({ key, label, description }) => (
                   <div
                     key={key}

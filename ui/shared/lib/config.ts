@@ -9,6 +9,7 @@ const STATIC_ENV: Record<string, string | undefined> = {
   NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
   NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL,
   NEXT_PUBLIC_API_ENV: process.env.NEXT_PUBLIC_API_ENV,
+  NEXT_PUBLIC_COMFYUI_MARKETPLACE: process.env.NEXT_PUBLIC_COMFYUI_MARKETPLACE,
 };
 
 /** window.__ENV (browser, runtime) wins over process.env (server/dev, build-time). */
@@ -33,6 +34,11 @@ export function getWsUrl(): string {
     throw new Error('NEXT_PUBLIC_WS_URL is not set. Configure it in your .env file.');
   }
   return url;
+}
+
+/** Gated until workers execute installed packages (ST126). */
+export function isComfyUIMarketplaceEnabled(): boolean {
+  return getEnv('NEXT_PUBLIC_COMFYUI_MARKETPLACE') === 'true';
 }
 
 export const API_VERSION = '/api/v1';

@@ -40,7 +40,6 @@ class SearchQuery(QueryBase):
 
 class WorkflowQuery(OrganizationQuery):
     status: Optional[str] = None
-    blueprint_id: Optional[uuid.UUID] = None
     created_by: Optional[uuid.UUID] = None
 
 
@@ -48,12 +47,6 @@ class InstanceQuery(OrganizationQuery, TimeRangeQuery):
     workflow_id: Optional[uuid.UUID] = None
     status: Optional[str] = None
     user_id: Optional[uuid.UUID] = None
-
-
-class BlueprintQuery(OrganizationQuery):
-    category: Optional[str] = None
-    published: Optional[bool] = None
-    created_by: Optional[uuid.UUID] = None
 
 
 class QueueQuery(OrganizationQuery):

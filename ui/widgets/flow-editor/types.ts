@@ -77,8 +77,6 @@ export interface FlowEditorProps {
   onToggleFullscreen?: () => void;
   /** Whether settings panel is currently shown */
   showSettingsActive?: boolean;
-  /** Mode: 'blueprint' skips field mapping modal, 'workflow' shows full mapping UI */
-  mode?: 'blueprint' | 'workflow';
   /** Step IDs that have credential issues (shown with amber border) */
   credentialIssueStepIds?: string[];
 }

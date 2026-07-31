@@ -31,9 +31,6 @@ from app.application.dtos import (
     QueuedJobCreate,
     QueuedJobResponse,
     QueuedJobUpdate,
-    BlueprintCreate,
-    BlueprintResponse,
-    BlueprintUpdate,
     WebhookResponse,
     CreateWebhookRequest,
     UpdateWebhookRequest,
@@ -93,10 +90,6 @@ __all__ = [
     "QueuedJobCreate",
     "QueuedJobResponse",
     "QueuedJobUpdate",
-    # DTOs - Blueprint
-    "BlueprintCreate",
-    "BlueprintResponse",
-    "BlueprintUpdate",
     # DTOs - Webhook
     "WebhookResponse",
     "CreateWebhookRequest",

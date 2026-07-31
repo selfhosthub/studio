@@ -39,12 +39,6 @@ class WorkflowEvent(DomainEvent):
     organization_id: UUID
 
 
-class BlueprintEvent(DomainEvent):
-    aggregate_type: str = "blueprint"
-    blueprint_id: UUID
-    organization_id: UUID
-
-
 class StepEvent(DomainEvent):
     aggregate_type: str = "step"
     step_id: UUID
@@ -173,18 +167,6 @@ class WorkflowDeactivatedEvent(WorkflowEvent):
 
 class WorkflowDeletedEvent(WorkflowEvent):
     event_type: str = "workflow.deleted"
-
-
-class BlueprintCreatedEvent(BlueprintEvent):
-    event_type: str = "blueprint.created"
-
-
-class BlueprintUpdatedEvent(BlueprintEvent):
-    event_type: str = "blueprint.updated"
-
-
-class BlueprintDeletedEvent(BlueprintEvent):
-    event_type: str = "blueprint.deleted"
 
 
 class JobCreatedEvent(JobEvent):

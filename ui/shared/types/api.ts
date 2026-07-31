@@ -185,33 +185,6 @@ export interface WorkflowUpdate {
 }
 
 // ============================================================================
-// Blueprint Types
-// ============================================================================
-
-export interface BlueprintResponse {
-  id: string; // UUID
-  name: string;
-  description?: string | null;
-  category?: string | null;
-  steps: WorkflowStep[];
-  connections?: unknown[]; // Edge connections between steps
-  is_public: boolean;
-  created_by: string; // UUID
-  created_at: string; // ISO 8601 datetime
-  updated_at: string; // ISO 8601 datetime
-  tags?: string[];
-  version?: string | number;
-}
-
-export interface BlueprintCreate {
-  name: string;
-  description?: string | null;
-  category?: string | null;
-  steps: WorkflowStep[];
-  is_public?: boolean;
-}
-
-// ============================================================================
 // Instance Types
 // ============================================================================
 

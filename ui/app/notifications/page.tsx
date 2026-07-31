@@ -190,9 +190,6 @@ function NotificationsContent() {
     if (metadata.workflow_id) {
       return `/workflows/${metadata.workflow_id}`;
     }
-    if (metadata.blueprint_id || metadata.template_id) {
-      return `/blueprints/${metadata.blueprint_id || metadata.template_id}`;
-    }
     // Older notifications store entity IDs on the root object rather than in metadata
     if (notification.workflow_id) {
       return `/workflows/${notification.workflow_id}`;
@@ -208,13 +205,12 @@ function NotificationsContent() {
     const metadata = getMetadata(notification);
     const workflowId = metadata.workflow_id || notification.workflow_id;
     const instanceId = metadata.instance_id || notification.instance_id;
-    const blueprintId = metadata.blueprint_id || metadata.template_id;
 
-    if (!workflowId && !instanceId && !blueprintId) {
+    if (!workflowId && !instanceId) {
       return [];
     }
 
-    // Scope precedence: instance > workflow > blueprint. Matching at the
+    // Scope precedence: instance > workflow. Matching at the
     // workflow level when an instance_id exists pulled in every notification
     // for unrelated runs of the same workflow.
     return notifications.filter(n => {
@@ -222,10 +218,8 @@ function NotificationsContent() {
       const nMeta = getMetadata(n);
       const nWorkflowId = nMeta.workflow_id || n.workflow_id;
       const nInstanceId = nMeta.instance_id || n.instance_id;
-      const nBlueprintId = nMeta.blueprint_id || nMeta.template_id;
       if (instanceId) return nInstanceId === instanceId;
       if (workflowId) return nWorkflowId === workflowId;
-      if (blueprintId) return nBlueprintId === blueprintId;
       return false;
     });
   };

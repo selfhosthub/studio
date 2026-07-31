@@ -27,7 +27,6 @@ class WorkflowCreate(WorkflowBase):
 
     organization_id: Optional[uuid.UUID] = None
     created_by: Optional[uuid.UUID] = None
-    blueprint_id: Optional[uuid.UUID] = None
     steps: Optional[Dict[str, Dict[str, Any]]] = None
     status: Optional[WorkflowStatus] = None
     trigger_type: Optional[WorkflowTriggerType] = None
@@ -54,8 +53,6 @@ class WorkflowResponse(WorkflowBase):
     id: uuid.UUID
     slug: str = ""
     organization_id: uuid.UUID
-    blueprint_id: Optional[uuid.UUID] = None
-    blueprint_name: Optional[str] = None
     status: WorkflowStatus
     trigger_type: WorkflowTriggerType
     version: int = 1
@@ -66,7 +63,7 @@ class WorkflowResponse(WorkflowBase):
     # referenced OrganizationSecret, not on the domain Workflow. `from_domain` is
     # pure and leaves these at their defaults; WorkflowService enriches them off
     # the secret. On read, each secret-class field is None (unset) or the
-    # "[CONFIGURED]" sentinel — never the plaintext.
+    # "[CONFIGURED]" sentinel - never the plaintext.
     webhook_secret: Optional[str] = None
     webhook_method: str
     webhook_auth_type: str
@@ -109,8 +106,6 @@ class WorkflowResponse(WorkflowBase):
             slug=workflow.slug,
             description=workflow.description,
             organization_id=workflow.organization_id,
-            blueprint_id=workflow.blueprint_id,
-            blueprint_name=workflow.blueprint_name,
             status=workflow.status,
             trigger_type=workflow.trigger_type,
             version=workflow.version,

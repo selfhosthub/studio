@@ -92,7 +92,6 @@ class DatabaseStats(BaseModel):
     total_organizations: int = 0
     total_users: int = 0
     total_workflows: int = 0
-    total_blueprints: int = 0
     total_instances: int = 0
     total_providers: int = 0
     total_credentials: int = 0

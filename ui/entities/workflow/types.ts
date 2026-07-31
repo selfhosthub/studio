@@ -4,7 +4,7 @@
  * Type definitions for workflow steps and configurations
  */
 
-// Import types from shared layer for use in local interfaces (Workflow, Blueprint, Instance).
+// Import types from shared layer for use in local interfaces (Workflow, Instance).
 import type { Step, TriggerType } from '@/shared/types/workflow';
 
 // Re-export types that are shared with the `shared/` FSD layer.
@@ -109,24 +109,6 @@ export interface Workflow {
   status?: 'draft' | 'active' | 'inactive' | 'archived' | 'published' | 'deprecated';
   version?: string | number;
   tags?: string[];
-  blueprint_id?: string;
-  blueprint_version?: number;
-}
-
-export interface Blueprint {
-  id: string;
-  name: string;
-  description?: string;
-  steps: Record<string, Step> | Step[]; // Backend sends object, can also be array for compatibility
-  connections?: Connection[];
-  created_at: string;
-  updated_at: string;
-  created_by?: string;
-  organization_id?: string;
-  status?: 'draft' | 'active' | 'inactive' | 'archived' | 'published' | 'deprecated';
-  version?: string | number;
-  tags?: string[];
-  category?: string;
 }
 
 export interface Instance {

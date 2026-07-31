@@ -327,6 +327,7 @@ class WorkerBase(ABC):
                     if new_token:
                         with self._token_lock:
                             self.worker_token = new_token
+                    self.on_heartbeat_response(data)
                 return True
             elif response.status_code == 404:
                 # Worker was deleted from the system - trigger re-registration
@@ -401,6 +402,9 @@ class WorkerBase(ABC):
                 # Registration successful, start heartbeat
                 self.start_heartbeat()
                 break
+
+    def on_heartbeat_response(self, data: Dict[str, Any]) -> None:
+        """Hook for engines to react to extra heartbeat-response fields."""
 
     def start_registration_retry(self):
         """Start background registration retry thread."""

@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 import jsonschema
 from sqlalchemy.ext.asyncio import AsyncSession
+from studio_workers.contracts.queues import REGISTERED_QUEUES
 
 from app.application.services.versioned_installer import (
     Decision,
@@ -62,6 +63,11 @@ def _get_schema() -> dict[str, Any]:
 def _validate(content: dict[str, Any]) -> None:
     """Raise `jsonschema.ValidationError` if `content` fails schema validation."""
     jsonschema.validate(instance=content, schema=_get_schema())
+    queue = (content.get("service") or {}).get("queue")
+    if queue is not None and queue not in REGISTERED_QUEUES:
+        raise jsonschema.ValidationError(
+            f"service.queue '{queue}' is not a registered queue"
+        )
 
 
 @dataclass

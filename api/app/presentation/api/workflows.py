@@ -159,31 +159,6 @@ async def list_workflows(
     return await service.to_responses(workflows)
 
 
-@router.get("/by-blueprint/{blueprint_id}", response_model=List[WorkflowResponse])
-async def list_workflows_by_blueprint(
-    blueprint_id: UUID = Path(...),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(settings.API_PAGE_LIMIT_DEFAULT, ge=1, le=settings.API_PAGE_MAX),
-    user: CurrentUser = Depends(get_current_user),
-    service: WorkflowService = Depends(get_workflow_service),
-):
-    """
-    List workflows derived from a blueprint with pagination.
-
-    Users can only list workflows for blueprints they have access to.
-    Super-admins can access all workflows.
-    """
-    workflows = await service.workflow_repository.list_by_blueprint(
-        blueprint_id, skip=skip, limit=limit
-    )
-
-    if workflows and len(workflows) > 0:
-        first_workflow = workflows[0]
-        await validate_organization_access(str(first_workflow.organization_id), user)
-
-    return await service.to_responses(workflows)
-
-
 @router.get("/pending-publish", response_model=List[WorkflowResponse])
 async def list_pending_publish(
     skip: int = Query(0, ge=0),
@@ -941,7 +916,7 @@ async def regenerate_trigger_secret_key(
     """Deliberately rotate a `workflow_trigger` secret's API key from the Secrets
     page (admin only). Every workflow sharing the secret immediately uses the new
     key; the response reports how many that is. This is where rotation of a
-    *shared* secret lives — the in-workflow Regenerate refuses when shared.
+    *shared* secret lives - the in-workflow Regenerate refuses when shared.
 
     Raises:
         400: The secret doesn't exist / isn't a trigger secret in this org.

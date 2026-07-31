@@ -67,7 +67,6 @@ export {
 
 export {
   getWorkflows,
-  getWorkflowsByBlueprint,
   createWorkflow,
   getWorkflow,
   updateWorkflow,
@@ -309,6 +308,25 @@ export {
   type InstalledPromptsResponse,
   type PromptCatalogUploadResponse,
 } from './prompts';
+
+export {
+  getComfyUICatalog,
+  getComfyUIWorkflowDetail,
+  getInstalledComfyUI,
+  installComfyUIWorkflow,
+  uninstallComfyUIWorkflow,
+  uploadComfyUICatalog,
+  refreshComfyUICatalog,
+  type MarketplaceComfyUI,
+  type MarketplaceComfyUIDetail,
+  type ComfyUIGraphNode,
+  type ComfyUIWorkflowPackage,
+  type ComfyUICatalogResponse,
+  type ComfyUIInstallResponse,
+  type InstalledComfyUIInfo,
+  type InstalledComfyUIResponse,
+  type ComfyUICatalogUploadResponse,
+} from './comfyui';
 
 export {
   getPublicSiteContent,

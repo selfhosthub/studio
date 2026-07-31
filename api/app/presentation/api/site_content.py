@@ -188,7 +188,6 @@ class PageVisibilityUpdateRequest(BaseModel):
     """
 
     about: bool = True
-    blueprints: bool = False
     compliance: bool = True
     contact: bool = True
     docs: bool = True

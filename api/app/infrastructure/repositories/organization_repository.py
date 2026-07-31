@@ -24,7 +24,6 @@ from app.domain.organization.repository import (
 )
 from app.infrastructure.persistence.models import (
     OrganizationModel,
-    BlueprintModel,
     UserModel,
     InstanceModel,
     WorkflowModel,
@@ -205,17 +204,6 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
                 (UserModel.organization_id == organization_id)
                 & (UserModel.is_active == True)
             )
-        )
-        result = await self.session.execute(stmt)
-        count = result.scalar()
-
-        return int(count) if count else 0
-
-    async def count_blueprints(self, organization_id: uuid.UUID) -> int:
-        stmt = (
-            select(func.count())
-            .select_from(BlueprintModel)
-            .where(BlueprintModel.organization_id == organization_id)
         )
         result = await self.session.execute(stmt)
         count = result.scalar()

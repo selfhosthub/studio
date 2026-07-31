@@ -10,13 +10,6 @@ from app.application.dtos.catalog_dto import (
     MarketplaceBucket,
 )
 
-# Blueprint DTOs
-from app.application.dtos.blueprint_dto import (
-    BlueprintBase,
-    BlueprintCreate,
-    BlueprintUpdate,
-    BlueprintResponse,
-)
 
 # Queue DTOs
 from app.application.dtos.queue_dto import (
@@ -125,11 +118,6 @@ __all__ = [
     "CatalogOrigin",
     "CatalogTier",
     "MarketplaceBucket",
-    # Blueprint DTOs
-    "BlueprintBase",
-    "BlueprintCreate",
-    "BlueprintUpdate",
-    "BlueprintResponse",
     # Queue DTOs
     "QueueBase",
     "QueueCreate",

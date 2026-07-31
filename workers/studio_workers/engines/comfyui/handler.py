@@ -2,7 +2,7 @@
 
 """GPU worker for AI image generation via ComfyUI. Database-free; jobs come from queue payload.
 
-Workflow source priority: parameters.workflow (operator override) > built-in templates.
+Workflow source priority: parameters.workflow (operator override) > synced catalog packages.
 """
 
 import os
@@ -26,12 +26,12 @@ from studio_workers.worker_types import get_worker_config
 from studio_workers.settings import settings
 from studio_workers.engines.comfyui.settings import settings as comfyui_settings
 
-from studio_workers.engines.comfyui import (
-    ComfyUIClient,
-    load_workflow_template,
-    inject_parameters,
+from studio_workers.engines.comfyui import ComfyUIClient
+from studio_workers.engines.comfyui.manifest import (
+    inject_from_manifest,
+    validate_manifest_parameters,
 )
-from studio_workers.engines.comfyui.templates import validate_parameters
+from studio_workers.engines.comfyui.package_store import ComfyUIPackageStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,21 +41,6 @@ IMAGE_INPUT_PARAMS = ["image"]
 
 class ComfyUIWorker(WorkerBase):
     """GPU worker for ComfyUI-based image/video generation."""
-
-    ALL_OPERATIONS = {
-        "comfyui_txt2img": "comfyui_txt2img",
-        "comfyui_txt2img_flux2": "comfyui_txt2img_flux2",
-        "comfyui_txt2img_flux2_9b": "comfyui_txt2img_flux2_9b",
-        "comfyui_imgedit": "comfyui_imgedit",
-    }
-
-    TXT2IMG_MODEL_TEMPLATES = {
-        "flux1-schnell": "comfyui_txt2img",
-        "flux1-schnell-fp8": "comfyui_txt2img_fp8",
-        "flux1-schnell-q4": "comfyui_txt2img_gguf",
-        "flux-2-klein-4b": "comfyui_txt2img_flux2",
-        "flux-2-klein-9b": "comfyui_txt2img_flux2_9b",
-    }
 
     def __init__(self, worker_type: str = "comfyui-image"):
         config = get_worker_config(worker_type)
@@ -67,17 +52,6 @@ class ComfyUIWorker(WorkerBase):
         )
 
         self.queue_name = config.queue_name
-
-        # Worker types may handle a subset of operations - filter from capabilities.
-        allowed_ops = config.capabilities.get("operations", [])
-        if allowed_ops:
-            self.OPERATIONS = {
-                op: template
-                for op, template in self.ALL_OPERATIONS.items()
-                if op in allowed_ops
-            }
-        else:
-            self.OPERATIONS = self.ALL_OPERATIONS.copy()
 
         # Job client initialized after registration so we have real worker_id from the API.
         self.job_client = None
@@ -103,6 +77,16 @@ class ComfyUIWorker(WorkerBase):
         self.client: Optional[ComfyUIClient] = None
         self._comfyui_available = False
         self._last_availability_log = 0
+
+        # Catalog packages synced from the API; disk cache covers API outages.
+        self.package_store = ComfyUIPackageStore()
+        self._resync_needed = False
+
+    def on_heartbeat_response(self, data: Dict[str, Any]) -> None:
+        """Flag a resync when the API's catalog hash moves; the claim loop syncs."""
+        remote_hash = data.get("comfyui_catalog_hash")
+        if remote_hash and remote_hash != self.package_store.catalog_hash:
+            self._resync_needed = True
 
     def _check_comfyui_available(self) -> bool:
         """Non-blocking health check; logs only on status change or every 60s while waiting."""
@@ -182,7 +166,6 @@ class ComfyUIWorker(WorkerBase):
         logger.info(f"Monitoring queue: {self.queue_name}")
         logger.debug(f"ComfyUI URL: {self.comfyui_url}")
         logger.debug(f"Output directory: {self.output_dir}")
-        logger.debug(f"Operations: {', '.join(self.OPERATIONS.keys())}")
 
         self.job_client = create_job_client(
             worker_id=self.worker_id or self.worker_name,
@@ -203,6 +186,12 @@ class ComfyUIWorker(WorkerBase):
         else:
             logger.info(f"ComfyUI not available at {self.comfyui_url}, will retry...")
 
+        cached = self.package_store.load_cached()
+        if cached:
+            logger.info(f"Loaded {cached} cached comfyui packages")
+        if not self.package_store.sync(token_getter=self.get_token):
+            logger.warning("Package sync unavailable - using cached packages")
+
         logger.info("Listening for jobs...")
 
         # Desync simultaneous container boots before the first claim.
@@ -210,6 +199,10 @@ class ComfyUIWorker(WorkerBase):
 
         try:
             while self.running:
+                if self._resync_needed:
+                    self._resync_needed = False
+                    self.package_store.sync(token_getter=self.get_token)
+
                 if not self._check_comfyui_available():
                     time.sleep(self.comfyui_retry_interval)
                     continue
@@ -270,76 +263,34 @@ class ComfyUIWorker(WorkerBase):
         try:
             custom_workflow = parameters.get("workflow")
 
+            manifest = self.package_store.resolve(
+                operation, parameters.get("model")
+            )
+
             if custom_workflow:
                 logger.debug("Using custom workflow from job payload")
                 workflow = custom_workflow
-                workflow = inject_parameters(workflow, parameters, "custom")
-            else:
-                if operation not in self.OPERATIONS:
-                    raise ValueError(
-                        f"Unknown operation: {operation}. "
-                        f"Valid operations: {', '.join(self.OPERATIONS.keys())}"
-                    )
-
-                is_valid, error_msg = validate_parameters(operation, parameters)
+            elif manifest:
+                is_valid, error_msg = validate_manifest_parameters(
+                    manifest, parameters
+                )
                 if not is_valid:
                     raise ValueError(f"Invalid parameters: {error_msg}")
-
-                workflow_name = self.OPERATIONS[operation]
-
-                if operation == "comfyui_txt2img":
-                    model = parameters.get("model")
-                    if model:
-                        if model not in self.TXT2IMG_MODEL_TEMPLATES:
-                            raise ValueError(
-                                f"Unknown model: '{model}'. "
-                                f"Available models: {', '.join(sorted(self.TXT2IMG_MODEL_TEMPLATES.keys()))}"
-                            )
-                        workflow_name = self.TXT2IMG_MODEL_TEMPLATES[model]
-                        logger.info(f"Model override: {model} → {workflow_name}")
-
-                workflow = load_workflow_template(workflow_name)
-
-                # Surface model file in logs to diagnose workflow selection issues.
-                model_name = "unknown"
-                for node in workflow.values():
-                    if isinstance(node, dict) and node.get("class_type") in (
-                        "UNETLoader",
-                        "UnetLoaderGGUF",
-                    ):
-                        model_name = node.get("inputs", {}).get("unet_name", "unknown")
-                        break
-
-                workflow = inject_parameters(workflow, parameters, workflow_name)
-
-                # Read actual values from workflow nodes (post-injection).
-                node50 = workflow.get("50", {}).get("inputs", {})
-                gen_w, gen_h = "?", "?"
-                for node in workflow.values():
-                    if isinstance(node, dict) and "LatentImage" in node.get(
-                        "class_type", ""
-                    ):
-                        gen_w = node.get("inputs", {}).get("width", "?")
-                        gen_h = node.get("inputs", {}).get("height", "?")
-                        break
-                upscale = parameters.get("upscale", True)
-                logger.debug("=== WORKFLOW DEBUG ===")
-                logger.debug(f"  operation: {operation}")
-                logger.debug(f"  workflow_name: {workflow_name}")
-                logger.debug(f"  model file: {model_name}")
-                logger.debug(f"  steps: {parameters.get('steps', 'default')}")
-                logger.debug(f"  seed: {parameters.get('seed', 'default')}")
-                if upscale:
-                    logger.debug("  fast mode: on")
-                    logger.debug(f"  gen: {gen_w}x{gen_h}")
-                    logger.debug(
-                        f"  output: {node50.get('width')}x{node50.get('height')} ({node50.get('upscale_method', 'lanczos')})"
+                model = parameters.get("model") or manifest.default_model
+                logger.info(
+                    f"Using catalog package {manifest.slug}@{manifest.version}"
+                    + (f" model={model}" if model else "")
+                )
+                workflow = inject_from_manifest(manifest, parameters, model=model)
+            else:
+                raise ValueError(
+                    f"No catalog package for operation '{operation}'"
+                    + (
+                        f" model '{parameters.get('model')}'"
+                        if parameters.get("model")
+                        else ""
                     )
-                else:
-                    logger.debug("  fast mode: off")
-                    logger.debug(
-                        f"  output: {node50.get('width')}x{node50.get('height')}"
-                    )
+                )
 
             assert self.client is not None, "ComfyUI client not initialized"
             logger.info("Submitting workflow to ComfyUI")

@@ -26,6 +26,7 @@ class ComfyUISettings(BaseSettings):
     COMFYUI_HEALTH_POLL_INTERVAL_S: float = 2
     COMFYUI_JOB_TIMEOUT_S: int = 600
     COMFYUI_OUTPUT_DIR: str | None = None  # handler falls back to $WORKSPACE_ROOT/data/comfyui_output
+    COMFYUI_PACKAGE_CACHE_DIR: str | None = None  # store falls back to ~/.cache/studio-workers/comfyui-packages
     COMFYUI_PATH: str = "/app/ComfyUI"
     COMFYUI_POLL_INTERVAL_S: float = 5
     COMFYUI_RESTART_PAUSE_S: int = 2

@@ -92,7 +92,7 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* Org stats cards - hidden for super_admin (system org doesn't have workflows/blueprints) */}
+        {/* Org stats cards - hidden for super_admin (system org doesn't have workflows) */}
         {!loading && !error && stats && user?.role !== 'super_admin' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div className="stat-card stat-card-blue">

@@ -19,7 +19,6 @@ from app.config.settings import settings
 from app.domain.instance_step.step_execution import StepExecutionStatus
 from app.domain.instance.models import InstanceStatus
 from app.infrastructure.persistence.models import (
-    BlueprintModel,
     InstanceModel,
     StepExecutionModel,
     OrganizationModel,
@@ -449,7 +448,6 @@ class SystemHealthService:
             "total_organizations": 0,
             "total_users": 0,
             "total_workflows": 0,
-            "total_blueprints": 0,
             "total_instances": 0,
             "total_providers": 0,
             "total_credentials": 0,
@@ -547,9 +545,6 @@ class SystemHealthService:
 
             workflow_count = await db.execute(select(func.count(WorkflowModel.id)))
             stats["total_workflows"] = workflow_count.scalar() or 0
-
-            blueprint_count = await db.execute(select(func.count(BlueprintModel.id)))
-            stats["total_blueprints"] = blueprint_count.scalar() or 0
 
             instance_count = await db.execute(select(func.count(InstanceModel.id)))
             stats["total_instances"] = instance_count.scalar() or 0

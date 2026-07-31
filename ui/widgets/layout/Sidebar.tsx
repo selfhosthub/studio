@@ -10,8 +10,8 @@ import {
   ChevronRight,
   FileImage,
   Home,
+  ImagePlay,
   Key,
-  LayoutTemplate,
   PanelLeft,
   PlayCircle,
   Plug,
@@ -27,6 +27,7 @@ import { useState, useEffect } from "react";
 import { useUser } from "@/entities/user";
 import { usePageVisibility } from "@/entities/page-visibility";
 import { TIMEOUTS } from "@/shared/lib/constants";
+import { isComfyUIMarketplaceEnabled } from "@/shared/lib/config";
 
 type NavItemProps = {
   href: string;
@@ -209,19 +210,6 @@ const Sidebar = ({
             prefetch={false}
           />
 
-          {/* Blueprints - visible when enabled by super-admin, or always for super-admins */}
-          {(user?.role === "super_admin" || isPageVisible("blueprints")) && (
-            <NavItem
-              href="/blueprints"
-              icon={<LayoutTemplate size={20} />}
-              label="Blueprints"
-              isActive={pathname?.startsWith("/blueprints") || false}
-              isCollapsed={isCollapsed}
-              isDarkMode={isDarkMode}
-              prefetch={false}
-            />
-          )}
-
           {/* Workflows - super_admin→marketplace, org users→organization */}
           <NavItem
             href={user?.role === "super_admin" ? "/workflows/list?tab=marketplace" : "/workflows/list?tab=organization"}
@@ -280,6 +268,19 @@ const Sidebar = ({
             isDarkMode={isDarkMode}
             prefetch={false}
           />
+
+          {/* ComfyUI Marketplace (super_admin only) */}
+          {user?.role === "super_admin" && isComfyUIMarketplaceEnabled() && (
+            <NavItem
+              href="/comfyui/marketplace"
+              icon={<ImagePlay size={20} />}
+              label="ComfyUI"
+              isActive={pathname?.startsWith("/comfyui") || false}
+              isCollapsed={isCollapsed}
+              isDarkMode={isDarkMode}
+              prefetch={false}
+            />
+          )}
 
           {/* Organization(s) - different link per role */}
           {user?.role === "super_admin" && (

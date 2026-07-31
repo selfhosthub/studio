@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libgomp1 \
     libsndfile1 \
+    && apt-get install -y --only-upgrade libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution

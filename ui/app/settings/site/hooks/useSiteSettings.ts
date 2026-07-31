@@ -82,7 +82,6 @@ const DEFAULT_HERO: HeroConfig = {
 
 const DEFAULT_PAGE_VISIBILITY: PageVisibility = {
   about: true,
-  blueprints: false,
   compliance: true,
   contact: true,
   docs: true,

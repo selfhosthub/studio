@@ -161,7 +161,6 @@ class QueuedJobBase(BaseModel):
 
 class QueuedJobCreate(QueuedJobBase):
     enqueued_by: uuid.UUID
-    blueprint_id: Optional[uuid.UUID] = None
     workflow_id: Optional[uuid.UUID] = None
 
 
@@ -177,7 +176,6 @@ class QueuedJobUpdate(BaseModel):
 class QueuedJobResponse(QueuedJobBase):
     id: uuid.UUID
     status: StepExecutionStatus
-    blueprint_id: Optional[uuid.UUID] = None
     workflow_id: Optional[uuid.UUID] = None
     worker_id: Optional[uuid.UUID] = None
     output_data: Optional[Dict[str, Any]] = None
@@ -201,7 +199,6 @@ class QueuedJobResponse(QueuedJobBase):
         return cls(
             id=job.id,
             organization_id=job.organization_id,
-            blueprint_id=getattr(job, "blueprint_id", None),
             workflow_id=getattr(job, "workflow_id", None),
             status=job.status,
             priority=job.priority,

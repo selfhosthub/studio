@@ -157,7 +157,6 @@ export function DatabaseTabPanel({ dbStats, dbLoading }: DatabaseTabPanelProps) 
                     { label: 'Organizations', value: dbStats.total_organizations },
                     { label: 'Users', value: dbStats.total_users },
                     { label: 'Workflows', value: dbStats.total_workflows },
-                    { label: 'Blueprints', value: dbStats.total_blueprints },
                     { label: 'Instances', value: dbStats.total_instances },
                     { label: 'Providers', value: dbStats.total_providers },
                     { label: 'Credentials', value: dbStats.total_credentials },

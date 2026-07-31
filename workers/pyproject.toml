@@ -100,5 +100,5 @@ include = ["studio_workers*"]
 exclude = ["tests*", "docker*", "typestubs*"]
 
 [tool.setuptools.package-data]
-"studio_workers.engines.comfyui" = ["presets/*.json", "workflows/*.json"]
+"studio_workers.engines.comfyui" = ["presets/*.json"]
 "studio_workers.engines.video" = ["fonts/*", "fonts/licenses/*"]

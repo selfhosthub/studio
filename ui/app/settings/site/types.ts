@@ -38,7 +38,6 @@ export type TabId = 'visibility' | 'hero' | 'testimonials' | 'features' | 'terms
 
 export interface PageVisibility {
   about: boolean;
-  blueprints: boolean;
   compliance: boolean;
   contact: boolean;
   docs: boolean;

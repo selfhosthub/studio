@@ -14,7 +14,6 @@ export type {
   OutputForwardingConfig,
   Step,
   Workflow,
-  Blueprint,
   Instance,
   Connection,
   IterationResult,

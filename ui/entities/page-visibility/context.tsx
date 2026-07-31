@@ -10,7 +10,6 @@ import { getPublicPageVisibility } from '@/shared/api';
 
 export interface PageVisibility {
   about: boolean;
-  blueprints: boolean;
   compliance: boolean;
   contact: boolean;
   docs: boolean;
@@ -32,7 +31,6 @@ interface PageVisibilityContextType {
 // API failure is worse UX than showing them with potentially stale content.
 const defaultVisibility: PageVisibility = {
   about: true,
-  blueprints: false,
   compliance: true,
   contact: true,
   docs: true,
@@ -61,7 +59,6 @@ export const PageVisibilityProvider: React.FC<PageVisibilityProviderProps> = ({ 
       const data = await getPublicPageVisibility();
       setVisibility({
         about: data.about ?? false,
-        blueprints: data.blueprints ?? false,
         compliance: data.compliance ?? false,
         contact: data.contact ?? false,
         docs: data.docs ?? false,

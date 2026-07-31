@@ -19,10 +19,6 @@ from .exceptions import (
 )
 
 from .events import (
-    BlueprintCreatedEvent,
-    BlueprintDeletedEvent,
-    BlueprintEvent,
-    BlueprintUpdatedEvent,
     DomainEvent,
     InstanceEvent,
     JobCanceledEvent,
@@ -105,7 +101,6 @@ __all__ = [
     "OrganizationEvent",
     "UserEvent",
     "WorkflowEvent",
-    "BlueprintEvent",
     "InstanceEvent",
     "JobEvent",
     "ProviderEvent",
@@ -133,9 +128,6 @@ __all__ = [
     "WorkflowActivatedEvent",
     "WorkflowDeactivatedEvent",
     "WorkflowDeletedEvent",
-    "BlueprintCreatedEvent",
-    "BlueprintUpdatedEvent",
-    "BlueprintDeletedEvent",
     "JobCreatedEvent",
     "JobStartedEvent",
     "JobCompletedEvent",

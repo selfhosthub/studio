@@ -32,7 +32,7 @@ from app.application.dtos import (
 from app.application.dtos.instance_dto import PaginatedInstanceResponse
 
 from app.application.interfaces import EventBus, EntityNotFoundError
-from app.domain.common.exceptions import BusinessRuleViolation
+from app.domain.common.exceptions import BusinessRuleViolation, ValidationError
 from app.application.services.job_enqueue import JobEnqueueService
 
 from app.application.services.instance.lifecycle_service import LifecycleService
@@ -268,6 +268,14 @@ class InstanceService:
                 entity_id=instance_id,
                 code=f"Instance with ID {instance_id} not found",
             )
+
+        if instance.workflow_snapshot and instance.workflow_snapshot.get("steps"):
+            unknown = self._orchestration.unknown_form_keys(instance, form_values)
+            if unknown:
+                raise ValidationError(
+                    f"Unknown form fields: {', '.join(unknown)}",
+                    code="UNKNOWN_FORM_FIELDS",
+                )
 
         current_input = instance.input_data or {}
         current_input["form_values"] = form_values

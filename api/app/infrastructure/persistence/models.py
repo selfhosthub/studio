@@ -37,7 +37,6 @@ from app.domain.provider.models import (
     ServiceType,
 )
 from app.domain.queue.models import QueueStatus, QueueType, WorkerStatus
-from app.domain.blueprint.models import BlueprintCategory, BlueprintStatus
 from app.domain.workflow.models import (
     ExecutionMode,
     PublishStatus,
@@ -156,9 +155,6 @@ class OrganizationModel(Base):
         foreign_keys="UserModel.organization_id",
         back_populates="organization",
     )
-    blueprints: Mapped[List["BlueprintModel"]] = relationship(
-        back_populates="organization"
-    )
     workflows: Mapped[List["WorkflowModel"]] = relationship(
         back_populates="organization"
     )
@@ -215,64 +211,6 @@ class UserModel(Base):
     )
 
 
-class BlueprintModel(Base):
-    __tablename__ = "blueprints"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    name: Mapped[str] = mapped_column(String(255))
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id")
-    )
-    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
-    )
-    version: Mapped[int] = mapped_column(Integer, default=1)
-    status: Mapped[BlueprintStatus] = mapped_column(
-        Enum(
-            BlueprintStatus,
-            name="blueprintstatus",
-            create_constraint=True,
-            native_enum=True,
-        ),
-        default=BlueprintStatus.DRAFT,
-    )
-    category: Mapped[BlueprintCategory] = mapped_column(
-        Enum(
-            BlueprintCategory,
-            name="blueprintcategory",
-            create_constraint=True,
-            native_enum=True,
-        ),
-        default=BlueprintCategory.GENERAL,
-    )
-    steps: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
-    tags: Mapped[List[str]] = mapped_column(ARRAY(String), default=list)
-    client_metadata: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
-
-    organization: Mapped["OrganizationModel"] = relationship(
-        back_populates="blueprints"
-    )
-    workflows: Mapped[List["WorkflowModel"]] = relationship(back_populates="blueprint")
-
-    __table_args__ = (
-        UniqueConstraint(
-            "name", "organization_id", "version", name="uix_blueprint_name_org_version"
-        ),
-        Index("ix_blueprints_organization_status", "organization_id", "status"),
-    )
-
-
 class WorkflowModel(Base):
     __tablename__ = "workflows"
 
@@ -284,9 +222,6 @@ class WorkflowModel(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id")
-    )
-    blueprint_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("blueprints.id"), nullable=True
     )
     status: Mapped[WorkflowStatus] = mapped_column(
         Enum(
@@ -422,9 +357,6 @@ class WorkflowModel(Base):
     )
 
     organization: Mapped["OrganizationModel"] = relationship(back_populates="workflows")
-    blueprint: Mapped[Optional["BlueprintModel"]] = relationship(
-        back_populates="workflows"
-    )
     instances: Mapped[List["InstanceModel"]] = relationship(back_populates="workflow")
     versions: Mapped[List["WorkflowVersionModel"]] = relationship(
         back_populates="workflow", cascade="all, delete-orphan"
@@ -439,7 +371,6 @@ class WorkflowModel(Base):
         Index("ix_workflows_organization_status", "organization_id", "status"),
         Index("ix_workflows_organization_scope", "organization_id", "scope"),
         Index("ix_workflows_created_by_scope", "created_by", "scope"),
-        Index("ix_workflows_blueprint", "blueprint_id"),
         Index(
             "ix_workflows_has_unresolved_refs",
             "organization_id",
@@ -1542,7 +1473,7 @@ class SiteContentModel(Base):
 class MarketplaceCatalogModel(Base):
     """Marketplace catalog database model.
 
-    Stores provider and blueprint catalogs fetched from remote sources (GitHub)
+    Stores catalogs fetched from remote sources (GitHub)
     or uploaded manually. Only one active catalog per type.
     """
 
@@ -1552,7 +1483,7 @@ class MarketplaceCatalogModel(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
-    # Catalog type: 'providers' or 'blueprints'
+    # Catalog type, e.g. 'providers'
     catalog_type: Mapped[CatalogType] = mapped_column(
         Enum(
             CatalogType,

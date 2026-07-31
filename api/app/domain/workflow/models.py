@@ -94,15 +94,12 @@ class ExecutionMode(str, Enum):
 
 
 class Workflow(AggregateRoot):
-    """Aggregate root for a configured workflow definition. Instantiated from blueprints; executable multiple times."""
+    """Aggregate root for a configured workflow definition. Executable multiple times."""
 
     name: str
     slug: str = ""
     description: Optional[str] = None
     organization_id: uuid.UUID
-    blueprint_id: Optional[uuid.UUID] = None
-    blueprint_name: Optional[str] = None
-    blueprint_version: Optional[int] = None
     status: WorkflowStatus = WorkflowStatus.DRAFT
     steps: Dict[str, StepConfig] = Field(default_factory=dict)
     trigger_type: WorkflowTriggerType = WorkflowTriggerType.MANUAL
@@ -151,7 +148,7 @@ class Workflow(AggregateRoot):
     # Reference to the OrganizationSecret holding this workflow's trigger creds
     # ({api_key, webhook_secret, webhook_auth_value, webhook_jwt_secret}), encrypted
     # and admin-recoverable. Non-unique: multiple workflows may share one secret
-    # (admin's choice). The workflow only points at it — no secret values on the row.
+    # (admin's choice). The workflow only points at it - no secret values on the row.
     trigger_secret_id: Optional[uuid.UUID] = None
     # --- Event trigger (workflow-completion chaining) ---
     event_source_workflow_id: Optional[uuid.UUID] = (
@@ -196,8 +193,6 @@ class Workflow(AggregateRoot):
         created_by: uuid.UUID,
         slug: str = "",
         description: Optional[str] = None,
-        blueprint_id: Optional[uuid.UUID] = None,
-        blueprint_version: Optional[int] = None,
         steps: Optional[Dict[str, StepConfig]] = None,
         trigger_type: WorkflowTriggerType = WorkflowTriggerType.MANUAL,
         priority: WorkflowPriority = WorkflowPriority.NORMAL,
@@ -211,8 +206,6 @@ class Workflow(AggregateRoot):
             slug=slug,
             description=description,
             organization_id=organization_id,
-            blueprint_id=blueprint_id,
-            blueprint_version=blueprint_version,
             steps=steps or {},
             trigger_type=trigger_type,
             priority=priority,
@@ -234,7 +227,6 @@ class Workflow(AggregateRoot):
                 description=description,
                 created_by=created_by,
                 data={
-                    "blueprint_id": str(blueprint_id) if blueprint_id else None,
                     "trigger_type": trigger_type.value,
                 },
             )
@@ -618,7 +610,7 @@ class Workflow(AggregateRoot):
     @staticmethod
     def new_api_key() -> str:
         """Mint a fresh API trigger key string (format `wfk_<token>`). The sole
-        source of the key format — service-side rotation (e.g. of a shared trigger
+        source of the key format - service-side rotation (e.g. of a shared trigger
         secret on the Secrets page) uses this too, so the format never drifts."""
         import secrets
 
@@ -1002,13 +994,6 @@ class WorkflowBuilder:
         self.workflow.description = description
         return self
 
-    def with_blueprint(
-        self, blueprint_id: uuid.UUID, blueprint_version: int
-    ) -> "WorkflowBuilder":
-        self.workflow.blueprint_id = blueprint_id
-        self.workflow.blueprint_version = blueprint_version
-        return self
-
     def with_trigger(self, trigger_type: WorkflowTriggerType) -> "WorkflowBuilder":
         self.workflow.trigger_type = trigger_type
         return self
@@ -1074,24 +1059,6 @@ class WorkflowBuilder:
 
         self.workflow.add_step(step_id, step_config)
         self.last_step_id = step_id
-
-        return self
-
-    def from_blueprint(
-        self,
-        blueprint: Any,
-        provider_mappings: Dict[str, tuple[uuid.UUID, str]],
-    ) -> "WorkflowBuilder":
-        self.workflow.blueprint_id = blueprint.id
-        self.workflow.blueprint_version = blueprint.version
-        self.workflow.steps = dict(blueprint.steps)
-
-        for step_id, (provider_id, service_id) in provider_mappings.items():
-            if step_id in self.workflow.steps:
-                step = self.workflow.steps[step_id]
-                if step.job:
-                    step.job.provider_id = provider_id
-                    step.job.service_id = service_id
 
         return self
 

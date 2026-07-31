@@ -26,7 +26,6 @@ from .service_interfaces import (
     OrganizationServiceInterface,
     ProviderServiceInterface,
     QueueServiceInterface,
-    BlueprintServiceInterface,
     WebhookServiceInterface,
     WorkflowServiceInterface,
 )
@@ -64,7 +63,6 @@ __all__ = [
     "OrganizationServiceInterface",
     "ProviderServiceInterface",
     "QueueServiceInterface",
-    "BlueprintServiceInterface",
     "WebhookServiceInterface",
     "WorkflowServiceInterface",
     # Password service interface

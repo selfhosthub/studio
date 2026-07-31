@@ -27,7 +27,6 @@ CATALOG_CACHE_HOURS: int = settings.CATALOG_CACHE_HOURS
 # Catalog filenames - identical across both sources
 PROVIDERS = "providers-catalog.json"
 WORKFLOWS = "workflows-catalog.json"
-BLUEPRINTS = "blueprints-catalog.json"
 PROMPTS = "prompts-catalog.json"
 COMFYUI = "comfyui-catalog.json"
 

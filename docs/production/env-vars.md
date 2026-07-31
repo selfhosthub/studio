@@ -169,7 +169,6 @@ These rarely need overriding - they map content types to subdirectories within w
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SHS_BLUEPRINTS_DIRECTORY` | `blueprints` | |
 | `SHS_COMFYUI_DIRECTORY` | `comfyui` | |
 | `SHS_PROMPTS_DIRECTORY` | `prompts` | |
 | `SHS_PROVIDERS_DIRECTORY` | `providers` | |
@@ -279,7 +278,6 @@ All have sensible defaults - only override when needed. Loaded from `api/app/con
 |----------|---------|------|-------------|
 | `SHS_GRACE_HOURS_STORAGE` | 168 | hours | Grace before blocking exceeded storage (7 days) |
 | `SHS_GRACE_HOURS_WORKFLOWS` | 72 | hours | Grace for exceeded workflow count (3 days) |
-| `SHS_GRACE_HOURS_BLUEPRINTS` | 72 | hours | Grace for exceeded blueprint count (3 days) |
 
 ### Limit Buffers
 
@@ -288,7 +286,6 @@ All have sensible defaults - only override when needed. Loaded from `api/app/con
 | `SHS_LIMIT_BUFFER_WORKFLOWS` | 10 | Extra workflows allowed above plan limit |
 | `SHS_LIMIT_BUFFER_STORAGE_MB` | 1024 | Extra storage (MB) above plan limit |
 | `SHS_LIMIT_BUFFER_USERS` | 3 | Extra users above plan limit |
-| `SHS_LIMIT_BUFFER_BLUEPRINTS` | 5 | Extra blueprints above plan limit |
 | `SHS_LIMIT_WARNING_THRESHOLD` | 0.80 | Fraction of limit that triggers a warning notification |
 | `SHS_LIMIT_CRITICAL_THRESHOLD` | 0.95 | Fraction of limit that triggers a critical alert |
 

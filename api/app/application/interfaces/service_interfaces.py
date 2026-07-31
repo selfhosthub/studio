@@ -40,10 +40,6 @@ from app.application.dtos import (
     WorkerResponse,
     QueuedJobResponse,
     QueuedJobCreate,
-    # Blueprint DTOs
-    BlueprintResponse,
-    BlueprintCreate,
-    BlueprintUpdate,
     # Webhook DTOs
     WebhookResponse,
     CreateWebhookRequest,
@@ -401,80 +397,6 @@ class QueueServiceInterface(ABC):
         pass
 
 
-class BlueprintServiceInterface(ABC):
-    @abstractmethod
-    async def create_blueprint(self, command: BlueprintCreate) -> BlueprintResponse:
-        pass
-
-    @abstractmethod
-    async def update_blueprint(
-        self, blueprint_id: uuid.UUID, command: BlueprintUpdate
-    ) -> BlueprintResponse:
-        pass
-
-    @abstractmethod
-    async def publish_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-    ) -> BlueprintResponse:
-        pass
-
-    @abstractmethod
-    async def archive_blueprint(
-        self, blueprint_id: uuid.UUID, archived_by: uuid.UUID
-    ) -> BlueprintResponse:
-        pass
-
-    @abstractmethod
-    async def add_step(
-        self,
-        blueprint_id: uuid.UUID,
-        step_id: str,
-        step_config: Dict[str, Any],
-        added_by: uuid.UUID,
-    ) -> BlueprintResponse:
-        pass
-
-    @abstractmethod
-    async def remove_step(
-        self, blueprint_id: uuid.UUID, step_id: str, removed_by: uuid.UUID
-    ) -> BlueprintResponse:
-        pass
-
-    @abstractmethod
-    async def update_step(
-        self,
-        blueprint_id: uuid.UUID,
-        step_id: str,
-        step_config: Dict[str, Any],
-        updated_by: uuid.UUID,
-    ) -> BlueprintResponse:
-        pass
-
-    @abstractmethod
-    async def validate_blueprint(self, blueprint_id: uuid.UUID) -> Dict[str, Any]:
-        pass
-
-    @abstractmethod
-    async def create_workflow_from_blueprint(
-        self,
-        blueprint_id: uuid.UUID,
-        workflow_name: str,
-        created_by: uuid.UUID,
-    ) -> WorkflowResponse:
-        pass
-
-    @abstractmethod
-    async def list_blueprints(
-        self,
-        organization_id: uuid.UUID,
-        status: Optional[str] = None,
-        skip: int = 0,
-        limit: int = settings.API_PAGE_LIMIT_DEFAULT,
-    ) -> List[BlueprintResponse]:
-        pass
-
-
 class WebhookServiceInterface(ABC):
     """Inbound-only webhooks: external HTTP calls trigger workflow runs."""
 
@@ -603,7 +525,6 @@ class WorkflowServiceInterface(ABC):
     async def list_workflows(
         self,
         organization_id: uuid.UUID,
-        blueprint_id: Optional[uuid.UUID] = None,
         status: Optional[str] = None,
         skip: int = 0,
         limit: int = settings.API_PAGE_LIMIT_DEFAULT,

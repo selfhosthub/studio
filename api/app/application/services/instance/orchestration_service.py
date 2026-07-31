@@ -118,7 +118,7 @@ class OrchestrationService:
         if not rows:
             return None, None
         # A step holds exactly one iteration group (§4.5: regen resets rows in
-        # place, never mints a new group). >1 group is corruption — fail loud.
+        # place, never mints a new group). >1 group is corruption - fail loud.
         distinct_groups = {r.iteration_group_id for r in rows}
         if len(distinct_groups) > 1:
             raise BusinessRuleViolation(
@@ -157,6 +157,67 @@ class OrchestrationService:
         else:
             current[last] = value
 
+    @staticmethod
+    def _merged_input_mappings(step_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Step-level input_mappings overlaid on client_metadata's."""
+        input_mappings: Dict[str, Any] = {}
+        step_mappings = step_config.get("input_mappings", {})
+        if isinstance(step_mappings, dict):
+            input_mappings.update(step_mappings)
+        client_metadata = step_config.get("client_metadata", {})
+        if isinstance(client_metadata, dict):
+            cm_mappings = client_metadata.get("input_mappings", {})
+            if isinstance(cm_mappings, dict):
+                input_mappings.update(cm_mappings)
+        return input_mappings
+
+    def unknown_form_keys(
+        self, instance: Instance, form_values: Dict[str, Any]
+    ) -> List[str]:
+        """Form keys no step mapping can consume; they would be silently dropped."""
+        steps = (instance.workflow_snapshot or {}).get("steps", {})
+        allowed: set = set()
+        instance_form_fields: set = set()
+
+        for step_id, step_config in steps.items():
+            if not isinstance(step_config, dict):
+                continue
+            for param_key, mapping in self._merged_input_mappings(
+                step_config
+            ).items():
+                if not isinstance(mapping, dict):
+                    continue
+                mapping_type = mapping.get("mappingType") or mapping.get(
+                    "mapping_type"
+                )
+                if mapping_type == "form":
+                    allowed.add(f"{step_id}.{param_key}")
+                elif mapping_type == "prompt" and isinstance(
+                    mapping.get("variableValues"), dict
+                ):
+                    for var_name in mapping["variableValues"]:
+                        allowed.add(f"{step_id}._prompt_variable:{var_name}")
+                elif (
+                    mapping_type == "mapped"
+                    and mapping.get("stepId") == "__instance_form__"
+                    and mapping.get("outputField")
+                ):
+                    instance_form_fields.add(mapping["outputField"])
+
+        def consumable(key: str) -> bool:
+            if key in allowed:
+                return True
+            # __instance_form__ fields resolve by exact or dotted-suffix match.
+            return any(
+                key == field
+                or key == f"_prompt_variable:{field}"
+                or key.endswith(f".{field}")
+                or key.endswith(f"._prompt_variable:{field}")
+                for field in instance_form_fields
+            )
+
+        return sorted(key for key in form_values if not consumable(key))
+
     async def inject_form_values_into_snapshot(
         self, instance: Instance, form_values: Dict[str, Any]
     ) -> None:
@@ -174,15 +235,7 @@ class OrchestrationService:
             if not isinstance(step_config, dict):
                 continue
 
-            input_mappings = {}
-            step_mappings = step_config.get("input_mappings", {})
-            if isinstance(step_mappings, dict):
-                input_mappings.update(step_mappings)
-            client_metadata = step_config.get("client_metadata", {})
-            if isinstance(client_metadata, dict):
-                cm_mappings = client_metadata.get("input_mappings", {})
-                if isinstance(cm_mappings, dict):
-                    input_mappings.update(cm_mappings)
+            input_mappings = self._merged_input_mappings(step_config)
 
             # Pass 1: standard form mappings.
             for param_key, mapping in input_mappings.items():

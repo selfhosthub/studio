@@ -511,7 +511,7 @@ def create_app() -> FastAPI:
         return {
             "name": "Self-Host Studio API",
             "version": __version__,
-            "description": "Multi-tenant media workflow orchestration system with support for blueprints, workflows, and instances",
+            "description": "Multi-tenant media workflow orchestration system with support for workflows and instances",
             "docs_url": "/docs",
             "openapi_url": "/openapi.json",
         }

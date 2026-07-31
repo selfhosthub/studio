@@ -1,6 +1,6 @@
 # api/app/domain/marketplace/__init__.py
 
-"""Marketplace domain: catalog management for provider, prompt, and blueprint marketplaces."""
+"""Marketplace domain: catalog management for provider and prompt marketplaces."""
 
 from app.domain.marketplace.models import MarketplaceCatalog
 from app.domain.marketplace.repository import MarketplaceCatalogRepository

@@ -44,7 +44,6 @@ function getToken(): string | null {
 
 export interface DashboardStats {
   workflows: number;
-  blueprints: number;
   members: number;
   canViewMembers: boolean;
 }
@@ -67,7 +66,6 @@ export async function getDashboardStats(orgId?: string): Promise<DashboardStats>
 
   return {
     workflows: activeWorkflows.length,
-    blueprints: 0,
     members: membersResult?.length ?? 0,
     canViewMembers: membersResult !== null,
   };

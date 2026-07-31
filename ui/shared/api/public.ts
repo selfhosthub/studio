@@ -32,7 +32,6 @@ export interface PublicRegistrationSettings {
 
 export interface PublicPageVisibility {
   about: boolean;
-  blueprints: boolean;
   compliance: boolean;
   contact: boolean;
   docs: boolean;

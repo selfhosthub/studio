@@ -105,7 +105,6 @@ export interface DatabaseStats {
   total_organizations: number;
   total_users: number;
   total_workflows: number;
-  total_blueprints: number;
   total_instances: number;
   total_providers: number;
   total_credentials: number;
@@ -223,10 +222,9 @@ export interface PackageUsageInfo {
   provider_slug: string | null;
   provider_id: string | null;
   workflow_count: number;
-  blueprint_count: number;
   affected_orgs: string[];
   details: Array<{
-    type: 'workflow' | 'blueprint';
+    type: 'workflow';
     id: string;
     name: string;
     org_name: string;
@@ -238,7 +236,6 @@ export interface UninstallResponse {
   success: boolean;
   message: string;
   workflows_affected: number;
-  blueprints_affected: number;
 }
 
 /** Uploads a JSON provider definition and installs it. */
@@ -294,7 +291,7 @@ export async function reinstallPackage(
   });
 }
 
-/** Pre-uninstall check - returns affected workflows and blueprints. */
+/** Pre-uninstall check - returns affected workflows. */
 export async function checkPackageUsage(packageName: string): Promise<PackageUsageInfo> {
   return apiRequest<PackageUsageInfo>(`/packages/${packageName}/usage`);
 }

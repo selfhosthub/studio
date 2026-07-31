@@ -18,7 +18,6 @@ import {
   Key,
   Building2,
   Workflow,
-  FileCode2,
   PlayCircle,
   Plug,
   Package,
@@ -42,7 +41,6 @@ const resourceTypeIcons: Record<string, React.ReactNode> = {
   user: <User size={16} />,
   organization: <Building2 size={16} />,
   workflow: <Workflow size={16} />,
-  template: <FileCode2 size={16} />,
   instance: <PlayCircle size={16} />,
   provider: <Plug size={16} />,
   service: <Plug size={16} />,
@@ -315,7 +313,6 @@ function AuditLogsContent() {
                     <option value="user">Users</option>
                     <option value="organization">Organizations</option>
                     <option value="workflow">Workflows</option>
-                    <option value="template">Templates</option>
                     <option value="instance">Instances</option>
                     <option value="provider">Providers</option>
                     <option value="package">Packages</option>

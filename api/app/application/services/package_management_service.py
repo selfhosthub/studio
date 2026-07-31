@@ -111,7 +111,6 @@ class PackageManagementService:
         except ValueError:
             return {
                 "workflow_count": 0,
-                "blueprint_count": 0,
                 "affected_orgs": [],
                 "details": [],
             }
@@ -156,7 +155,6 @@ class PackageManagementService:
 
         return {
             "workflow_count": len(workflow_rows),
-            "blueprint_count": 0,
             "affected_orgs": list(affected_orgs),
             "details": details,
         }

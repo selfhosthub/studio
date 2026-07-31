@@ -144,10 +144,8 @@ class Settings(BaseSettings):
 
     # ── Grace Periods & Buffers ──────────────────────────────────────────
 
-    GRACE_HOURS_BLUEPRINTS: int = Field(default=72)
     GRACE_HOURS_STORAGE: int = Field(default=168)
     GRACE_HOURS_WORKFLOWS: int = Field(default=72)
-    LIMIT_BUFFER_BLUEPRINTS: int = Field(default=5)
     LIMIT_BUFFER_STORAGE_MB: int = Field(default=1024)
     LIMIT_BUFFER_USERS: int = Field(default=3)
     LIMIT_BUFFER_WORKFLOWS: int = Field(default=10)
@@ -189,7 +187,6 @@ class Settings(BaseSettings):
 
     # ── Catalog & Marketplace ────────────────────────────────────────────
 
-    BLUEPRINTS_DIRECTORY: str = Field(default="blueprints")
     CATALOG_CACHE_HOURS: int = Field(default=24)
     COMFYUI_DIRECTORY: str = Field(default="comfyui")
     COMMUNITY_SOURCE: str = Field(
