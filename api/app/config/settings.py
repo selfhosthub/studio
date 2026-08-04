@@ -188,6 +188,10 @@ class Settings(BaseSettings):
     # ── Catalog & Marketplace ────────────────────────────────────────────
 
     CATALOG_CACHE_HOURS: int = Field(default=24)
+    ALLOWED_QUEUES: str = Field(
+        default="",
+        description="Operator widening of the queue allowlist, comma-separated; unioned with the compiled defaults",
+    )
     COMFYUI_DIRECTORY: str = Field(default="comfyui")
     COMMUNITY_SOURCE: str = Field(
         description="Community catalog source (dir name or URL). Required."

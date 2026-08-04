@@ -27,6 +27,10 @@ class WorkerRegistrationRequest(BaseModel):
     queue_labels: List[str] = Field(
         default_factory=list, description="Labels for queue matching"
     )
+    queues: List[str] = Field(
+        default_factory=list,
+        description="Queues this worker actually serves (claim sweep list)",
+    )
     ip_address: Optional[str] = Field(default=None, description="Worker IP address")
     hostname: Optional[str] = Field(default=None, description="Worker hostname")
     cpu_percent: Optional[float] = Field(

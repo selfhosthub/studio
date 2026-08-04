@@ -64,6 +64,7 @@ class WorkerStats(BaseModel):
     online: int
     offline: int
     workers: list[dict[str, Any]] = []
+    unserved_queues: list[str] = []
 
 
 class PlatformStats(BaseModel):

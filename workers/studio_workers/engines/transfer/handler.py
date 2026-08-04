@@ -35,7 +35,7 @@ from studio_workers.utils.result_publisher import ResultPublisher
 from studio_workers.utils.error_codes import classify_error_code
 from studio_workers.utils.credential_client import CredentialClient
 from studio_workers.utils.redaction import redact_url
-from studio_workers.worker_types import get_worker_config
+from studio_workers.worker_types import get_worker_config, resolve_queues
 
 
 class TransferWorker(WorkerBase):
@@ -51,6 +51,7 @@ class TransferWorker(WorkerBase):
         )
 
         self.queue_name = config.queue_name
+        self.queues = resolve_queues(config)
 
         # Job client initialized after registration so we have real worker_id from the API.
         self.job_client = None
@@ -65,7 +66,7 @@ class TransferWorker(WorkerBase):
     def process_jobs(self):
         """Main worker loop."""
         logger.info(f"{self.worker_type.upper()} Worker Started")
-        logger.info(f"Monitoring queue: {self.queue_name}")
+        logger.info(f"Monitoring queues: {', '.join(self.queues)}")
         logger.debug(f"Transfer timeout: {TRANSFER_TIMEOUT}s")
         logger.debug(f"Chunk size: {TRANSFER_CHUNK_SIZE} bytes")
 
@@ -85,9 +86,7 @@ class TransferWorker(WorkerBase):
 
         try:
             while self.running:
-                job = self.job_client.claim_job(
-                    self.queue_name, timeout=settings.JOB_CLAIM_TIMEOUT_S
-                )
+                job = self.job_client.claim_from(self.queues)
 
                 if job is None:
                     sleep_duration = self.job_client.get_sleep_duration()

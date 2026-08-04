@@ -1,11 +1,11 @@
 # api/app/application/services/comfyui_service_builder.py
 
-"""Builds provider service definitions from comfyui package manifests (ST114).
+"""Maintains comfyui provider services' dynamic surface (ST114, re-ruled 2026-08-03).
 
-The manifest is authoritative for the contract: which parameters exist, their
-types, bounds, defaults and options, the model enum, and the queue. Existing
-row properties keep their presentation fields (title, description, ui) where
-the manifest does not override them.
+The service is a parameter contract owned by the provider definition; packages
+conform to it (validated at upload). The builder maintains only the dynamic
+parts: the `package` (workflow) enum and queue metadata. Per-package parameter
+bounds remain enforced worker-side against the manifest.
 """
 
 from __future__ import annotations
@@ -16,21 +16,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.common.value_objects import Visibility
+from app.domain.provider.models import PackageType
 from app.infrastructure.persistence.models import (
     ComfyUIWorkflowModel,
     ProviderServiceModel,
 )
+from app.infrastructure.services.package_version_service import PackageVersionService
 
 logger = logging.getLogger(__name__)
-
-_TYPE_MAP = {
-    "string": "string",
-    "integer": "integer",
-    "float": "number",
-    "boolean": "boolean",
-    "enum": "string",
-    "array": "array",
-}
 
 
 def _active_manifests(rows: List[ComfyUIWorkflowModel]) -> List[Dict[str, Any]]:
@@ -50,73 +44,53 @@ def _active_manifests(rows: List[ComfyUIWorkflowModel]) -> List[Dict[str, Any]]:
     return [content for _, content in best.values()]
 
 
-def _option_pairs(spec: Dict[str, Any]) -> Tuple[List[Any], Optional[List[str]]]:
-    values, labels = [], []
-    labeled = False
-    for opt in spec.get("options", []):
-        if isinstance(opt, dict):
-            values.append(opt["value"])
-            labels.append(opt["label"])
-            labeled = True
-        else:
-            values.append(opt)
-            labels.append(str(opt))
-    return values, (labels if labeled else None)
+PACKAGE_REF_SEP = "::"
 
 
-def _build_property(
-    name: str, spec: Dict[str, Any], existing: Optional[Dict[str, Any]]
-) -> Dict[str, Any]:
-    """Manifest facts overlaid on the existing property's presentation."""
-    prop = dict(existing or {})
-    prop["type"] = _TYPE_MAP.get(spec.get("type", "string"), "string")
-    if "default" in spec:
-        prop["default"] = spec["default"]
-    if "min" in spec:
-        prop["minimum"] = spec["min"]
-    if "max" in spec:
-        prop["maximum"] = spec["max"]
-    if "title" in spec:
-        prop["title"] = spec["title"]
-    if spec.get("type") == "enum":
-        values, labels = _option_pairs(spec)
-        prop["enum"] = values
-        if labels:
-            prop["enumNames"] = labels
-        elif "enumNames" in prop and len(prop["enumNames"]) != len(values):
-            del prop["enumNames"]
-    if spec.get("type") == "array" and "items" not in prop:
-        prop["items"] = {"type": "string"}
-    ui = dict(prop.get("ui") or {})
-    for key, value in (spec.get("ui") or {}).items():
-        ui.setdefault(key, value)
-    if spec.get("when") and "visibleWhen" not in ui:
-        ui["visibleWhen"] = {
-            "field": spec["when"],
-            "condition": "equals",
-            "value": True,
-        }
-    if ui:
-        prop["ui"] = ui
-    return prop
+def package_ref(slug: str, model_id: Optional[str]) -> str:
+    """Encode one selectable workflow entry: package slug, optionally a model
+    variant. The parameter key is `package` (title: Workflow); the existing
+    `workflow` key stays the inline-graph escape hatch."""
+    return f"{slug}{PACKAGE_REF_SEP}{model_id}" if model_id else slug
 
 
-def _build_model_property(
+def parse_package_ref(value: str) -> Tuple[str, Optional[str]]:
+    """(package slug, model id or None) from a package parameter value."""
+    if PACKAGE_REF_SEP in value:
+        slug, model_id = value.split(PACKAGE_REF_SEP, 1)
+        return slug, model_id or None
+    return value, None
+
+
+def _build_package_property(
     packages: List[Dict[str, Any]], existing: Optional[Dict[str, Any]]
 ) -> Optional[Dict[str, Any]]:
+    """One flattened dropdown: each package's model variants are entries of
+    the same workflow, single- or no-model packages get one entry."""
     ids: List[str] = []
     labels: List[str] = []
     default: Optional[str] = None
     for package in sorted(packages, key=lambda p: p.get("slug", "")):
-        for model in package.get("models", []):
-            ids.append(model["id"])
-            labels.append(model.get("label", model["id"]))
+        slug = package.get("slug", "")
+        name = package.get("name", slug)
+        models = package.get("models", [])
+        if not models:
+            ids.append(package_ref(slug, None))
+            labels.append(name)
+            continue
+        for model in models:
+            value = package_ref(slug, model["id"])
+            ids.append(value)
+            if len(models) == 1:
+                labels.append(name)
+            else:
+                labels.append(f"{name} ({model.get('label', model['id'])})")
             if model.get("default"):
-                default = model["id"]
+                default = value
     if not ids:
         return None
     prop: Dict[str, Any] = dict(
-        existing or {"title": "Model", "ui": {"section": "basic", "order": 0.1}}
+        existing or {"title": "Workflow", "ui": {"section": "basic", "order": 0.1}}
     )
     prop["type"] = "string"
     prop["enum"] = ids
@@ -131,25 +105,56 @@ def _build_model_property(
 def build_parameter_schema(
     packages: List[Dict[str, Any]], existing_schema: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Assemble one service's parameter_schema from its packages' manifests."""
-    existing_props = (existing_schema or {}).get("properties", {})
-    properties: Dict[str, Any] = {}
+    """The service's contract with the workflow dropdown maintained.
 
-    model_prop = _build_model_property(packages, existing_props.get("model"))
-    if model_prop:
-        properties["model"] = model_prop
+    The service is a parameter contract (ruling 2026-08-03): the provider's
+    service definition owns the parameters and packages conform, validated at
+    upload. The builder's only dynamic output is the `package` enum. The
+    retired `model` property is stripped from stored rows on rebuild.
+    """
+    schema = dict(existing_schema or {})
+    schema.setdefault("type", "object")
+    schema.setdefault("required", [])
+    properties = dict(schema.get("properties", {}))
+    properties.pop("model", None)
 
-    required: List[str] = []
-    for package in sorted(packages, key=lambda p: p.get("slug", "")):
-        for name, spec in package.get("parameters", {}).items():
-            if name not in properties:
-                properties[name] = _build_property(
-                    name, spec, existing_props.get(name)
-                )
-            if spec.get("required") and name not in required:
-                required.append(name)
+    package_prop = _build_package_property(packages, properties.get("package"))
+    if package_prop:
+        properties["package"] = package_prop
+    else:
+        properties.pop("package", None)
 
-    return {"type": "object", "required": required, "properties": properties}
+    schema["properties"] = properties
+    schema["required"] = [r for r in schema["required"] if r != "model"]
+    return schema
+
+
+async def _reconcile_catalog_visibility(
+    session: AsyncSession, rows: List[ComfyUIWorkflowModel]
+) -> None:
+    """Stamp catalog installs public; uploads stay as published.
+
+    Installed rows predate visibility stamping (model default is private).
+    Catalog packages are public content by provenance; uploads are the rows
+    whose ledger entry carries catalog_entry.uploaded and keep their gate.
+    Idempotent, runs on every rebuild, covers fresh installs in-request.
+    """
+    private_rows = [r for r in rows if r.visibility == Visibility.PRIVATE]
+    if not private_rows:
+        return
+    pvs = await PackageVersionService.list_active(session, PackageType.COMFYUI)
+    uploaded_slugs = {
+        pv.slug
+        for pv in pvs
+        if (pv.json_content or {}).get("catalog_entry", {}).get("uploaded")
+    }
+    changed = False
+    for row in private_rows:
+        if row.slug not in uploaded_slugs:
+            row.visibility = Visibility.PUBLIC
+            changed = True
+    if changed:
+        await session.flush()
 
 
 async def rebuild_comfyui_services(session: AsyncSession) -> List[str]:
@@ -162,7 +167,18 @@ async def rebuild_comfyui_services(session: AsyncSession) -> List[str]:
     result = await session.execute(
         select(ComfyUIWorkflowModel).where(ComfyUIWorkflowModel.is_active.is_(True))
     )
-    manifests = _active_manifests(list(result.scalars()))
+    rows_all = list(result.scalars())
+    await _reconcile_catalog_visibility(session, rows_all)
+    # The publish gate reaches the dropdown: only staging/public packages are
+    # selectable. A private row is an unpublished upload (catalog installs are
+    # stamped public at install; _reconcile_catalog_visibility self-heals
+    # pre-stamp rows).
+    selectable = [
+        r
+        for r in rows_all
+        if r.visibility in (Visibility.PUBLIC, Visibility.STAGING)
+    ]
+    manifests = _active_manifests(selectable)
 
     by_service: Dict[str, List[Dict[str, Any]]] = {}
     for content in manifests:

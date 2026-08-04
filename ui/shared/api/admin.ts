@@ -71,8 +71,11 @@ export interface WorkerStats {
     worker_id: string;
     status: string;
     ttl_seconds: number;
+    queues?: string[];
+    queue_labels?: string[];
     storage_mode?: 'local' | 'remote';
   }>;
+  unserved_queues?: string[];
 }
 
 export interface PlatformStats {

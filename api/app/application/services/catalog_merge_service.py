@@ -164,14 +164,18 @@ async def merge_comfyui_with_marketplace(
     session: AsyncSession,
     *,
     caller_is_staging: bool,
+    include_private: bool = False,
 ) -> List[CatalogEntry]:
     """ComfyUI counterpart. ComfyUI is a GLOBAL catalog table (no
     organization_id, not RLS-protected) - the super-org publishes by flipping a
     catalog row's visibility, so there is no org scoping and no cross-org
     bypass. The visibility filter is still the entitlement gate: public reaches
-    all orgs, staging only staging organizations, private never surfaces here. Only
-    the highest-semver active row per slug is returned (latest published)."""
-    allowed = _allowed_visibilities(caller_is_staging)
+    all orgs, staging only staging organizations, private never surfaces here
+    unless *include_private* (the super-admin custom view managing unpublished
+    uploads). Only the highest-semver active row per slug is returned."""
+    allowed = list(_allowed_visibilities(caller_is_staging))
+    if include_private:
+        allowed.append(Visibility.PRIVATE)
     result = await session.execute(
         select(ComfyUIWorkflowModel).where(
             ComfyUIWorkflowModel.is_active.is_(True),

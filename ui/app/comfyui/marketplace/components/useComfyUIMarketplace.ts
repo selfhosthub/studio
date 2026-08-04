@@ -8,6 +8,7 @@ import {
   installComfyUIWorkflow,
   uninstallComfyUIWorkflow,
   refreshComfyUICatalog,
+  setComfyUIVisibility,
 } from '@/shared/api';
 import type {
   MarketplaceComfyUI,
@@ -53,9 +54,9 @@ export function useComfyUIMarketplace() {
       setInstalledMap((prev) => {
         const next = new Map(prev);
         next.set(tplId, {
-          id: tplId,
+          marketplace_id: tplId,
+          workflow_id: result.workflow_id!,
           name: result.workflow_name!,
-          version,
         });
         return next;
       });
@@ -67,7 +68,7 @@ export function useComfyUIMarketplace() {
     setError(null);
     try {
       const [catalog, installed] = await Promise.all([
-        getComfyUICatalog(),
+        getComfyUICatalog(undefined, undefined, true),
         getInstalledComfyUI().catch(() => ({
           installed_ids: [] as string[],
           installed_workflows: [] as InstalledComfyUIInfo[],
@@ -86,7 +87,7 @@ export function useComfyUIMarketplace() {
       setInstalledIds(new Set(installed.installed_ids));
       const map = new Map<string, InstalledComfyUIInfo>();
       for (const wf of installed.installed_workflows || []) {
-        map.set(wf.id, wf);
+        map.set(wf.marketplace_id, wf);
       }
       setInstalledMap(map);
     } catch (err: unknown) {
@@ -101,9 +102,17 @@ export function useComfyUIMarketplace() {
     void (async () => { await fetchMarketplace(); })();
   }, [fetchMarketplace]);
 
-  // Filter + sort + paginate
+  // Custom view: managed rows (uploads and visibility-managed packages),
+  // including private ones the marketplace list never shows.
+  const customWorkflows = useMemo(
+    () => catalogWorkflows.filter((t) => t.origin === 'managed'),
+    [catalogWorkflows]
+  );
+
+  // Filter + sort + paginate. Private managed rows belong to the Custom view.
   const filteredCatalog = useMemo(() => {
     let result = catalogWorkflows.filter((t) => {
+      if (t.origin === 'managed' && t.visibility === 'private') return false;
       if (tierFilter !== 'all' && t.tier !== tierFilter) return false;
       if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
       if (search) {
@@ -203,6 +212,11 @@ export function useComfyUIMarketplace() {
         next.delete(marketplaceId);
         return next;
       });
+      // Managed rows (uploads) cease to exist on remove; catalog rows stay
+      // listed as not-installed.
+      setCatalogWorkflows((rows) =>
+        rows.filter((r) => !(r.id === marketplaceId && r.origin === 'managed'))
+      );
     } catch (err: unknown) {
       toast({
         title: 'Failed to uninstall workflow',
@@ -266,8 +280,33 @@ export function useComfyUIMarketplace() {
     }
   };
 
+  const handleSetVisibility = async (
+    marketplaceId: string,
+    visibility: 'private' | 'staging' | 'public'
+  ) => {
+    // Optimistic flip; the visibility route updates every version row.
+    const prev = catalogWorkflows;
+    setCatalogWorkflows((rows) =>
+      rows.map((r) => (r.id === marketplaceId ? { ...r, visibility } : r))
+    );
+    try {
+      await setComfyUIVisibility(marketplaceId, visibility);
+      const name =
+        catalogWorkflows.find((r) => r.id === marketplaceId)?.display_name || marketplaceId; // defaults-ok
+      toast({ title: `"${name}" is now ${visibility}`, variant: 'success' });
+    } catch (err: unknown) {
+      setCatalogWorkflows(prev);
+      toast({
+        title: 'Failed to update visibility',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return {
     catalogWorkflows,
+    customWorkflows,
     filteredCatalog,
     paginatedCatalog,
     installedIds,
@@ -296,6 +335,7 @@ export function useComfyUIMarketplace() {
     handleUninstall,
     handleInstallAllByTier,
     handleRefresh,
+    handleSetVisibility,
     fetchMarketplace,
   };
 }

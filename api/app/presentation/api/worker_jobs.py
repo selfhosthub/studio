@@ -19,6 +19,7 @@ from app.application.services.result_processing.worker_error_codes import (
     client_message_for_worker_error,
 )
 from app.domain.queue.repository import QueuedJobRepository, WorkerRepository
+from app.config.queues import allowed_queues
 from app.infrastructure.auth.worker_jwt import verify_worker_token
 from app.infrastructure.repositories.queue_job_repository import (
     SQLAlchemyQueuedJobRepository,
@@ -120,6 +121,14 @@ async def claim_job(
     # Silenced: fires on every claim with unchanging queue_labels; not actionable.
     # logger.debug(f"JWT auth: worker_id={worker_id}, queue_labels={queue_labels}")
 
+    # Defense in depth: the queue must be in the system allowlist even when
+    # the token would authorize it (ruling 2026-08-03).
+    if queue_name not in allowed_queues():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Queue '{queue_name}' is not in the allowed set.",
+        )
+
     # Validate worker is authorized to claim from this queue
     if queue_name not in queue_labels:
         logger.warning(
@@ -152,7 +161,7 @@ async def claim_job(
     # The API has been deriving it server-side; surfacing it on the claim
     # avoids a DB round-trip per upload while keeping it advisory (the
     # /files/register handler still re-derives the path from the JWT-bound
-    # job — clients can lie about org_id but the API never trusts it).
+    # job - clients can lie about org_id but the API never trusts it).
     payload = dict(job.input_data)
     payload.setdefault("organization_id", str(job.organization_id))
     if job.instance_id is not None:

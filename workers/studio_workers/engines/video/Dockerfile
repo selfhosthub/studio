@@ -60,7 +60,7 @@ LABEL org.opencontainers.image.title="Self-Host Studio worker (video)" \
 COPY LICENSE LEGAL.md /app/
 
 # Pull the patched libtiff and setuptools (vendored jaraco.context rides along)
-RUN apt-get update && apt-get install -y --only-upgrade libtiff6 linux-libc-dev libexpat1 && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --only-upgrade libtiff6 linux-libc-dev libexpat1 libssh-4 && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir "setuptools>=78.1.1"
 
 # Create non-root user

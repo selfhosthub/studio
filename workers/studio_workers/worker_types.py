@@ -64,6 +64,17 @@ def get_general_service_types() -> Set[ServiceType]:
     return all_types - specialized_types
 
 
+def resolve_queues(config: "WorkerTypeConfig") -> List[str]:
+    """Ordered queue list this worker instance serves: SHS_WORKER_QUEUES
+    (comma-separated, priority order) when set, else the type's queue."""
+    import os
+
+    raw = os.getenv("SHS_WORKER_QUEUES", "").strip()
+    if raw:
+        return [q.strip() for q in raw.split(",") if q.strip()]
+    return [config.queue_name]
+
+
 @dataclass
 class WorkerTypeConfig:
     """Configuration for a standard worker type."""

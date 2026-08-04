@@ -5,6 +5,7 @@
 import argparse
 import platform
 import shutil
+import subprocess
 import sys
 
 from studio_workers.contracts.version import WORKERS_VERSION
@@ -12,6 +13,12 @@ from studio_workers.contracts.version import WORKERS_VERSION
 # Engines whose inference runs torch locally; the others need no GPU here
 # (comfyui proxies to an external ComfyUI server, general/transfer are CPU).
 TORCH_ENGINES = {"audio", "video"}
+
+FFMPEG_FIX = (
+    "Any ffmpeg build with the filter works; check with: ffmpeg -filters | grep ass. "
+    "On macOS, core Homebrew ffmpeg no longer includes libass; use the tap: "
+    "brew trust homebrew-ffmpeg/ffmpeg && brew install homebrew-ffmpeg/ffmpeg/ffmpeg"
+)
 
 
 def _expected_accelerator() -> str | None:
@@ -37,10 +44,35 @@ def _torch_device() -> tuple[str | None, str | None]:
     return "cpu", torch.__version__
 
 
+def _ffmpeg_error() -> str | None:
+    """Error text when ffmpeg is missing or its build lacks the libass 'ass'
+    filter (subtitle burn); None when usable."""
+    if not shutil.which("ffmpeg"):
+        return f"ffmpeg is not installed but the video engine needs it. {FFMPEG_FIX}"
+    filters = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True
+    ).stdout
+    if not any(line.split()[1:2] == ["ass"] for line in filters.splitlines()):
+        return (
+            "this ffmpeg build lacks the libass 'ass' filter; subtitle burn "
+            f"would fail at render time. {FFMPEG_FIX}"
+        )
+    return None
+
+
 def doctor(engine: str | None) -> int:
     """Report the environment and fail loudly when a GPU host would silently run on CPU."""
     print(f"studio-workers {WORKERS_VERSION}")
     print(f"python {platform.python_version()} on {sys.platform}/{platform.machine()}")
+
+    failures = 0
+    if engine == "video":
+        ffmpeg_error = _ffmpeg_error()
+        if ffmpeg_error:
+            print(f"ERROR: {ffmpeg_error}")
+            failures = 1
+        else:
+            print("ffmpeg: ok (libass 'ass' filter present)")
 
     expected = _expected_accelerator()
     device, torch_version = _torch_device()
@@ -53,7 +85,7 @@ def doctor(engine: str | None) -> int:
             )
             return 1
         print("torch: not installed (not required for this engine)")
-        return 0
+        return failures
 
     print(f"torch {torch_version}, device={device}")
     if expected and device == "cpu":
@@ -67,15 +99,18 @@ def doctor(engine: str | None) -> int:
             f"generation would run uselessly slow instead of failing. {hint}"
         )
         return 1
-    return 0
+    return failures
 
 
-def run(worker_type: str | None) -> int:
-    """Start the worker loop; --type overrides SHS_WORKER_TYPE."""
+def run(worker_type: str | None, queues: str | None = None) -> int:
+    """Start the worker loop; --type overrides SHS_WORKER_TYPE, --queues the
+    served queue list (ordered, comma-separated)."""
     import os
 
     if worker_type:
         os.environ["SHS_WORKER_TYPE"] = worker_type
+    if queues:
+        os.environ["SHS_WORKER_QUEUES"] = queues
 
     from studio_workers import worker
 
@@ -92,16 +127,20 @@ def main(argv: list[str] | None = None) -> int:
     p_doctor.add_argument(
         "--engine",
         choices=["general", "transfer", "video", "audio", "comfyui"],
-        help="engine you intend to run; makes torch mandatory for audio/video",
+        help="engine you intend to run; makes torch mandatory for audio/video and ffmpeg (libass) for video",
     )
 
     p_run = sub.add_parser("run", help="start a worker (same loop as python -m studio_workers.worker)")
     p_run.add_argument("--type", dest="worker_type", help="worker type; overrides SHS_WORKER_TYPE")
+    p_run.add_argument(
+        "--queues",
+        help="ordered comma-separated queue list to serve; overrides the type default (SHS_WORKER_QUEUES)",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "doctor":
         return doctor(args.engine)
-    return run(args.worker_type)
+    return run(args.worker_type, args.queues)
 
 
 if __name__ == "__main__":

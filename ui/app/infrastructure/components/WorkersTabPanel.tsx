@@ -29,6 +29,12 @@ export function WorkersTabPanel({ health, onDeregister }: WorkersTabPanelProps) 
         </span>
       </div>
       <div className="detail-section-body">
+        {(health.workers.unserved_queues?.length ?? 0) > 0 && (
+          <div className="mb-4 bg-warning-subtle border border-warning rounded-md p-3 text-sm text-warning" role="alert">
+            No workers handle: {(health.workers.unserved_queues ?? []).join(', ')}. Jobs
+            on these queues will wait until a worker serves them.
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <div>
             <p className="infra-card-title">Total Registered</p>
@@ -64,6 +70,11 @@ export function WorkersTabPanel({ health, onDeregister }: WorkersTabPanelProps) 
                       <div className="text-sm font-medium text-primary">
                         {worker.name || worker.worker_id.substring(0, 8)}
                       </div>
+                      {worker.queues?.length > 0 && (
+                        <div className="text-xs text-secondary">
+                          Queues: {worker.queues.join(', ')}
+                        </div>
+                      )}
                       {worker.queue_labels?.length > 0 && (
                         <div className="text-xs text-muted">
                           {worker.queue_labels.join(', ')}

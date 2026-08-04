@@ -11,7 +11,14 @@ from pathlib import Path
 
 
 def resolve_env_files(envs_dir: Path) -> tuple[str, ...] | None:
-    """Return the env file tuple for settings, or None when SHS_DISABLE_ENV_FILES is set."""
+    """Return the env file tuple for settings, or None when SHS_DISABLE_ENV_FILES is set.
+
+    .env.local loads only with SHS_ALLOW_ENV_LOCAL=1 (explicit opt-in, same
+    gate as the API); it silently overrode real config when picked up implicitly.
+    """
     if os.getenv("SHS_DISABLE_ENV_FILES", "").lower() in ("1", "true", "yes"):
         return None
-    return (str(envs_dir / ".env.dev"), str(envs_dir / ".env.local"))
+    files = [str(envs_dir / ".env.dev")]
+    if os.getenv("SHS_ALLOW_ENV_LOCAL") == "1":
+        files.append(str(envs_dir / ".env.local"))
+    return tuple(files)

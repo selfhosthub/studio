@@ -12,6 +12,7 @@ from app.application.services.comfyui_catalog_hash import cached_catalog_hash
 from app.application.services.queue_service import QueueService
 from app.application.interfaces import EntityNotFoundError, ValidationError
 from app.domain.queue.models import WorkerStatus
+from app.config.queues import allowed_queues
 from app.infrastructure.auth.worker_jwt import create_worker_token
 from app.domain.queue.repository import WorkerRepository
 from app.infrastructure.persistence.database import get_db_session
@@ -50,14 +51,30 @@ async def register_worker(
     request: WorkerRegistrationRequest,
     service: QueueService = Depends(get_queue_service_bypass),
 ) -> WorkerRegistrationResponse:
-    """400 invalid secret/validation; 404 queue not found."""
+    """400 invalid secret/validation or out-of-set queue; 404 queue not found."""
+    # Queues actually served: the explicit field is enforced by name against
+    # the allowlist (compiled defaults union SHS_ALLOWED_QUEUES; ruling
+    # 2026-08-03). Legacy workers send labels only; infer served queues as
+    # the labels that are allowed queues, so capability tags never refuse.
+    allowed = allowed_queues()
+    if request.queues:
+        refused = [q for q in request.queues if q not in allowed]
+        if refused:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Queue(s) not in the allowed set: {', '.join(sorted(refused))}. "
+                "The operator can widen it via SHS_ALLOWED_QUEUES.",
+            )
+        served_queues = request.queues
+    else:
+        served_queues = [q for q in request.queue_labels if q in allowed]
     try:
         result = await service.register_worker(
             secret=request.secret,
             name=request.name,
             worker_version=request.worker_version,
             queue_id=request.queue_id,
-            capabilities=request.capabilities,
+            capabilities={**request.capabilities, "queues": served_queues},
             queue_labels=request.queue_labels,
             ip_address=request.ip_address,
             hostname=request.hostname,
@@ -70,9 +87,11 @@ async def register_worker(
             gpu_memory_percent=request.gpu_memory_percent,
             storage_mode=request.storage_mode,
         )
+        # The token authorizes claims by label; served queues ride along so
+        # the sweep is claim-authorized without conflating labels and queues.
         token = create_worker_token(
             worker_id=str(result.id),
-            queue_labels=request.queue_labels,
+            queue_labels=sorted(set(request.queue_labels) | set(served_queues)),
             capabilities=request.capabilities,
         )
 
@@ -157,7 +176,10 @@ async def worker_heartbeat(
         if not is_deregistered:
             worker = await worker_repo.get_by_id(worker_id)
             if worker:
-                queue_labels = worker.queue_labels or []
+                # Refresh tokens keep the served queues claim-authorized, same
+                # union as registration.
+                served = (worker.capabilities or {}).get("queues") or []
+                queue_labels = sorted(set(worker.queue_labels or []) | set(served))
                 token = create_worker_token(
                     worker_id=str(worker.id),
                     queue_labels=queue_labels,

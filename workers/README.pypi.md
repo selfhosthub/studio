@@ -15,6 +15,23 @@ pip install "studio-workers"           # general + transfer (CPU only)
 
 The `[audio]` extra currently requires Python 3.12: its Chatterbox dependency chain does not yet resolve on 3.13 (the install fails with an `llvmlite` build error). The other extras run on 3.12+.
 
+### `[video]` prerequisite: ffmpeg with libass
+
+The video engine shells out to ffmpeg and burns subtitles with the libass `ass` filter. Any ffmpeg build that has the filter works; check yours:
+
+```bash
+ffmpeg -filters | grep ass
+```
+
+If nothing prints, install a build that includes libass. On macOS the core Homebrew formula no longer includes it; use the homebrew-ffmpeg tap:
+
+```bash
+brew trust homebrew-ffmpeg/ffmpeg
+brew install homebrew-ffmpeg/ffmpeg/ffmpeg
+```
+
+`studio-workers doctor --engine video` verifies both ffmpeg and the filter.
+
 ## Version pinning
 
 Install the `studio-workers` version that matches your Studio release; the release notes name it. The API checks the worker version at registration and refuses a mismatch.

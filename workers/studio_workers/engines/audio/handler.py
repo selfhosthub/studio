@@ -16,7 +16,7 @@ from studio_workers.utils import WorkerBase, create_job_client
 from studio_workers.utils.file_upload_client import FileUploadClient
 from studio_workers.utils.result_publisher import ResultPublisher
 from studio_workers.utils.error_codes import classify_error_code
-from studio_workers.worker_types import get_worker_config
+from studio_workers.worker_types import get_worker_config, resolve_queues
 from studio_workers.settings import settings
 from studio_workers.engines.audio.settings import settings as audio_settings
 
@@ -165,6 +165,7 @@ class AudioWorker(WorkerBase):
         )
 
         self.queue_name = config.queue_name
+        self.queues = resolve_queues(config)
 
         # Job client initialized after registration so we have real worker_id from the API.
         self.job_client = None
@@ -179,7 +180,7 @@ class AudioWorker(WorkerBase):
         global _last_used
 
         logger.info(f"{self.worker_type.upper()} Worker Started")
-        logger.info(f"Monitoring queue: {self.queue_name}")
+        logger.info(f"Monitoring queues: {', '.join(self.queues)}")
         logger.debug(f"Operations: {', '.join(self.OPERATIONS.keys())}")
 
         _detect_device()
@@ -201,9 +202,7 @@ class AudioWorker(WorkerBase):
         try:
             while self.running:
 
-                job = self.job_client.claim_job(
-                    self.queue_name, timeout=settings.JOB_CLAIM_TIMEOUT_S
-                )
+                job = self.job_client.claim_from(self.queues)
 
                 if job is None:
                     # Idle. The only safe moment to drop the model: no job is in flight,

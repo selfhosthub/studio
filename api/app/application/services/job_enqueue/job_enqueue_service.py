@@ -425,6 +425,25 @@ class JobEnqueueService:
         if endpoint.parameter_schema:
             schema_props = endpoint.parameter_schema.get("properties", {})
             job_params = resolved_step_config.get("job", {}).get("parameters", {})
+
+            # Legacy comfyui steps (immutable version snapshots) carry `model`;
+            # the schema now declares `package` (slug::model). Translate via the
+            # schema's own enum so old snapshots keep running unrewritten. This
+            # translation is permanent; only the reverse (model emit) is a
+            # one-train transition.
+            package_prop = schema_props.get("package") or {}
+            if (
+                isinstance(job_params, dict)
+                and job_params.get("model")
+                and "package" not in job_params
+                and package_prop.get("enum")
+            ):
+                legacy_model = str(job_params["model"])
+                for ref in package_prop["enum"]:
+                    if str(ref).endswith(f"::{legacy_model}"):
+                        job_params["package"] = ref
+                        break
+
             defaults_applied = []
             for key, prop_schema in schema_props.items():
                 if key not in job_params and "default" in prop_schema:
@@ -524,6 +543,20 @@ class JobEnqueueService:
                 resolved_params, endpoint.parameter_mapping
             )
             resolved_step_config.setdefault("job", {})["parameters"] = resolved_params
+
+        # Two-key transition (one train): old workers select comfyui graphs by
+        # model; derive it from the package ref so mid-upgrade workers resolve
+        # correctly. Runs after projection so the legacy key rides the payload
+        # without being schema-declared. Removal is pinned on the next train.
+        params_now = (resolved_step_config.get("job") or {}).get("parameters")
+        if (
+            isinstance(params_now, dict)
+            and params_now.get("package")
+            and "model" not in params_now
+        ):
+            ref = str(params_now["package"])
+            if "::" in ref:
+                params_now["model"] = ref.split("::", 1)[1]
 
         # Attach the wire envelope.
         http_request = try_build_http_request(

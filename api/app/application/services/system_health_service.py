@@ -24,6 +24,7 @@ from app.infrastructure.persistence.models import (
     OrganizationModel,
     ProviderCredentialModel,
     ProviderModel,
+    ProviderServiceModel,
     UserModel,
     WorkerModel,
     WorkflowModel,
@@ -321,6 +322,7 @@ class SystemHealthService:
                         worker.status.value if worker.status else "unknown"
                     ),
                     "queue_labels": worker.queue_labels or [],
+                    "queues": (worker.capabilities or {}).get("queues") or [],
                     "capabilities": worker.capabilities or {},
                     "jobs_completed": worker.jobs_completed or 0,
                     "ip_address": worker.ip_address,
@@ -371,11 +373,32 @@ class SystemHealthService:
         except Exception as e:
             logger.error(f"Error fetching worker stats: {e}")
 
+        # Coverage: installed services' declared queues with no online worker
+        # serving them ("no workers handle X"). Services inform coverage only,
+        # never the allowlist (ruling 2026-08-03).
+        unserved_queues: List[str] = []
+        try:
+            declared = await db.execute(
+                select(
+                    func.distinct(ProviderServiceModel.client_metadata["queue"].as_string())
+                ).where(ProviderServiceModel.client_metadata["queue"].isnot(None))
+            )
+            declared_queues = {q for (q,) in declared.all() if q}
+            served: set[str] = set()
+            for w in workers:
+                if w.get("status") == "online":
+                    served.update(w.get("queues") or [])
+                    served.update(w.get("queue_labels") or [])
+            unserved_queues = sorted(declared_queues - served)
+        except Exception as e:
+            logger.error(f"Error computing queue coverage: {e}")
+
         return {
             "total_registered": online + offline,
             "online": online,
             "offline": offline,
             "workers": workers,
+            "unserved_queues": unserved_queues,
         }
 
     # ------------------------------------------------------------------

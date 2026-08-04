@@ -58,6 +58,17 @@ class InstallOutcome:
     source_hash: str
 
 
+class VersionConflictError(Exception):
+    """Same slug@version re-installed with different content under on_conflict='error'."""
+
+    def __init__(self, type_name: str, slug: str, version: str):
+        self.slug = slug
+        self.version = version
+        super().__init__(
+            f"{type_name} {slug}@{version} already exists with different content"
+        )
+
+
 async def install_versioned(
     session: AsyncSession,
     model_cls: Type[Any],
@@ -67,10 +78,13 @@ async def install_versioned(
     *,
     validator: Optional[Callable[[dict[str, Any]], None]] = None,
     extra_insert_fields: Optional[dict[str, Any]] = None,
+    on_conflict: str = "overwrite",
 ) -> InstallOutcome:
     """Install a versioned catalog row from unified-format content.
 
-    Raises `KeyError` if content is missing `slug` or `version` - no silent defaulting.
+    Raises `KeyError` if content is missing `slug` or `version` - no silent
+    defaulting. `on_conflict='error'` raises VersionConflictError when the same
+    slug@version arrives with different content (external uploaders).
     """
     if validator is not None:
         validator(content)
@@ -87,12 +101,23 @@ async def install_versioned(
     if existing is not None:
         old_hash = getattr(existing, "source_hash", None) or ""
         if old_hash == new_hash:
+            # Same content on a soft-deleted row is a re-install after
+            # uninstall: reactivate via apply_content. A live row is a true
+            # no-op.
+            if getattr(existing, "is_active", True) is False:
+                apply_content(existing, content)
+                await session.flush()
+                logger.info(
+                    f"versioned_install: reactivate {type_name} {slug}@{version}"
+                )
+                return InstallOutcome(Decision.OVERWRITE, row_id, new_hash)
             return InstallOutcome(Decision.NOOP, row_id, new_hash)
 
-        # Hash mismatch: same (slug, version) is being re-installed with
-        # different content. Pre-MVP we silently overwrite, but log the
-        # delta so accidental version-stomping during reseed loops is
-        # visible. Replace with a 409 once external uploaders exist.
+        # Hash mismatch: same (slug, version) re-installed with different
+        # content. Seed/install paths overwrite (logged); upload paths pass
+        # on_conflict='error' and surface a 409.
+        if on_conflict == "error":
+            raise VersionConflictError(type_name, slug, version)
         logger.info(
             f"versioned_install: overwrite {type_name} {slug}@{version} "
             f"(hash {old_hash[:8]} → {new_hash[:8]})"

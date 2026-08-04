@@ -15,7 +15,7 @@ from studio_workers.utils.file_upload_client import FileUploadClient
 from studio_workers.utils.result_publisher import ResultPublisher
 from studio_workers.utils.error_codes import classify_error_code
 from studio_workers.settings import settings
-from studio_workers.worker_types import get_worker_config
+from studio_workers.worker_types import get_worker_config, resolve_queues
 
 from studio_workers.engines.video.settings import settings as video_settings
 from studio_workers.engines.video import (
@@ -49,6 +49,7 @@ class VideoWorker(WorkerBase):
         )
 
         self.queue_name = config.queue_name
+        self.queues = resolve_queues(config)
 
         # Job client initialized after registration so we have real worker_id from the API.
         self.job_client = None
@@ -67,7 +68,7 @@ class VideoWorker(WorkerBase):
 
     def process_jobs(self):
         logger.info(f"{self.worker_type.upper()} Worker Started")
-        logger.info(f"Monitoring queue: {self.queue_name}")
+        logger.info(f"Monitoring queues: {', '.join(self.queues)}")
         logger.debug(f"Cache directory: {self.cache_dir}")
         logger.debug(f"Operations: {', '.join(self.OPERATIONS.keys())}")
 
@@ -87,9 +88,7 @@ class VideoWorker(WorkerBase):
 
         try:
             while self.running:
-                job = self.job_client.claim_job(
-                    self.queue_name, timeout=settings.JOB_CLAIM_TIMEOUT_S
-                )
+                job = self.job_client.claim_from(self.queues)
 
                 if job is None:
                     sleep_duration = self.job_client.get_sleep_duration()

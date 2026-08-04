@@ -302,6 +302,24 @@ async def lifespan(app: FastAPI):
             logger.error(f"Error loading provider adapters: {e}")
             logger.warning("Application will continue without provider adapters")
 
+        # Refresh comfyui service schemas at boot: rebuilds otherwise run only
+        # on install/upload, so an upgraded instance would keep pre-upgrade
+        # schemas (no package enum, retired model property) until its next
+        # install.
+        try:
+            from app.application.services.comfyui_service_builder import (
+                rebuild_comfyui_services,
+            )
+
+            session = await db.get_session()
+            try:
+                await rebuild_comfyui_services(session)
+                await session.commit()
+            finally:
+                await session.close()
+        except Exception as e:
+            logger.error(f"Error rebuilding comfyui services at startup: {e}")
+
         # Start Postgres LISTEN/NOTIFY broadcaster (cross-instance WebSocket fan-out)
         pg_broadcaster = PgBroadcaster(ws_manager)
         await pg_broadcaster.start()

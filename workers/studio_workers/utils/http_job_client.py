@@ -13,7 +13,7 @@ import logging
 import os
 import random
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
@@ -66,7 +66,7 @@ class HTTPJobClient:
             f"HTTPJobClient initialized: api={self.api_base_url}, worker_id={self.worker_id}"
         )
 
-    def claim_job(self, queue_name: str, timeout: int = 1) -> Optional[Dict[str, Any]]:
+    def claim_job(self, queue_name: str) -> Optional[Dict[str, Any]]:
         """Claim the next available job from a queue; returns None if empty."""
         try:
             # Clear previous job's correlation_id before claiming next
@@ -207,12 +207,22 @@ class JobClient:
         )
         self._current_job_id: Optional[str] = None
 
-    def claim_job(self, queue_name: str, timeout: int = 1) -> Optional[Dict[str, Any]]:
+    def claim_job(self, queue_name: str) -> Optional[Dict[str, Any]]:
         """Claim the next available job from a queue; returns None if empty."""
-        job = self._http_client.claim_job(queue_name, timeout)
+        job = self._http_client.claim_job(queue_name)
         if job:
             self._current_job_id = job.get("job_id")
         return job
+
+    def claim_from(self, queues: List[str]) -> Optional[Dict[str, Any]]:
+        """Sweep queues in priority order; first job wins. The claim endpoint
+        returns immediately, so a full empty sweep is N cheap requests over the
+        same keep-alive connection; back off only after that."""
+        for queue_name in queues:
+            job = self.claim_job(queue_name)
+            if job:
+                return job
+        return None
 
     def get_sleep_duration(self) -> float:
         """Get the recommended sleep duration between polls (with backoff)."""

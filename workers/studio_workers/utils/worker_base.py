@@ -218,6 +218,9 @@ class WorkerBase(ABC):
                 "name": self.worker_name,
                 "capabilities": self.capabilities,
                 "queue_labels": self.queue_labels,
+                # Queues actually served (the claim sweep list); labels stay
+                # capability tags. Handlers set self.queues before start.
+                "queues": getattr(self, "queues", None) or [self.queue_labels[0]],
                 "ip_address": self._ip_address,
                 "hostname": self._hostname,
                 "storage_mode": self._detect_storage_mode(),

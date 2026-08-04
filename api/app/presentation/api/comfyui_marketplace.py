@@ -36,6 +36,7 @@ from app.domain.common.value_objects import Visibility
 from app.infrastructure.persistence.models import (
     ComfyUIWorkflowModel,
     OrganizationModel,
+    ProviderServiceModel,
 )
 from app.presentation.api.dependencies import (
     CurrentUser,
@@ -45,7 +46,9 @@ from app.presentation.api.dependencies import (
     get_provider_repository,
     require_admin,
     require_super_admin,
+    validate_safe_package_name,
 )
+from app.application.services.versioned_installer import VersionConflictError
 from app.application.services.comfyui_service_builder import (
     rebuild_comfyui_services,
 )
@@ -303,6 +306,9 @@ async def set_comfyui_visibility(
     old_visibility = rows[0].visibility
     for row in rows:
         row.visibility = payload.visibility
+
+    # Visibility gates the workflow enum, so the flip must rebuild services.
+    updated_services = await rebuild_comfyui_services(db)
     await db.commit()
 
     actor_org = user.get("org_id")
@@ -327,6 +333,7 @@ async def set_comfyui_visibility(
         "slug": full_slug,
         "visibility": payload.visibility.value,
         "updated_versions": len(rows),
+        "services_rebuilt": sorted(updated_services),
     }
 
 
@@ -334,6 +341,10 @@ async def set_comfyui_visibility(
 async def get_comfyui_catalog(
     category: Optional[str] = Query(None, description="Filter by category"),
     tier: Optional[str] = Query(None, description="Filter by tier: community, plus"),
+    include_private: bool = Query(
+        False,
+        description="Include private managed rows (unpublished uploads); the custom view",
+    ),
     current_user: CurrentUser = Depends(require_super_admin),
     provider_repo: ProviderRepository = Depends(get_provider_repository),
     db: AsyncSession = Depends(get_db_session),
@@ -407,7 +418,7 @@ async def get_comfyui_catalog(
     caller_org_id = uuid.UUID(current_user["org_id"])
     caller_staging = await _caller_is_staging(db, caller_org_id)
     merged_comfyui = await merge_comfyui_with_marketplace(
-        db, caller_is_staging=caller_staging
+        db, caller_is_staging=caller_staging, include_private=include_private
     )
     for entry in merged_comfyui:
         if entry.id in seen_ids:
@@ -465,6 +476,41 @@ async def get_comfyui_detail(
     the metadata is returned with workflow=None.
     """
     comfyui_id = f"{namespace}/{slug}"
+
+    # Managed rows (uploads, visibility-published packages) live in the DB,
+    # not the catalog JSON; resolve them first so their detail modal works.
+    from app.application.services.catalog_merge_service import _semver_key
+
+    managed_rows = (
+        (
+            await db.execute(
+                select(ComfyUIWorkflowModel).where(
+                    ComfyUIWorkflowModel.slug == comfyui_id,
+                    ComfyUIWorkflowModel.is_active.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    managed = max(managed_rows, key=lambda r: _semver_key(r.version), default=None)
+    if managed is not None:
+        active = await PackageVersionService.list_active(db, PackageType.COMFYUI)
+        return ComfyUIDetailResponse(
+            id=comfyui_id,
+            display_name=managed.name,
+            version=managed.version,
+            tier=DEFAULT_TIER,
+            category=managed.category or "",
+            description=managed.description or "",
+            author=managed.author or "",
+            origin="managed",
+            visibility=managed.visibility.value if managed.visibility else None,
+            requirements_met=True,
+            installed=any(pv.slug == comfyui_id for pv in active),
+            workflow=managed.json_content,
+        )
+
     catalog = await get_catalog_from_database(catalog_repo)
     if not catalog:
         raise HTTPException(
@@ -550,6 +596,164 @@ async def get_installed_comfyui(
     return InstalledComfyUIResponse(
         installed_ids=installed_ids,
         installed_workflows=installed_workflows,
+    )
+
+
+async def _service_conformance_violation(
+    db: AsyncSession, workflow_data: Dict[str, Any]
+) -> Optional[str]:
+    """None when the package fits its service's parameter contract.
+
+    The service is a parameter contract (ruling 2026-08-03): a joining
+    package may declare a subset of the contract's parameters, must cover the
+    contract's required ones, and may not invent its own. Packages without a
+    service block never join a service and are exempt.
+    """
+    service_id = (workflow_data.get("service") or {}).get("id")
+    params = workflow_data.get("parameters") or {}
+    if not service_id or not params:
+        return None
+    rows = (
+        (
+            await db.execute(
+                select(ProviderServiceModel).where(
+                    ProviderServiceModel.service_id.like(f"%.{service_id}")
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return None
+    contract = rows[0].parameter_schema or {}
+    contract_props = set((contract.get("properties") or {}).keys()) - {"package"}
+    extra = sorted(set(params.keys()) - contract_props)
+    if extra:
+        return (
+            f"parameters not in service '{service_id}' contract: {', '.join(extra)}. "
+            "A different parameter set is a new service: fork the provider."
+        )
+    missing_required = sorted(
+        r for r in contract.get("required", []) if r != "package" and r not in params
+    )
+    if missing_required:
+        return (
+            f"service '{service_id}' requires parameters the package does not "
+            f"declare: {', '.join(missing_required)}"
+        )
+    return None
+
+
+@router.post(
+    "/upload",
+    response_model=InstallResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and install a ComfyUI package",
+    description="Upload a single-file ComfyUI package (graph + manifest). "
+    "Schema-validated; a bare graph is rejected. Lands private; publish via "
+    "the visibility endpoint.",
+)
+async def upload_comfyui_package(
+    file: UploadFile = File(..., description="Single-file ComfyUI package JSON"),
+    current_user: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db_session),
+) -> InstallResponse:
+    """Upload a ComfyUI package: same installer as marketplace install, the
+    file is the payload. Re-uploading an existing slug@version with different
+    content is a 409; bump the version instead."""
+    if not file.filename or not file.filename.endswith(".json"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be a .json file",
+        )
+    try:
+        raw = await file.read()
+        workflow_data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Uploaded file is not valid JSON (line {e.lineno}, column {e.colno}).",
+        )
+    if not isinstance(workflow_data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must be a JSON object (single-file ComfyUI package).",
+        )
+
+    slug = workflow_data.get("slug")
+    if not slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Package must contain a 'slug' field (a bare graph is not a package).",
+        )
+    validate_safe_package_name(slug)
+    user_uuid = uuid.UUID(current_user["id"])
+
+    violation = await _service_conformance_violation(db, workflow_data)
+    if violation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Package does not conform: {violation}",
+        )
+
+    installer = ComfyUIWorkflowInstaller()
+    try:
+        install_result = await installer.install_from_data(
+            workflow_data, db, user_uuid, on_conflict="error"
+        )
+    except VersionConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"'{e.slug}@{e.version}' already exists with different content; "
+            "bump the package version.",
+        )
+    if not install_result.success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid ComfyUI package: {install_result.error}",
+        )
+
+    workflow_name = workflow_data.get("name", slug)
+    pv_json_content = {
+        "catalog_entry": {
+            "id": slug,
+            "display_name": workflow_name,
+            "version": install_result.version,
+            "tier": DEFAULT_TIER,
+            "category": workflow_data.get("category"),
+            "description": workflow_data.get("description"),
+            "requires": [],
+            "author": workflow_data.get("author"),
+            "uploaded": True,
+        },
+        "workflow_data": workflow_data,
+        "local_workflow_id": str(install_result.workflow_id),
+    }
+    await PackageVersionService.record_version(
+        session=db,
+        package_type=PackageType.COMFYUI,
+        slug=slug,
+        version=install_result.version,
+        json_content=pv_json_content,
+        source_hash=PackageVersionService.compute_source_hash(pv_json_content),
+        created_by=user_uuid,
+        allow_reserved=True,
+    )
+
+    updated_services = await rebuild_comfyui_services(db)
+    await db.commit()
+
+    logger.info(
+        f"Uploaded ComfyUI package '{slug}@{install_result.version}' "
+        f"(id={install_result.workflow_id}) by user {current_user.get('username')}; "
+        f"services rebuilt: {sorted(updated_services)}"
+    )
+    return InstallResponse(
+        success=True,
+        workflow_id=str(install_result.workflow_id),
+        workflow_name=workflow_name,
+        message="ComfyUI package uploaded and installed (private; publish via visibility).",
     )
 
 
@@ -728,7 +932,9 @@ async def uninstall_comfyui(
 ) -> Dict[str, Any]:
     """Uninstall a marketplace ComfyUI workflow.
 
-    Deletes the organization workflow and soft-deletes the package version.
+    Catalog installs soft-delete (the catalog remains their source of truth).
+    Uploads hard-delete: nothing backs them, and a tombstone row only causes
+    ghost conflicts on a later re-upload.
     """
     comfyui_id = f"{namespace}/{slug}"
 
@@ -746,14 +952,30 @@ async def uninstall_comfyui(
         )
 
     name = rows[0].name
-    for row in rows:
-        row.is_active = False
-    await PackageVersionService.soft_delete(db, PackageType.COMFYUI, comfyui_id)
+
+    # The upload endpoint stamps its ledger entries; that marker decides
+    # hard-delete vs soft-delete.
+    active_pvs = await PackageVersionService.list_active(db, PackageType.COMFYUI)
+    uploaded = any(
+        pv.slug == comfyui_id
+        and pv.json_content.get("catalog_entry", {}).get("uploaded")
+        for pv in active_pvs
+    )
+
+    if uploaded:
+        for row in rows:
+            await db.delete(row)
+        await PackageVersionService.hard_delete(db, PackageType.COMFYUI, comfyui_id)
+    else:
+        for row in rows:
+            row.is_active = False
+        await PackageVersionService.soft_delete(db, PackageType.COMFYUI, comfyui_id)
     updated_services = await rebuild_comfyui_services(db)
     await db.commit()
 
     logger.info(
-        f"Uninstalled ComfyUI package '{comfyui_id}'; "
+        f"Uninstalled ComfyUI package '{comfyui_id}' "
+        f"({'hard-deleted upload' if uploaded else 'soft-deleted'}); "
         f"services rebuilt: {sorted(updated_services)}"
     )
     return {

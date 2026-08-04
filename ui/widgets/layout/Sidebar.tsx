@@ -272,7 +272,7 @@ const Sidebar = ({
           {/* ComfyUI Marketplace (super_admin only) */}
           {user?.role === "super_admin" && isComfyUIMarketplaceEnabled() && (
             <NavItem
-              href="/comfyui/marketplace"
+              href="/comfyui/marketplace?tab=marketplace"
               icon={<ImagePlay size={20} />}
               label="ComfyUI"
               isActive={pathname?.startsWith("/comfyui") || false}

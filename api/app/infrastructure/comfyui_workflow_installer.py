@@ -13,11 +13,11 @@ from typing import Any, Optional
 
 import jsonschema
 from sqlalchemy.ext.asyncio import AsyncSession
-from studio_workers.contracts.queues import REGISTERED_QUEUES
 
 from app.application.services.versioned_installer import (
     Decision,
     InstallOutcome,
+    VersionConflictError,
     install_versioned,
 )
 from app.infrastructure.errors import safe_error_message
@@ -62,7 +62,9 @@ def _validate(content: dict[str, Any]) -> None:
     """Raise `jsonschema.ValidationError` if `content` fails schema validation."""
     jsonschema.validate(instance=content, schema=_get_schema())
     queue = (content.get("service") or {}).get("queue")
-    if queue is not None and queue not in REGISTERED_QUEUES:
+    from app.config.queues import allowed_queues
+
+    if queue is not None and queue not in allowed_queues():
         raise jsonschema.ValidationError(
             f"service.queue '{queue}' is not a registered queue"
         )
@@ -91,6 +93,7 @@ class ComfyUIWorkflowInstaller:
         created_by: uuid.UUID,
         *,
         slug_hint: str | None = None,
+        on_conflict: str = "overwrite",
     ) -> ComfyUIInstallResult:
         """Install a ComfyUI workflow from an already-parsed unified dict.
 
@@ -136,7 +139,10 @@ class ComfyUIWorkflowInstaller:
                 content=content,
                 apply_content=apply_workflow_content,
                 extra_insert_fields={"created_by": created_by},
+                on_conflict=on_conflict,
             )
+        except VersionConflictError:
+            raise
         except Exception as e:
             logger.exception(f"ComfyUI workflow install failed for {slug}@{version}")
             return ComfyUIInstallResult(

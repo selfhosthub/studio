@@ -33,7 +33,7 @@ class ReservedNamespaceError(ValueError):
 
     Why: `shs/*` denotes first-party origin (Self-Host Studio). A local upload
     or import reaching that namespace would mis-attribute third-party content
-    as official. The trust boundary is the API, not the UI — enforce here.
+    as official. The trust boundary is the API, not the UI - enforce here.
     """
 
 
@@ -55,7 +55,7 @@ class PackageVersionService:
         """Ensure slug has a namespace prefix to satisfy ck_package_versions_slug_namespaced.
 
         Storage requires `<namespace>/<slug>`. Reserved namespaces (e.g. `shs/`)
-        may only be written when `allow_reserved=True` — a first-party
+        may only be written when `allow_reserved=True` - a first-party
         authorization decision made by the caller, not inferred from
         provenance. Bare slugs always default to `custom/`; `shs/` is never
         inferred. (ST248)
@@ -157,6 +157,30 @@ class PackageVersionService:
             v.is_active = False
         await session.commit()
         return len(versions) > 0
+
+    @staticmethod
+    async def hard_delete(
+        session: AsyncSession,
+        package_type: PackageType,
+        slug: str,
+    ) -> int:
+        """Delete every version row for slug+type, active or not.
+
+        For uploads on uninstall: nothing backs them, and a tombstone row
+        ghost-conflicts with a later re-upload. Returns rows deleted.
+        """
+        slug = PackageVersionService._ensure_namespaced(slug, allow_reserved=True)
+        result = await session.execute(
+            select(PackageVersionModel).where(
+                PackageVersionModel.slug == slug,
+                PackageVersionModel.package_type == package_type,
+            )
+        )
+        versions = result.scalars().all()
+        for v in versions:
+            await session.delete(v)
+        await session.flush()
+        return len(versions)
 
     @staticmethod
     async def reactivate(

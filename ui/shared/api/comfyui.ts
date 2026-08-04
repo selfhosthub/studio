@@ -55,10 +55,9 @@ export interface ComfyUIInstallResponse {
 }
 
 export interface InstalledComfyUIInfo {
-  id: string;
+  marketplace_id: string;
+  workflow_id: string;
   name: string;
-  version: string;
-  installed_at?: string;
 }
 
 export interface InstalledComfyUIResponse {
@@ -76,13 +75,29 @@ export interface ComfyUICatalogUploadResponse {
 export async function getComfyUICatalog(
   category?: string,
   tier?: string,
+  includePrivate?: boolean,
 ): Promise<ComfyUICatalogResponse> {
   const params = new URLSearchParams();
   if (category) params.append('category', category);
   if (tier) params.append('tier', tier);
+  if (includePrivate) params.append('include_private', 'true');
   const qs = params.toString();
   return apiRequest<ComfyUICatalogResponse>(
     `/comfyui/marketplace/catalog${qs ? `?${qs}` : ''}`,
+  );
+}
+
+/** Super-admin: publish or unpublish a package (applies to all version rows). */
+export async function setComfyUIVisibility(
+  slug: string,
+  visibility: 'private' | 'staging' | 'public',
+): Promise<{ success: boolean; slug: string; visibility: string; updated_versions: number }> {
+  return apiRequest<{ success: boolean; slug: string; visibility: string; updated_versions: number }>(
+    `/comfyui/marketplace/${slug}/visibility`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ visibility }),
+    },
   );
 }
 
@@ -128,6 +143,22 @@ export async function uploadComfyUICatalog(
   formData.append('file', file);
   return apiRequest<ComfyUICatalogUploadResponse>(
     '/comfyui/marketplace/catalog/upload',
+    {
+      method: 'POST',
+      body: formData,
+      headers: {},
+    },
+  );
+}
+
+/** Super admin only. Uploads a single-file ComfyUI package (graph + manifest). */
+export async function uploadComfyUIPackage(
+  file: File,
+): Promise<ComfyUIInstallResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiRequest<ComfyUIInstallResponse>(
+    '/comfyui/marketplace/upload',
     {
       method: 'POST',
       body: formData,

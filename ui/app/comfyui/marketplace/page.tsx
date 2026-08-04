@@ -2,15 +2,36 @@
 
 "use client";
 
-import { Suspense } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Upload } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { DashboardLayout } from '@/widgets/layout';
 import { useUser } from '@/entities/user';
 import { isComfyUIMarketplaceEnabled } from '@/shared/lib/config';
 import { ComfyUIMarketplaceTab } from './components/ComfyUIMarketplaceTab';
+import { ComfyUICustomTab } from './components/ComfyUICustomTab';
+
+type ActiveTab = 'marketplace' | 'custom';
 
 function ComfyUIMarketplaceContent() {
   const { user } = useUser();
   const isSuperAdmin = user?.role === 'super_admin';
+  const searchParams = useSearchParams();
+
+  // Tab state is owned locally; useSearchParams() isn't reactive across App
+  // Router soft navigation, so the URL is mirror-only (shareability).
+  const [activeTab, setActiveTab] = useState<ActiveTab | null>(null);
+  if (activeTab === null) {
+    const fromUrl = searchParams.get('tab') as ActiveTab | null;
+    setActiveTab(fromUrl === 'custom' ? 'custom' : 'marketplace');
+  }
+
+  useEffect(() => {
+    if (activeTab !== null && searchParams.get('tab') !== activeTab) {
+      window.history.replaceState(null, '', `/comfyui/marketplace?tab=${activeTab}`);
+    }
+  }, [activeTab, searchParams]);
 
   if (!isSuperAdmin || !isComfyUIMarketplaceEnabled()) {
     return (
@@ -29,12 +50,41 @@ function ComfyUIMarketplaceContent() {
     <DashboardLayout>
       <div className="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-9xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-primary">ComfyUI Marketplace</h1>
-          <p className="text-sm mt-1 text-muted">Install ComfyUI workflow packages; installed workflows land in the workflows list</p>
+        <div className="mb-8 sm:flex sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-primary">ComfyUI Marketplace</h1>
+            <p className="section-subtitle mt-1">Install ComfyUI workflow packages; installed workflows land in the workflows list</p>
+          </div>
+          {activeTab === 'custom' && (
+            <div className="grid grid-flow-col sm:auto-cols-max justify-start sm:justify-end gap-2">
+              <Link
+                href="/comfyui/upload"
+                className="btn-primary inline-flex items-center justify-center gap-2"
+              >
+                <Upload size={16} />
+                Upload Workflow
+              </Link>
+            </div>
+          )}
         </div>
 
-        <ComfyUIMarketplaceTab />
+        {/* Tabs */}
+        <div className="border-b border-primary mb-6">
+          <nav className="flex space-x-4" aria-label="ComfyUI tabs">
+            {(['custom', 'marketplace'] as ActiveTab[]).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={`tab capitalize ${activeTab === tab ? 'tab-active' : ''}`}
+              >
+                {tab}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {activeTab === 'custom' ? <ComfyUICustomTab /> : <ComfyUIMarketplaceTab />}
       </div>
     </DashboardLayout>
   );

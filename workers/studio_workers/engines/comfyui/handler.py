@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
 from studio_workers.utils import ResultPublisher, WorkerBase, create_job_client
 from studio_workers.utils.error_codes import classify_error_code
 from studio_workers.utils.file_upload_client import FileUploadClient
-from studio_workers.worker_types import get_worker_config
+from studio_workers.worker_types import get_worker_config, resolve_queues
 from studio_workers.settings import settings
 from studio_workers.engines.comfyui.settings import settings as comfyui_settings
 
@@ -52,6 +52,7 @@ class ComfyUIWorker(WorkerBase):
         )
 
         self.queue_name = config.queue_name
+        self.queues = resolve_queues(config)
 
         # Job client initialized after registration so we have real worker_id from the API.
         self.job_client = None
@@ -163,7 +164,7 @@ class ComfyUIWorker(WorkerBase):
     def process_jobs(self):
         """Main worker loop - wait for ComfyUI and process jobs."""
         logger.info(f"{self.worker_type.upper()} Worker Started")
-        logger.info(f"Monitoring queue: {self.queue_name}")
+        logger.info(f"Monitoring queues: {', '.join(self.queues)}")
         logger.debug(f"ComfyUI URL: {self.comfyui_url}")
         logger.debug(f"Output directory: {self.output_dir}")
 
@@ -207,9 +208,7 @@ class ComfyUIWorker(WorkerBase):
                     time.sleep(self.comfyui_retry_interval)
                     continue
 
-                job = self.job_client.claim_job(
-                    self.queue_name, timeout=settings.JOB_CLAIM_TIMEOUT_S
-                )
+                job = self.job_client.claim_from(self.queues)
 
                 if job is None:
                     sleep_duration = self.job_client.get_sleep_duration()
@@ -263,9 +262,20 @@ class ComfyUIWorker(WorkerBase):
         try:
             custom_workflow = parameters.get("workflow")
 
-            manifest = self.package_store.resolve(
-                operation, parameters.get("model")
-            )
+            # `package` selects the workflow (slug::model variant); the model
+            # key is the legacy selector, removed the train after next.
+            package_value = parameters.get("package")
+            if package_value:
+                slug, sep, model_id = str(package_value).partition("::")
+                parameters = dict(parameters)
+                del parameters["package"]
+                if sep and model_id:
+                    parameters["model"] = model_id
+                manifest = self.package_store.resolve(operation, None, slug=slug)
+            else:
+                manifest = self.package_store.resolve(
+                    operation, parameters.get("model")
+                )
 
             if custom_workflow:
                 logger.debug("Using custom workflow from job payload")
