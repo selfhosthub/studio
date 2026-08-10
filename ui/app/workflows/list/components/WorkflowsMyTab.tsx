@@ -128,7 +128,7 @@ export function WorkflowsMyTab({
           }}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
           position="top"
-          itemLabel="workflows"
+          itemLabel="workflow"
         />
       </div>
 
@@ -253,7 +253,7 @@ export function WorkflowsMyTab({
             totalCount={filteredWorkflows.length}
             pageSize={pageSize}
             onPageChange={onPageChange}
-            itemLabel="workflows"
+            itemLabel="workflow"
             position="bottom"
           />
         </>

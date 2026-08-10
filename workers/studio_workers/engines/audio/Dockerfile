@@ -68,12 +68,17 @@ LABEL org.opencontainers.image.title="Self-Host Studio worker (audio)" \
 COPY LICENSE LEGAL.md /app/
 
 # Create non-root user
-RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app && mkdir -p /workspace/models/huggingface && chown -R worker:worker /workspace
+RUN groupadd -g 1000 worker && useradd -u 1000 -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app && mkdir -p /workspace/models/huggingface && chown -R worker:worker /workspace
 
 # Environment variables
 ENV WORKER_TYPE=audio
+# HOME on a 1777 path so caches (~/.cache, whisper) work at any runtime uid,
+# including compose user: overrides that have no passwd entry
+ENV HOME=/var/tmp/studio-workers/home
 ENV HF_HOME=/workspace/models/huggingface
 ENV WORKSPACE_ROOT=/workspace
+# Scratch stays off the /workspace bind mount so writes never depend on host dir ownership
+ENV SHS_AUDIO_OUTPUT_DIR=/var/tmp/studio-workers/audio_output
 
 # Run the audio worker
 USER worker

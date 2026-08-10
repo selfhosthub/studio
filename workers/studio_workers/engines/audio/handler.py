@@ -314,10 +314,11 @@ class AudioWorker(WorkerBase):
             sample_rate = model.sr
             output_filename = f"audio_{step_id}_{uuid.uuid4().hex[:8]}.wav"
 
-            output_path = os.path.join(
-                settings.WORKSPACE_ROOT, "data", "audio_output", output_filename
+            output_dir = audio_settings.AUDIO_OUTPUT_DIR or os.path.join(
+                settings.WORKSPACE_ROOT, "data", "audio_output"
             )
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            output_path = os.path.join(output_dir, output_filename)
+            os.makedirs(output_dir, exist_ok=True)
 
             # soundfile writes WAV directly without additional audio codec dependencies.
             wav_numpy = wav.cpu().squeeze().numpy()

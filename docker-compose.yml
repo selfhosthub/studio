@@ -40,6 +40,8 @@ services:
 
   api:
     image: ghcr.io/selfhosthub/studio-api:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required - set in .env}
+    # uid/gid contract: containers write the bind mounts as the host user that owns them
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
 
     environment:
       - SHS_WORKSPACE_ROOT=/workspace
@@ -121,6 +123,7 @@ services:
 
   worker-general:
     image: ghcr.io/selfhosthub/studio-worker-general:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required - set in .env}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
 
     profiles: [worker-general]
 
@@ -145,6 +148,7 @@ services:
 
   worker-transfer:
     image: ghcr.io/selfhosthub/studio-worker-transfer:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required - set in .env}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
 
     profiles: [worker-transfer]
 
@@ -169,6 +173,7 @@ services:
 
   worker-video:
     image: ghcr.io/selfhosthub/studio-worker-video:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required - set in .env}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
 
     profiles: [worker-video]
 
@@ -194,6 +199,7 @@ services:
 
   worker-audio:
     image: ghcr.io/selfhosthub/studio-worker-audio:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required - set in .env}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
 
     profiles: [worker-audio]
 
@@ -225,6 +231,7 @@ services:
   # Deploy with SHS_WORKER_TYPE=comfyui-image (default) or SHS_WORKER_TYPE=comfyui-video
   worker-comfyui-image:
     image: ghcr.io/selfhosthub/studio-worker-comfyui:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required - set in .env}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
 
     profiles: [worker-comfyui-image]
 

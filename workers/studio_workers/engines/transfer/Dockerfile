@@ -36,10 +36,13 @@ LABEL org.opencontainers.image.title="Self-Host Studio worker (transfer)" \
 COPY LICENSE LEGAL.md /app/
 
 # Create non-root user
-RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app && mkdir -p /workspace && chown -R worker:worker /workspace
+RUN groupadd -g 1000 worker && useradd -u 1000 -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app && mkdir -p /workspace && chown -R worker:worker /workspace
 
 # Environment variables
 ENV WORKER_TYPE=transfer
+# HOME on a 1777 path so caches (~/.cache, whisper) work at any runtime uid,
+# including compose user: overrides that have no passwd entry
+ENV HOME=/var/tmp/studio-workers/home
 ENV WORKSPACE_ROOT=/workspace
 
 # Run the transfer worker

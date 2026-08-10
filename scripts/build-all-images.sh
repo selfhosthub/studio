@@ -76,7 +76,7 @@ build_one() {
     local log="$LOG_DIR/$name.log"
 
     local ctx_arg=""
-    [[ "$contracts" == "1" ]] && ctx_arg="--build-context contracts=workers/studio_workers/contracts"
+    [[ "$contracts" == "1" ]] && ctx_arg="--build-context contracts=workers/studio_workers/contracts --build-context contracts-data=contracts-data"
 
     echo "==> Building $REGISTRY/$name:$VERSION"
     # shellcheck disable=SC2086

@@ -140,7 +140,9 @@ jobs:
           # org.opencontainers.image.version (which would track studio-app itself).
           # Operators can query the baked version with `docker inspect`.
           labels: ${{ matrix.bakes_console && format('com.selfhosthub.console.version={0}', needs.guard.outputs.console_version) || '' }}
-          build-contexts: ${{ matrix.contracts && 'contracts=workers/studio_workers/contracts' || '' }}
+          build-contexts: |
+            ${{ matrix.contracts && 'contracts=workers/studio_workers/contracts' || '' }}
+            ${{ matrix.contracts && 'contracts-data=contracts-data' || '' }}
           # Cache scope is arch-qualified: each arch builds separately, so a shared
           # scope would let the two legs clobber each other's cache.
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}

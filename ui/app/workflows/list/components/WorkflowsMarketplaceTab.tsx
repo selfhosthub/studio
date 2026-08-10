@@ -401,7 +401,7 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
           }}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
           position="top"
-          itemLabel="workflows"
+          itemLabel="workflow"
         />
       </div>
 
@@ -554,7 +554,7 @@ export function WorkflowsMarketplaceTab({ isSuperAdmin }: WorkflowsMarketplaceTa
             totalCount={filteredCatalog.length}
             pageSize={pageSize}
             onPageChange={setPage}
-            itemLabel="workflows"
+            itemLabel="workflow"
             position="bottom"
           />
         </>

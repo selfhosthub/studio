@@ -60,6 +60,9 @@ RUN chmod 755 /docker-entrypoint.sh
 # Image carries the API source, so the license notice ships with it.
 COPY --chown=appuser:appgroup LICENSE LEGAL.md /app/
 
+# Launch manifest at its frozen path - launchers read the split compose contract here.
+COPY --from=contracts-data launch-manifest.json /app/contracts/launch-manifest.json
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \

@@ -12,6 +12,7 @@
 services:
   general:
     image: ghcr.io/selfhosthub/studio-worker-general:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
     env_file: &env-files
       - envs/.env.prod
     environment:
@@ -29,6 +30,7 @@ services:
 
   transfer:
     image: ghcr.io/selfhosthub/studio-worker-transfer:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
     env_file: *env-files
     environment:
       - SHS_WORKER_TYPE=transfer
@@ -40,6 +42,7 @@ services:
 
   video:
     image: ghcr.io/selfhosthub/studio-worker-video:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
     env_file: *env-files
     environment:
       - SHS_WORKER_TYPE=video
@@ -52,6 +55,7 @@ services:
 
   audio:
     image: ghcr.io/selfhosthub/studio-worker-audio:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
     env_file: *env-files
     environment:
       - SHS_WORKER_TYPE=audio
@@ -68,6 +72,7 @@ services:
 
   comfyui-image:
     image: ghcr.io/selfhosthub/studio-worker-comfyui:${SHS_STUDIO_VERSION:?SHS_STUDIO_VERSION is required}
+    user: "${SHS_RUN_UID:-1000}:${SHS_RUN_GID:-1000}"
     env_file: *env-files
     environment:
       - SHS_WORKER_TYPE=comfyui-image

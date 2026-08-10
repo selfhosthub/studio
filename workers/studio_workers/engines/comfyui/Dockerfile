@@ -54,11 +54,16 @@ LABEL org.opencontainers.image.title="Self-Host Studio worker (comfyui)" \
 COPY LICENSE LEGAL.md /app/
 
 # Create non-root user
-RUN groupadd -r worker && useradd -r -g worker -d /app/worker -s /sbin/nologin worker && chown -R worker:worker /app/worker && mkdir -p /workspace && chown -R worker:worker /workspace
+RUN groupadd -g 1000 worker && useradd -u 1000 -g worker -d /app/worker -s /sbin/nologin worker && chown -R worker:worker /app/worker && mkdir -p /workspace && chown -R worker:worker /workspace
 
 # Default to image generation mode (override with WORKER_TYPE=comfyui-video)
 ENV WORKER_TYPE=comfyui-image
+# HOME on a 1777 path so caches (~/.cache, whisper) work at any runtime uid,
+# including compose user: overrides that have no passwd entry
+ENV HOME=/var/tmp/studio-workers/home
 ENV WORKSPACE_ROOT=/workspace
+# Scratch stays off the /workspace bind mount so writes never depend on host dir ownership
+ENV SHS_COMFYUI_OUTPUT_DIR=/var/tmp/studio-workers/comfyui_output
 
 # COMFYUI_URL is REQUIRED - worker will fail to start without it
 # Example: COMFYUI_URL=http://your-comfyui-host:8188

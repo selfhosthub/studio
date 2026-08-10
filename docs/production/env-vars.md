@@ -25,6 +25,7 @@ Variables that have no defaults and must be present before startup.
 | `SHS_WS_URL` | UI | WebSocket URL (`ws://host:port`). Injected into UI as `NEXT_PUBLIC_WS_URL`. |
 | `SHS_CORS_ORIGINS` | API | Comma-separated allowed CORS origins. Must include the UI origin. |
 | `SHS_WORKSPACE_HOST` | Compose | Host-side path mounted as `/workspace` in all containers (e.g. `~/.studio`). |
+| `SHS_RUN_UID` / `SHS_RUN_GID` | Compose | uid/gid the api and worker containers run as (default `1000:1000`). Set to the host user that owns the workspace so bind-mount writes work on any host. |
 | `SHS_COMMUNITY_SOURCE` | API | Community catalog: local dir name (dev) or GitHub raw URL (prod). |
 | `SHS_PLUS_SOURCE` | API | Plus catalog: local dir name or URL. |
 
@@ -390,6 +391,7 @@ Precedence: **process env > `workers/envs/.env.dev` > `workers/envs/.env.local` 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `SHS_STORAGE_MODE` | `None` (autodetect) | `local` = worker shares the API's workspace volume and registers files in place; `remote` = multipart upload over HTTP. Autodetect probes `$SHS_WORKSPACE_ROOT/orgs/`. Unsupported: a native (non-docker) worker hand-pointed at the API's storage dir to obtain `local` mode; no tooling produces it and no gate tests it. |
 | `SHS_WORKER_TYPE` | `general` | Engine handler: `general`, `video`, `audio`, `comfyui-image`, `comfyui-image-edit`, `comfyui-video`, `comfyui-remote`, `transfer`. |
 | `SHS_WORKER_NAME` | auto | Registered name. Auto-set as `worker-<type>-<8-hex>` when unset. |
 | `SHS_LOG_LEVEL` | `INFO` | Log level. |
@@ -442,7 +444,7 @@ Loaded only by `workers/engines/video/settings.py`.
 | `SHS_FFMPEG_LOGGING_LEVEL` | `warning` | ffmpeg `-v` level. |
 | `SHS_FFMPEG_TIMEOUT_SECONDS` | 1800 | Max runtime per ffmpeg command (seconds). |
 | `SHS_WHISPER_MODEL` | `base` | Whisper model for subtitle transcription: `tiny`, `base`, `small`, `medium`, `large`, `turbo`. |
-| `SHS_VIDEO_CACHE_DIR` | `None` | Cache dir for intermediate assets. Defaults to `$WORKSPACE_ROOT/data/video_cache`. |
+| `SHS_VIDEO_CACHE_DIR` | `None` | Cache dir for intermediate assets. Docker image sets `/var/tmp/studio-workers/video_cache`; native falls back to `$WORKSPACE_ROOT/data/video_cache`. |
 | `SHS_VIDEO_CACHE_MAX_MB` | 1000 | Cache eviction threshold (MB). |
 | `SHS_DEFAULT_SCENE_DURATION_S` | 5 | json2video scene duration when neither the scene nor its audio specifies one (seconds). |
 | `SHS_DEFAULT_SMOOTHNESS` | 3 | json2video smoothness default. |
@@ -455,6 +457,7 @@ Loaded only by `workers/engines/audio/settings.py`.
 |----------|---------|-------------|
 | `SHS_AUDIO_TTS_CFG_WEIGHT` | 0.5 | Chatterbox TTS classifier-free guidance weight. Overridable per-job via `cfg_weight`. |
 | `SHS_AUDIO_TTS_EXAGGERATION` | 0.5 | Chatterbox TTS exaggeration factor. Overridable per-job via `exaggeration`. |
+| `SHS_AUDIO_OUTPUT_DIR` | `None` | Where generated WAVs land before upload. Docker image sets `/var/tmp/studio-workers/audio_output`; native falls back to `$WORKSPACE_ROOT/data/audio_output`. |
 
 ### ComfyUI Worker
 
@@ -465,7 +468,7 @@ Loaded by both `engines/comfyui` (embedded) and `engines/comfyui_remote` (extern
 | `SHS_COMFYUI_URL` | `""` | ComfyUI server URL. Required for the remote variant. Dev default: `http://127.0.0.1:8188`. |
 | `SHS_COMFYUI_EXTERNAL_URL` | `None` | Optional override for external mode. When set, the worker does not start embedded ComfyUI. |
 | `SHS_COMFYUI_PATH` | `/app/ComfyUI` | Install path for embedded ComfyUI. |
-| `SHS_COMFYUI_OUTPUT_DIR` | `/workspace/data/comfyui_output` | Where ComfyUI writes generated images before the worker uploads them. |
+| `SHS_COMFYUI_OUTPUT_DIR` | `None` | Where fetched ComfyUI outputs land before upload. Docker image sets `/var/tmp/studio-workers/comfyui_output`; native falls back to `$WORKSPACE_ROOT/data/comfyui_output`. |
 | `SHS_COMFYUI_CLIENT_TIMEOUT_S` | 300 | httpx client timeout for ComfyUI REST calls (seconds). |
 | `SHS_COMFYUI_JOB_TIMEOUT_S` | 600 | Max runtime per ComfyUI workflow (seconds). |
 | `SHS_COMFYUI_POLL_INTERVAL_S` | 5 | Seconds between `/history/{prompt_id}` polls. |

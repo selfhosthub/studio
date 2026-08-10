@@ -46,9 +46,12 @@ COPY LICENSE LEGAL.md /app/
 RUN apt-get update && apt-get install -y --only-upgrade linux-libc-dev && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app
+RUN groupadd -g 1000 worker && useradd -u 1000 -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app
 
 # Run the orchestrator worker
 ENV WORKER_TYPE=general
+# HOME on a 1777 path so caches (~/.cache, whisper) work at any runtime uid,
+# including compose user: overrides that have no passwd entry
+ENV HOME=/var/tmp/studio-workers/home
 USER worker
 CMD ["python", "-m", "studio_workers.worker"]

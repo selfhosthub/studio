@@ -134,7 +134,7 @@ export function PromptsMarketplaceTab({ isSuperAdmin, onPromptsChanged }: Prompt
           }}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
           position="top"
-          itemLabel="prompts"
+          itemLabel="prompt"
         />
       </div>
 
@@ -284,7 +284,7 @@ export function PromptsMarketplaceTab({ isSuperAdmin, onPromptsChanged }: Prompt
             totalCount={mp.filteredCatalog.length}
             pageSize={mp.pageSize}
             onPageChange={mp.setPage}
-            itemLabel="prompts"
+            itemLabel="prompt"
             position="bottom"
           />
         </>

@@ -24,6 +24,8 @@ class AudioSettings(BaseSettings):
     AUDIO_TTS_CFG_WEIGHT: float = 0.5
     AUDIO_TTS_EXAGGERATION: float = 0.5
 
+    AUDIO_OUTPUT_DIR: str | None = None  # handler falls back to $WORKSPACE_ROOT/data/audio_output
+
     # Seconds a loaded Chatterbox model may sit idle before it is unloaded and its VRAM
     # released. 0 = never evict (the default: behaviour is unchanged unless you ask for it).
     #

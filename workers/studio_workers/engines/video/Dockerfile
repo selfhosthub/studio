@@ -64,12 +64,17 @@ RUN apt-get update && apt-get install -y --only-upgrade libtiff6 linux-libc-dev 
     && pip install --no-cache-dir "setuptools>=78.1.1"
 
 # Create non-root user
-RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app
+RUN groupadd -g 1000 worker && useradd -u 1000 -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app
 
 # Default Whisper model (can be overridden via env)
 ENV WHISPER_MODEL=base
 
 # Run the video worker
 ENV WORKER_TYPE=video
+# HOME on a 1777 path so caches (~/.cache, whisper) work at any runtime uid,
+# including compose user: overrides that have no passwd entry
+ENV HOME=/var/tmp/studio-workers/home
+# Scratch stays off the /workspace bind mount so writes never depend on host dir ownership
+ENV SHS_VIDEO_CACHE_DIR=/var/tmp/studio-workers/video_cache
 USER worker
 CMD ["python", "-m", "studio_workers.worker"]

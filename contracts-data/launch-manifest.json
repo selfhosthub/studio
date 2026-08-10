@@ -244,6 +244,12 @@
         "fail_closed": "Exits non-zero if SHS_SUPERVISOR_USER or SHS_SUPERVISOR_PASSWORD is unset, or if SHS_STUDIO_VERSION was not baked into the image. bootstrap.py additionally fails if SHS_DATABASE_URL is unreachable."
       },
       "launch_summary": "Prompt for SHS_SUPERVISOR_USER + SHS_SUPERVISOR_PASSWORD + SHS_DATABASE_URL (external Postgres). The three app secrets self-generate on first boot."
+    },
+    "split": {
+      "summary": "Compose-launched multi-container shape (docker-compose.yml: postgres + api + ui + nginx + optional worker profiles). Baked into the api image so any launcher can read what the image set supports before boot. A launcher that renders a compose feature listed under compose_capabilities must verify the key exists here; a missing key (or a missing manifest, on releases <= 1.3.0) means the images predate that contract.",
+      "compose_capabilities": {
+        "runtime_user": "Services tolerate a compose-level user: override to an arbitrary uid/gid: images bake uid 1000, pin HOME to a 1777 path, and keep scratch off /workspace. Images without this key run a fixed uid 999 and break under a user: override (no passwd entry, unwritable HOME)."
+      }
     }
   }
 }

@@ -151,7 +151,7 @@ export function WorkflowsOrganizationTab({
           }}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
           position="top"
-          itemLabel="workflows"
+          itemLabel="workflow"
         />
       </div>
 
@@ -312,7 +312,7 @@ export function WorkflowsOrganizationTab({
             totalCount={filteredWorkflows.length}
             pageSize={pageSize}
             onPageChange={onPageChange}
-            itemLabel="workflows"
+            itemLabel="workflow"
             position="bottom"
           />
         </>
