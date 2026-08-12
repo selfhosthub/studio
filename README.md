@@ -22,14 +22,14 @@ uv tool install studio-console
 studio-console
 ```
 
-No uv and don't want it? `pip install studio-console` works anywhere Python 3.8+ is available. It installs into the active environment instead of an isolated one, so a virtualenv is a good idea.
+No uv and don't want it? `pip install studio-console` works anywhere Python 3.10+ is available. It installs into the active environment instead of an isolated one, so a virtualenv is a good idea.
 
-On first run with no `~/.studio/.env`, the setup wizard launches automatically. It validates Docker, generates secrets, prompts for an admin email and domain, writes `~/.studio/.env`, pulls images, and starts `postgres + api + ui`.
+On first run with no `~/.studio/.env`, the setup wizard launches automatically. It validates Docker, generates secrets, prompts for an admin email and domain, writes `~/.studio/.env`, pulls images, and starts `postgres + api + ui + nginx`.
 
 Access (defaults):
-- **API**: http://localhost:8000
-- **UI**: http://localhost:3000
-- **API Docs**: http://localhost:8000/docs
+- **Studio (UI + API behind nginx)**: http://localhost (port `SHS_NGINX_PORT`, default 80)
+- **API (bound to localhost only)**: http://127.0.0.1:8000
+- **API Docs**: http://127.0.0.1:8000/docs
 
 Credentials are set during the wizard; use `studio-console reset-password` if you need to reset them later.
 
@@ -39,9 +39,9 @@ Studio runs on one host or many. Pick the shape that matches your hardware:
 
 | Shape | Containers | When |
 |-------|-----------|------|
-| **Standard** | 3-8 (postgres + api + ui + optional workers) | Solo operator, one VPS or home server |
+| **Standard** | 4-9 (postgres + api + ui + nginx + optional workers) | Solo operator, one VPS or home server |
 | **Core** | 2 (postgres + studio-core image) | Fewer containers on a single host |
-| **Split** | 4-8 across hosts | Scaling out API, UI, and workers separately |
+| **Split** | 5-9 across hosts | Same containers as Standard, spread across hosts and/or a managed Postgres (Cloud SQL / RDS) |
 | **Distributed workers** | API host + worker host(s) | GPU workers on a different machine from the API |
 | **RunPod / cloud GPU** | API anywhere + RunPod GPU pod | On-demand GPU bursts |
 | **Full** | 1 | Constrained environments, evaluation |
@@ -51,16 +51,18 @@ Decision tree, resource requirements, and per-shape compose commands are in [pro
 ## Daily Operations
 
 ```bash
-docker compose up -d          # start core (postgres + api + ui)
-docker compose --profile workers up -d   # add all workers
+docker compose up -d          # start core (postgres + api + ui + nginx)
+COMPOSE_PROFILES=worker-general,worker-transfer docker compose up -d   # add workers
 docker compose logs -f api    # follow API logs
 docker compose down           # stop (data preserved)
 ```
 
+Each worker is its own compose profile (`worker-general`, `worker-transfer`, `worker-video`, `worker-audio`, `worker-comfyui-image`) - there is no aggregate `workers` profile, list the ones you want.
+
 GPU workers use the GPU compose override:
 
 ```bash
-docker compose -f docker-compose.yml -f workers/docker-compose.gpu.yml up -d
+docker compose -f docker-compose.yml -f workers/docker-compose.gpu.yml up -d worker-audio
 ```
 
 For management tasks (reset admin password, rotate secrets, edit env), use `studio-console`.
@@ -103,8 +105,8 @@ Full RunPod walkthrough: [production/vps-runpod.md](docs/production/vps-runpod.m
 studio/
 ├── api/              # FastAPI backend (Python 3.12)
 ├── ui/               # Next.js frontend
-├── workers/          # Job workers (Python 3.11)
-├── contracts/        # Shared Pydantic models (API ↔ workers)
+├── workers/          # Job workers (Python 3.12)
+├── contracts-data/   # Launch manifest (read by studio-console)
 ├── deploy/           # .env.example template + nginx config
 ├── docs/             # Operator and infrastructure docs
 ├── docker-compose.yml             # Production services
@@ -129,11 +131,11 @@ Provider packages, content catalogs, and marketplace packages are deployed separ
 
 ## Tech Stack
 
-- **API**: Python 3.12, FastAPI, PostgreSQL 18 (pgvector), Redis, SQLAlchemy (async)
+- **API**: Python 3.12, FastAPI, PostgreSQL 18 (pgvector), SQLAlchemy (async)
 - **UI**: Next.js, TypeScript, Tailwind CSS, React Query
-- **Workers**: Python 3.11, Pydantic, httpx
+- **Workers**: Python 3.12, Pydantic, httpx
 - **Auth**: JWT with role-based access control
-- **Real-time**: WebSockets via Redis pub/sub
+- **Real-time**: WebSockets via Postgres LISTEN/NOTIFY
 
 ## License
 

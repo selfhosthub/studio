@@ -28,7 +28,7 @@ The default. A solo creator on a VPS or home server, or anyone bringing up Studi
 | **Target user** | Solo operator, single machine |
 | **Entry point** | `studio-console` |
 | **Compose file** | `docker-compose.yml` |
-| **Containers** | 3–8 (postgres + api + ui + optional workers) |
+| **Containers** | 4-9 (postgres + api + ui + nginx + optional workers) |
 | **Postgres** | Separate `postgres` container - data on `${SHS_WORKSPACE_HOST}/db` bind mount |
 | **Min hardware** | 2 CPU / 4 GB RAM |
 | **GPU** | Optional - enable per-worker with `workers/docker-compose.gpu.yml` |
@@ -84,7 +84,7 @@ Same container shape as Standard, but services run on different hosts (or agains
 |---|---|
 | **Target user** | Teams, higher-traffic deployments |
 | **Entry point** | `docker-compose.yml` with individual images |
-| **Containers** | 4–8 (postgres, api, ui, workers) |
+| **Containers** | 5-9 (postgres, api, ui, nginx, workers) |
 | **Postgres** | Separate container, or external managed DB (Cloud SQL / RDS / Azure Database) - point `SHS_DATABASE_URL` at it |
 | **Min hardware** | 4+ CPU / 8+ GB RAM |
 | **GPU** | Optional per-worker |
@@ -158,10 +158,10 @@ Stateless GPU workers that spin up on demand. **Planned, not implemented.**
 
 | Scenario | Containers | Min CPU | Min RAM | GPU | Postgres |
 |----------|-----------|---------|---------|-----|----------|
-| Standard | 3–8 | 2 | 4 GB | Optional | Container |
+| Standard | 4-9 | 2 | 4 GB | Optional | Container |
 | Core | 2 | 2 | 4 GB | No | Container |
 | Full | 1 | 2 | 4 GB | No | Embedded |
-| Split | 4–8 | 4+ | 8+ GB | Optional | Container or managed |
+| Split | 5-9 | 4+ | 8+ GB | Optional | Container or managed |
 | Distributed workers | 1–5 (workers only) | Varies | Varies | Yes | N/A (on API host) |
 | Kubernetes | Pods per service | Varies | Varies | GPU node pool | Managed (Cloud SQL / RDS) |
 
