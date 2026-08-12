@@ -29,13 +29,13 @@ Studio images are published to GHCR. You can pull pre-built images or build from
 - **`studio-worker-audio`** - Chatterbox TTS. Text-to-speech with voice cloning.
 - **`studio-worker-comfyui`** - Lightweight proxy to operator-managed ComfyUI server. Deploy with `WORKER_TYPE=comfyui-image` or `WORKER_TYPE=comfyui-video`.
 - **`studio-core`** - Core image. Internal nginx front door + API + UI + general/transfer workers in one container under supervisord. Postgres runs as a separate container alongside it. nginx fronts API + UI on one origin (`SHS_NGINX_PORT`, default `80`); the API (`8000`) and UI (`3000`) are not host-facing. Used by the [Core](deployment-matrix.md#core) deployment shape.
-- **`studio-full`** - Full image. Internal nginx + API + UI + general/transfer workers + embedded PostgreSQL all under supervisord in one container. For platforms that only allow one container (RunPod pods, Vast.ai). Publish the nginx port (`SHS_NGINX_PORT`, default `80`); Postgres data lives at `/workspace/db` - mount a network volume or your data is lost on container destroy. Used by the [Full](deployment-matrix.md#full) deployment shape.
+- **`studio-full`** - Full image. Internal nginx + API + UI + general/transfer workers + embedded PostgreSQL all under supervisord in one container. For platforms that only allow one container (cloud GPU pods, single-container hosting). Publish the nginx port (`SHS_NGINX_PORT`, default `80`); Postgres data lives at `/workspace/db` - mount a network volume or your data is lost on container destroy. Used by the [Full](deployment-matrix.md#full) deployment shape.
 
 ### Worker model policy
 
 **Worker images never bundle LLMs, AI models, or third-party applications** (ComfyUI, Whisper models, HuggingFace models, etc.). The Core and Full images follow the same policy - they include only the general and transfer worker code, no model weights.
 
-These are installed at container spin-up and stored on the operator's infrastructure - local directory or network volume (RunPod, etc.), mounted into the container. Storage paths: `/workspace/models/` (general), `HF_HOME` (HuggingFace cache).
+These are installed at container spin-up and stored on the operator's infrastructure - local directory or network volume, mounted into the container. Storage paths: `/workspace/models/` (general), `HF_HOME` (HuggingFace cache).
 
 ## Pull pre-built images
 

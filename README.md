@@ -39,11 +39,10 @@ Studio runs on one host or many. Pick the shape that matches your hardware:
 
 | Shape | Containers | When |
 |-------|-----------|------|
-| **Standard** | 4-9 (postgres + api + ui + nginx + optional workers) | Solo operator, one VPS or home server |
+| **Split** (default) | 4-9 (postgres + api + ui + nginx + optional workers) | Solo operator, one VPS or home server; spreads across hosts or onto a managed Postgres when needed |
 | **Core** | 2 (postgres + studio-core image) | Fewer containers on a single host |
-| **Split** | 5-9 across hosts | Same containers as Standard, spread across hosts and/or a managed Postgres (Cloud SQL / RDS) |
 | **Distributed workers** | API host + worker host(s) | GPU workers on a different machine from the API |
-| **RunPod / cloud GPU** | API anywhere + RunPod GPU pod | On-demand GPU bursts |
+| **Cloud GPU** | API anywhere + cloud GPU pod | On-demand GPU bursts |
 | **Full** | 1 | Constrained environments, evaluation |
 
 Decision tree, resource requirements, and per-shape compose commands are in [production/deployment-matrix.md](docs/production/deployment-matrix.md).
@@ -91,13 +90,11 @@ For the full reference of every env var Studio reads, see [production/env-vars.m
 
 If workers run on a different host from the API, run `studio-console` on the worker host and select Workers-only when the wizard asks what to deploy. You'll need the `SHS_WORKER_SHARED_SECRET` from the API host - copy it byte-for-byte. See [production/deployment-matrix.md](docs/production/deployment-matrix.md#distributed-workers) for the topology.
 
-## RunPod
+## Cloud GPU hosts
 
 Use the Full or distributed-worker topology. Mount a network volume at `/workspace` - without it, `/workspace/.env` is lost when the pod is destroyed.
 
-The Core and Full images run multiple processes under supervisord, whose web dashboard is exposed on port `9001`. RunPod auto-publishes that port through its TCP proxy, so basic-auth is required: set `SHS_SUPERVISOR_USER` and `SHS_SUPERVISOR_PASSWORD` (generate with `openssl rand -base64 24`) before starting the pod. Supervisord refuses to start if either is unset.
-
-Full RunPod walkthrough: [production/vps-runpod.md](docs/production/vps-runpod.md).
+The Core and Full images run multiple processes under supervisord, whose web dashboard is exposed on port `9001`. Some GPU hosts publish that port through their TCP proxy automatically, so basic-auth is required: set `SHS_SUPERVISOR_USER` and `SHS_SUPERVISOR_PASSWORD` (generate with `openssl rand -base64 24`) before starting the pod. Supervisord refuses to start if either is unset.
 
 ## Project Layout
 
@@ -122,7 +119,6 @@ Provider packages, content catalogs, and marketplace packages are deployed separ
 |-------|------|
 | Bootstrap & first-run sequence | [production/bootstrap.md](docs/production/bootstrap.md) |
 | Deployment shapes & decision tree | [production/deployment-matrix.md](docs/production/deployment-matrix.md) |
-| VPS + RunPod walkthrough | [production/vps-runpod.md](docs/production/vps-runpod.md) |
 | Pre-pipeline operator checklist | [production/operator-checklist.md](docs/production/operator-checklist.md) |
 | Environment variables reference | [production/env-vars.md](docs/production/env-vars.md) |
 | Docker images | [production/docker-images.md](docs/production/docker-images.md) |

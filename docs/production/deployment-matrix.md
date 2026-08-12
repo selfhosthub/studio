@@ -6,20 +6,20 @@ How to choose the right deployment for your environment.
 
 ## Picking a shape
 
-**Default:** [Standard](#standard) - separate containers for `nginx`, `api`, `ui`, `postgres`, plus any workers you enable. This is what the README, the docker-compose file, and every other doc assume unless they say otherwise. Use it unless you have a reason not to.
+**Default:** [Split](#split) - separate containers for `nginx`, `api`, `ui`, `postgres`, plus any workers you enable. This is what the README, the docker-compose file, and every other doc assume unless they say otherwise. Use it unless you have a reason not to.
 
 **Alternatives:**
 
 - Want fewer containers? → [Core](#core). API + UI + general/transfer workers fuse into one container under supervisord; Postgres still runs separately.
-- Stuck with one container only (RunPod pod, Vast.ai, single-container hosting)? → [Full](#full). Everything plus Postgres lives in a single container with data on `/workspace/db`.
-- Scaling beyond one host, or using a managed DB? → [Split](#split). Same container shape as Standard, but services land on different hosts and Postgres can be Cloud SQL / RDS / Azure.
+- Stuck with one container only (cloud GPU pod, single-container hosting)? → [Full](#full). Everything plus Postgres lives in a single container with data on `/workspace/db`.
 - Workers on a different machine from the API (cloud GPU, dedicated GPU box)? → [Distributed workers](#distributed-workers). Workers poll the API over HTTP; no shared filesystem.
 - GPU workers on the same machine? → start the GPU-needing profiles with the [GPU override](#gpu-workers).
+- Scaling beyond one host, or using a managed DB? → still [Split](#split); see its multi-host note.
 - Managed Kubernetes? → [not available yet](#kubernetes).
 
-## Scenarios
+## Shapes
 
-### Standard
+### Split
 
 The default. A solo creator on a VPS or home server, or anyone bringing up Studio without a constraint that forces another shape.
 
@@ -43,9 +43,11 @@ COMPOSE_PROFILES=worker-general,worker-transfer,worker-video docker compose up -
 
 Each worker is its own compose profile (`worker-general`, `worker-transfer`, `worker-video`, `worker-audio`, `worker-comfyui-image`). There is no aggregate `workers` profile - list the ones you want explicitly.
 
+**Multi-host / managed Postgres.** Nothing ties the containers to one host. The same compose file spreads services across machines (Docker bridge network becomes overlay), and Postgres can be an external managed DB (Cloud SQL / RDS / Azure Database) - point `SHS_DATABASE_URL` at it. For teams or higher-traffic deployments plan 4+ CPU / 8+ GB RAM across the hosts. Trade-off: more to manage, but each service scales and restarts independently.
+
 ### Core
 
-Same as Standard but fewer containers. The `ghcr.io/selfhosthub/studio-core` image fuses an internal nginx front door + API + UI + general/transfer workers into one container under supervisord; Postgres still runs separately. nginx routes `/api`,`/ws` → API and `/` → UI on a single origin (`SHS_NGINX_PORT`, default `80`), so the browser, SSR, and cloudflared use one origin in every shape.
+Same as Split but fewer containers. The `ghcr.io/selfhosthub/studio-core` image fuses an internal nginx front door + API + UI + general/transfer workers into one container under supervisord; Postgres still runs separately. nginx routes `/api`,`/ws` → API and `/` → UI on a single origin (`SHS_NGINX_PORT`, default `80`), so the browser, SSR, and cloudflared use one origin in every shape.
 
 | | |
 |---|---|
@@ -55,42 +57,26 @@ Same as Standard but fewer containers. The `ghcr.io/selfhosthub/studio-core` ima
 | **Postgres** | Separate `postgres` container - `studio-core` connects to it over the docker network |
 | **Min hardware** | 2 CPU / 4 GB RAM |
 | **GPU** | No - image includes general + transfer workers only (CPU work) |
-| **Storage** | Same as Standard |
+| **Storage** | Same as Split |
 | **Trade-off** | Simpler ops, but no video/audio/comfyui workers |
 
 ### Full
 
-Everything in a single container - PostgreSQL, API, UI, and general/transfer workers. For platforms that only allow one container (RunPod pods, Vast.ai, single-container hosting).
+Everything in a single container - PostgreSQL, API, UI, and general/transfer workers. For platforms that only allow one container, such as cloud GPU pods and single-container hosting.
 
 | | |
 |---|---|
-| **Target user** | GPU cloud renters (RunPod, Vast.ai) |
+| **Target user** | Cloud GPU pod renters |
 | **Entry point** | `docker run -p 80:80 -p 9001:9001 -v ~/.studio:/workspace -e SHS_SUPERVISOR_USER=admin -e SHS_SUPERVISOR_PASSWORD=... ghcr.io/selfhosthub/studio-full` |
 | **Dockerfile** | `Dockerfile.full` |
 | **Containers** | 1 |
 | **Postgres** | Embedded - runs inside the same container under supervisord, data at `/workspace/db` |
 | **Min hardware** | 2 CPU / 4 GB RAM |
 | **GPU** | No (general + transfer workers only) |
-| **Storage** | `/workspace` - RunPod network volume or local bind mount. Required for Postgres durability |
+| **Storage** | `/workspace` - provider network volume or local bind mount. Required for Postgres durability |
 | **Networking** | An internal nginx fronts API + UI on a single origin (`SHS_NGINX_PORT`, default `80`) - publish that one port. The API (`8000`) and UI (`3000`) run behind nginx and are not host-facing. `9001` is the supervisord dashboard (basic-auth required). nginx routes `/api`,`/ws` → API and `/` → UI, so the browser, SSR, and cloudflared all use one origin. |
 | **Required env** | `SHS_SUPERVISOR_USER` + `SHS_SUPERVISOR_PASSWORD` - supervisord dashboard on `:9001` is exposed by the image; both vars must be set or the container exits on boot |
 | **Trade-off** | Zero orchestration, but Postgres is embedded - back up `/workspace/db` to preserve data, and lose the volume = lose the database |
-
-### Split
-
-Same container shape as Standard, but services run on different hosts (or against a managed Postgres). For teams or operators who want to scale services independently.
-
-| | |
-|---|---|
-| **Target user** | Teams, higher-traffic deployments |
-| **Entry point** | `docker-compose.yml` with individual images |
-| **Containers** | 5-9 (postgres, api, ui, nginx, workers) |
-| **Postgres** | Separate container, or external managed DB (Cloud SQL / RDS / Azure Database) - point `SHS_DATABASE_URL` at it |
-| **Min hardware** | 4+ CPU / 8+ GB RAM |
-| **GPU** | Optional per-worker |
-| **Storage** | Same as Standard, or managed DB (Cloud SQL / RDS) for Postgres |
-| **Networking** | Docker bridge or overlay network |
-| **Trade-off** | More containers to manage, but each service can be scaled or restarted independently |
 
 ### Distributed workers
 
@@ -102,7 +88,7 @@ Workers on a separate machine from the API (or the same machine, running indepen
 | **Entry point** | `docker compose -f workers/docker-compose.yml ...` (or studio-console on the worker host, if that's how you provision split-services elsewhere) |
 | **Compose file** | `workers/docker-compose.yml` |
 | **Containers** | Workers only (1–5) |
-| **Min hardware** | GPU host: depends on worker type. API host: same as Standard |
+| **Min hardware** | GPU host: depends on worker type. API host: same as Split |
 | **GPU** | Add the GPU override: `-f workers/docker-compose.yml -f workers/docker-compose.gpu.yml` |
 | **Storage** | `/workspace` on each host (models cached locally) |
 | **Networking** | Workers connect to API via `SHS_API_BASE_URL` - public URL, localhost, or Tailscale. Authenticate with `SHS_WORKER_SHARED_SECRET` (must match the API). |
@@ -117,11 +103,11 @@ The worker host needs its own `.env` with at least `SHS_API_BASE_URL`, `SHS_WORK
 
 Workers can also run on the same machine as the core stack without conflict - they use a separate Docker Compose project and connect to the API over HTTP, not a shared network. Multiple workers of the same type share load via atomic job claiming.
 
-**Storage mode.** Workers on a different machine from the API report `storage_mode=remote` and upload result files over HTTP (multipart). Workers on the same host that bind-mount the same `/workspace` directory as the API report `storage_mode=local` and write directly to disk, then notify the API with metadata only — no bytes on the wire. Detection is automatic and re-checked each heartbeat; the dashboard shows the current mode per worker. Both modes are equally supported.
+**Storage mode.** Workers on a different machine from the API report `storage_mode=remote` and upload result files over HTTP (multipart). Workers on the same host that bind-mount the same `/workspace` directory as the API report `storage_mode=local` and write directly to disk, then notify the API with metadata only - no bytes on the wire. Detection is automatic and re-checked each heartbeat; the dashboard shows the current mode per worker. Both modes are equally supported.
 
 ### GPU workers
 
-Not a separate scenario - a modifier on Standard or Split. Adds GPU device reservations for workers that need them (audio, comfyui).
+Not a separate shape - a modifier on Split. Adds GPU device reservations for workers that need them (audio, comfyui).
 
 ```bash
 # Both Core and Full (from repo root)
@@ -144,7 +130,7 @@ Managed Kubernetes (GKE, EKS, AKS). **Not yet implemented.**
 | **Images** | Published to GHCR (`ghcr.io/selfhosthub/`) |
 | **Status** | Planned - images are container-runtime agnostic and ready for k8s |
 
-### RunPod Serverless
+### Serverless GPU workers
 
 Stateless GPU workers that spin up on demand. **Planned, not implemented.**
 
@@ -156,12 +142,11 @@ Stateless GPU workers that spin up on demand. **Planned, not implemented.**
 
 ## Resource summary
 
-| Scenario | Containers | Min CPU | Min RAM | GPU | Postgres |
-|----------|-----------|---------|---------|-----|----------|
-| Standard | 4-9 | 2 | 4 GB | Optional | Container |
+| Shape | Containers | Min CPU | Min RAM | GPU | Postgres |
+|-------|-----------|---------|---------|-----|----------|
+| Split | 4-9 | 2 | 4 GB | Optional | Container or managed |
 | Core | 2 | 2 | 4 GB | No | Container |
 | Full | 1 | 2 | 4 GB | No | Embedded |
-| Split | 5-9 | 4+ | 8+ GB | Optional | Container or managed |
 | Distributed workers | 1–5 (workers only) | Varies | Varies | Yes | N/A (on API host) |
 | Kubernetes | Pods per service | Varies | Varies | GPU node pool | Managed (Cloud SQL / RDS) |
 
@@ -178,7 +163,7 @@ Stateless GPU workers that spin up on demand. **Planned, not implemented.**
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | Production compose - Standard, Core, and Split shapes all use this file (different image choices and host layout) |
+| `docker-compose.yml` | Production compose - Split and Core both use this file (different image choices and host layout) |
 | `workers/docker-compose.yml` | Worker-only hosts (pre-built GHCR images) |
 | `workers/docker-compose.gpu.yml` | GPU device reservation override for workers |
 | `deploy/.env.example` | Production env template |

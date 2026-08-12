@@ -2,7 +2,7 @@
 
 > **Community & support:** [SelfHostHub Community](https://www.skool.com/selfhosthub) · [Innovators (Plus)](https://www.skool.com/selfhostinnovators)
 
-> **Scope:** Production deployment contexts (single host, distributed workers, RunPod).
+> **Scope:** Production deployment contexts (single host, distributed workers, cloud GPU pods).
 
 ---
 
@@ -12,7 +12,7 @@ Studio ships with a bootstrap script (`api/scripts/bootstrap.py`) that handles f
 
 **What it does on every start:**
 - Validates required secrets (`SHS_JWT_SECRET_KEY`, `SHS_WORKER_SHARED_SECRET`, `SHS_CREDENTIAL_ENCRYPTION_KEY`)
-- Recovers missing secrets from environment variables (RunPod vault, shell env) and writes them to `.env`
+- Recovers missing secrets from environment variables (provider secret vault, shell env) and writes them to `.env`
 
 **What it does on first boot only:**
 - Waits for the database to be available
@@ -79,7 +79,7 @@ The host directory that backs `/workspace` inside the containers is configurable
 | Deployment | `SHS_WORKSPACE_HOST` | Result |
 |-----------|----------------------|--------|
 | VPS / bare metal (default) | unset | `~/.studio` on the host |
-| RunPod | `/workspace` | RunPod network volume |
+| Cloud GPU pod | `/workspace` | provider network volume |
 | Kubernetes | your PV mount path | the PV |
 | Custom | any absolute path | wherever you point it |
 
@@ -108,13 +108,13 @@ To change a value after first run, edit `~/.studio/.env` directly and restart:
 docker compose restart api
 ```
 
-### RunPod (network volume)
+### Cloud GPU pod (network volume)
 
 On first boot, the entrypoint copies `api/envs/.env.prod` to `/workspace/.env` and creates a symlink (`/app/.env` → `/workspace/.env`). The network volume ensures the file survives pod restarts and rebuilds.
 
 The `.bootstrapped` marker on the network volume prevents re-bootstrap when new instances scale up or pods restart. This is critical for shared storage - re-initializing the filesystem would destroy data for all instances.
 
-Required secrets must be set in the RunPod dashboard **before** starting the pod. See [RunPod Secrets](#runpod-secrets) below.
+Required secrets must be set in the provider's dashboard **before** starting the pod. See [Pod Secrets](#pod-secrets) below.
 
 ### Workers on a separate host
 
@@ -141,13 +141,13 @@ These must be set before first boot. `studio-console` auto-generates secrets; bo
 | `SHS_PUBLIC_BASE_URL` | Workers | No | Public URL for external API callbacks and file downloads. Must be reachable from outside your network. |
 | `SHS_FRONTEND_URL` | API | No | Frontend URL used by the API for OAuth redirect callbacks. |
 
-**Secret recovery:** if a secret is missing from `.env` but present as an environment variable (RunPod vault, shell env), bootstrap writes it to `.env` automatically and continues. If missing everywhere, the API will not start.
+**Secret recovery:** if a secret is missing from `.env` but present as an environment variable (provider secret vault, shell env), bootstrap writes it to `.env` automatically and continues. If missing everywhere, the API will not start.
 
 ---
 
-## RunPod Secrets
+## Pod Secrets
 
-Create these secrets in the RunPod dashboard before starting your pod:
+Create these secrets in your GPU host's dashboard before starting the pod:
 
 | Secret Name | Example Value | Notes |
 |-------------|---------------|-------|
@@ -157,17 +157,17 @@ Create these secrets in the RunPod dashboard before starting your pod:
 | `credential_encryption_key` | `openssl rand -hex 32` | Encrypts provider credentials at rest |
 | `admin_password` | your chosen password | Super admin login |
 
-Then in your pod environment variables:
+Then set the pod environment variables from those secrets, using your provider's secret-reference syntax:
 
 ```
-POSTGRES_PASSWORD={{ RUNPOD_SECRET_postgres_password }}
-SHS_JWT_SECRET_KEY={{ RUNPOD_SECRET_jwt_secret_key }}
-SHS_WORKER_SHARED_SECRET={{ RUNPOD_SECRET_worker_shared_secret }}
-SHS_CREDENTIAL_ENCRYPTION_KEY={{ RUNPOD_SECRET_credential_encryption_key }}
-SHS_ADMIN_PASSWORD={{ RUNPOD_SECRET_admin_password }}
+POSTGRES_PASSWORD              ← postgres_password
+SHS_JWT_SECRET_KEY             ← jwt_secret_key
+SHS_WORKER_SHARED_SECRET       ← worker_shared_secret
+SHS_CREDENTIAL_ENCRYPTION_KEY  ← credential_encryption_key
+SHS_ADMIN_PASSWORD             ← admin_password
 ```
 
-Storing `SHS_CREDENTIAL_ENCRYPTION_KEY` in the RunPod vault protects against accidental `.env` deletion - bootstrap will recover it from the environment variable on next start.
+Storing `SHS_CREDENTIAL_ENCRYPTION_KEY` in the provider's secret vault protects against accidental `.env` deletion - bootstrap will recover it from the environment variable on next start.
 
 If any required secrets are missing, the bootstrap script aborts with a clear error listing exactly what needs to be added.
 
@@ -216,7 +216,7 @@ exec python main.py - start the API server
 To change a value after first boot, edit the `.env` file directly:
 
 - **Docker**: edit `~/.studio/.env` on the host (bind-mounted as `/workspace/.env` in the container)
-- **RunPod**: edit `/workspace/.env` on the network volume
+- **Cloud GPU pod**: edit `/workspace/.env` on the network volume
 
 Restart the API container after changes:
 
@@ -251,12 +251,12 @@ docker compose -f workers/docker-compose.yml up -d worker-audio
 ## Troubleshooting
 
 ### Missing secrets
-Bootstrap validates secrets on every start. If a secret is missing from `.env`, it checks environment variables (RunPod vault, shell env) and writes any found values to `.env`. If a secret is missing everywhere, the API will not start.
+Bootstrap validates secrets on every start. If a secret is missing from `.env`, it checks environment variables (provider secret vault, shell env) and writes any found values to `.env`. If a secret is missing everywhere, the API will not start.
 
 For previously bootstrapped systems, a missing `SHS_CREDENTIAL_ENCRYPTION_KEY` means existing encrypted credentials are unreadable. Restore the original key from your backup or external vault.
 
 ### `.env` exists but values are wrong
-Do not delete `.env` and re-run bootstrap - edit `~/.studio/.env` directly (or `/workspace/.env` on RunPod).
+Do not delete `.env` and re-run bootstrap - edit `~/.studio/.env` directly (or `/workspace/.env` on a pod).
 
 ### Database already initialized
 The `.bootstrapped` marker causes bootstrap to skip entirely. If you need to re-run bootstrap, remove the marker file first: `rm /workspace/.bootstrapped` (or `rm ~/.studio/.bootstrapped` on a single-host install).

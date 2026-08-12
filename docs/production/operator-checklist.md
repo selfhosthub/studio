@@ -106,7 +106,7 @@ Don't skip optional steps without reading the **When** clause - some "optional" 
 
 ## Distributed workers
 
-For workers running on a different host from the API (including RunPod GPU pods), see [deployment-matrix.md](deployment-matrix.md#distributed-workers).
+For workers running on a different host from the API (including cloud GPU pods), see [deployment-matrix.md](deployment-matrix.md#distributed-workers).
 
 You'll need the `SHS_WORKER_SHARED_SECRET` from the API host - copy it byte-for-byte into the worker host's `.env`. A mismatch produces silent 403s on every job poll with no clear error surface.
 
@@ -130,7 +130,6 @@ Do this before you take a paying customer. Studio is a framework, not a managed 
 
 ## See also
 
-- [deployment-matrix.md](deployment-matrix.md) - all deployment shapes (Standard, Core, Full, Split, Distributed workers)
+- [deployment-matrix.md](deployment-matrix.md) - all deployment shapes (Split, Core, Full) plus worker topologies
 - [env-vars.md](env-vars.md) - full env var reference
 - [bootstrap.md](bootstrap.md) - what `api/scripts/bootstrap.py` does on first boot
-- [vps-runpod.md](vps-runpod.md) - VPS + RunPod walkthrough
