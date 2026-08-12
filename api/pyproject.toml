@@ -8,7 +8,7 @@ package-data = {"app" = ["**/*.py"]}
 
 [project]
 name = "studio-api"
-version = "1.4.1"
+version = "1.4.2"
 description = "Production-ready workflow orchestration SaaS framework built with Domain-Driven Design"
 requires-python = ">=3.12,<3.14"
 license = "LicenseRef-Studio-Use-License"

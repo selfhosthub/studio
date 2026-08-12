@@ -177,6 +177,7 @@ class OrchestrationService:
         """Form keys no step mapping can consume; they would be silently dropped."""
         steps = (instance.workflow_snapshot or {}).get("steps", {})
         allowed: set = set()
+        prompt_steps: set = set()
         instance_form_fields: set = set()
 
         for step_id, step_config in steps.items():
@@ -192,11 +193,8 @@ class OrchestrationService:
                 )
                 if mapping_type == "form":
                     allowed.add(f"{step_id}.{param_key}")
-                elif mapping_type == "prompt" and isinstance(
-                    mapping.get("variableValues"), dict
-                ):
-                    for var_name in mapping["variableValues"]:
-                        allowed.add(f"{step_id}._prompt_variable:{var_name}")
+                elif mapping_type == "prompt":
+                    prompt_steps.add(step_id)
                 elif (
                     mapping_type == "mapped"
                     and mapping.get("stepId") == "__instance_form__"
@@ -206,6 +204,11 @@ class OrchestrationService:
 
         def consumable(key: str) -> bool:
             if key in allowed:
+                return True
+            # A step with a prompt mapping accepts any prompt variable: the
+            # prompt declares them, and inject writes them into variableValues.
+            step_part, sep, _ = key.partition("._prompt_variable:")
+            if sep and step_part in prompt_steps:
                 return True
             # __instance_form__ fields resolve by exact or dotted-suffix match.
             return any(
