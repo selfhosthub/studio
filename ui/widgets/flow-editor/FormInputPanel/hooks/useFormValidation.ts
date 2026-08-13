@@ -2,6 +2,7 @@
 
 import { useState, Dispatch, SetStateAction } from 'react';
 import { WorkflowFormSchema } from '@/entities/workflow';
+import { compileFieldPattern } from '@/features/form-field-renderer';
 import { normalizeFormFieldConfig } from './useFormInputState';
 
 export interface UseFormValidationReturn {
@@ -12,7 +13,7 @@ export interface UseFormValidationReturn {
 }
 
 /**
- * Handles required, number (min/max), text length, and JSON validation.
+ * Handles required, number (min/max), text length, pattern, and JSON validation.
  * Returns errors keyed by "{step_id}.{parameter_key}".
  */
 export function useFormValidation(formSchema: WorkflowFormSchema): UseFormValidationReturn {
@@ -60,6 +61,15 @@ export function useFormValidation(formSchema: WorkflowFormSchema): UseFormValida
         }
         if (config.maxLength != null && value.length > config.maxLength) {
           newErrors[key] = `Must be at most ${config.maxLength} characters`;
+          isValid = false;
+        }
+      }
+
+      // Pattern validation
+      if (config.pattern && typeof value === 'string' && value !== '') {
+        const regex = compileFieldPattern(config.pattern);
+        if (regex && !regex.test(value)) {
+          newErrors[key] = `Invalid format (expected pattern: ${config.pattern})`;
           isValid = false;
         }
       }

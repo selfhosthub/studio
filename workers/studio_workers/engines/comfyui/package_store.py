@@ -90,14 +90,12 @@ class ComfyUIPackageStore:
     def resolve(
         self,
         service_id: str,
-        model: Optional[str],
         slug: Optional[str] = None,
     ) -> Optional[PackageManifest]:
-        """Manifest serving (service_id, slug or model); None when nothing matches.
+        """Manifest serving (service_id, slug); None when nothing matches.
 
         *slug* is the package reference (the workflow the user selected) and
-        wins outright. The model path is the legacy selector, kept for one
-        train: ambiguous by design when packages share a model id.
+        wins outright; without one the service's default package serves.
         """
         with self._lock:
             candidates = self._by_service.get(service_id, [])
@@ -106,11 +104,6 @@ class ComfyUIPackageStore:
             if slug:
                 for m in candidates:
                     if m.slug == slug:
-                        return m
-                return None
-            if model:
-                for m in candidates:
-                    if model in m.models:
                         return m
                 return None
             for m in candidates:

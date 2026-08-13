@@ -17,6 +17,7 @@ type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 type UserContextType = {
   user: User | null;
   status: AuthStatus;
+  mustChangePassword: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (firstName: string, lastName: string, email: string, password: string, planSlug?: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -29,6 +30,7 @@ type UserContextType = {
 export const UserContext = createContext<UserContextType>({
   user: null,
   status: 'unauthenticated',
+  mustChangePassword: false,
   login: async () => {},
   register: async () => {},
   logout: async () => {},
@@ -40,6 +42,7 @@ export const UserContext = createContext<UserContextType>({
 export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -141,7 +144,22 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       setUser(userData);
       setStatus('authenticated');
 
-      router.push('/dashboard');
+      // An admin-set one-time password must be changed before anything else;
+      // the API refuses all other endpoints until it is. The flag also feeds
+      // the login page's authenticated-redirect so it cannot race this push.
+      if (response.must_change_password) {
+        setMustChangePassword(true);
+        toast({
+          title: 'Password change required',
+          description: 'Your password was reset by an administrator. Please set a new one.',
+          variant: 'destructive',
+          duration: 6000,
+        });
+        router.push('/settings/account');
+      } else {
+        setMustChangePassword(false);
+        router.push('/dashboard');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login failed. Please try again.';
       setError(message);
@@ -197,7 +215,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <UserContext.Provider value={{ user, status, login, register, logout, refreshUser, isLoading, error }}>
+    <UserContext.Provider value={{ user, status, mustChangePassword, login, register, logout, refreshUser, isLoading, error }}>
       {children}
     </UserContext.Provider>
   );

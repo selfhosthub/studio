@@ -17,6 +17,8 @@
 #      4. Verify SHS_SUPERVISOR_USER and SHS_SUPERVISOR_PASSWORD are
 #         present in process env. Exit non-zero if either is missing -
 #         fail-closed per commit 4920b118. No auto-generation, no defaults.
+#         Then append SHS_PUBLIC_API_URL to .env when the line is absent
+#         (never rewrites an existing line).
 #      5. Shape-specific work (Postgres init for Full, bootstrap for
 #         both).
 #      6. exec supervisord.
@@ -249,6 +251,16 @@ if [ -z "${SHS_SUPERVISOR_USER:-}" ] || [ -z "${SHS_SUPERVISOR_PASSWORD:-}" ]; t
     echo "       RunPod template. The image fails closed by design - no auto-" >&2
     echo "       generation, no default password. See commit 4920b118." >&2
     exit 1
+fi
+
+# Append SHS_PUBLIC_API_URL when the line is absent from .env, honoring an
+# injected value, else the nginx-origin placeholder. Never rewrites an
+# existing line (clobber-protection). The API reads it as its externally-
+# facing base (OAuth callbacks, webhook trigger URLs, signed asset URLs).
+if ! grep -q '^SHS_PUBLIC_API_URL=' "$WORKSPACE_ENV"; then
+    NGINX_PORT_FROM_ENV="$(grep -E '^SHS_NGINX_PORT=' "$WORKSPACE_ENV" | head -1 | cut -d= -f2-)"
+    echo "SHS_PUBLIC_API_URL=${SHS_PUBLIC_API_URL:-http://localhost:${NGINX_PORT_FROM_ENV:-80}}" >> "$WORKSPACE_ENV"
+    echo "Appended SHS_PUBLIC_API_URL to $WORKSPACE_ENV"
 fi
 
 # --- Step 5: shape-specific work -----------------------------------------

@@ -13,6 +13,7 @@ export function normalizeFormFieldConfig(config: any): FormFieldConfig {
     fieldType: (config.fieldType || config.field_type || 'text') as FormFieldConfig['fieldType'],
     defaultValue: config.defaultValue ?? config.default_value,
     options: config.options,
+    pattern: config.pattern,
     minLength: config.minLength ?? config.min_length,
     maxLength: config.maxLength ?? config.max_length,
     min: config.min,
@@ -38,7 +39,7 @@ export function getFormFieldSizeClass(config: FormFieldConfig): string {
     case 'full':
       return 'col-span-full';
     default:
-      if (['text', 'number', 'select', 'date', 'datetime'].includes(config.fieldType || 'text')) {
+      if (['text', 'number', 'select', 'combobox', 'date', 'datetime'].includes(config.fieldType || 'text')) {
         return 'col-span-1';
       }
       return 'col-span-full';

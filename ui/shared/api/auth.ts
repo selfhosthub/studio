@@ -8,6 +8,8 @@ export interface LoginResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  // True when the password was admin-set and must be changed on first login.
+  must_change_password?: boolean;
 }
 
 export interface RegisterResponse {

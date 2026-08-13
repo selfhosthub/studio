@@ -20,7 +20,11 @@ from app.infrastructure.auth.jwt import (
     create_refresh_token,
     verify_refresh_token,
 )
-from app.infrastructure.auth.password import verify_password, hash_password
+from app.infrastructure.auth.password import (
+    verify_password,
+    hash_password,
+    is_one_time_hash,
+)
 from app.application.services.audit_service import AuditService
 from app.domain.audit.models import (
     AuditAction,
@@ -164,7 +168,7 @@ async def login_for_access_token(
         get_organization_repository
     ),
     audit_service: AuditService = Depends(get_audit_service),
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """OAuth2 password grant. 401 invalid credentials, disabled user, or inactive org."""
     user = await user_repository.get_by_username(form_data.username)
 
@@ -291,6 +295,8 @@ async def login_for_access_token(
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
+        # True when the hash carries the one-time marker set by an admin reset.
+        "must_change_password": is_one_time_hash(user.hashed_password),
     }
 
 

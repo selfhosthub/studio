@@ -43,6 +43,7 @@ from app.presentation.api.dependencies import (
     verify_org_access_strict,
 )
 from app.presentation.api.models.organization import (
+    AdminPasswordResetRequest,
     AdminUserUpdateRequest,
     OrganizationCreate as OrganizationCreateRequest,
     OrganizationUpdate as OrganizationUpdateRequest,
@@ -630,6 +631,55 @@ async def change_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=safe_error_message(e),
+        )
+
+
+@router.post(
+    "/users/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT
+)
+async def reset_user_password_as_admin(
+    user_id: UUID,
+    password_data: AdminPasswordResetRequest,
+    user: Dict[str, Any] = Depends(require_admin),
+    service: OrganizationService = Depends(get_organization_member_service),
+    audit_service: AuditService = Depends(get_audit_service),
+):
+    """Set a one-time password on a member (admin only).
+
+    The user must change it on first login. Org admins reach only their own
+    org's non-admin users; super admins reach any org's users.
+    """
+    current_user_id = UUID(user["id"])
+    organization_id = UUID(user.get("org_id")) if user.get("org_id") else None
+
+    try:
+        await service.reset_user_password(
+            user_id=user_id,
+            new_password=password_data.new_password,
+            current_user_id=current_user_id,
+        )
+
+        # Audit log the password reset (WARNING severity - security event)
+        await audit_service.log_event(
+            actor_id=current_user_id,
+            actor_type=AuditActorType(user.get("role", "admin")),
+            action=AuditAction.UPDATE,
+            resource_type=ResourceType.USER,
+            resource_id=user_id,
+            organization_id=organization_id,
+            severity=AuditSeverity.WARNING,
+            category=AuditCategory.SECURITY,
+            changes={"password": {"reset": True}},  # Never log actual password
+            metadata={"reason": "admin_reset"},
+        )
+    except PermissionDeniedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=safe_error_message(e)
+        )
+    except EntityNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
         )
 
 

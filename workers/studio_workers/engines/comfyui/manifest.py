@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import logging
 import random
+import re
 from dataclasses import dataclass, field
 from math import gcd
 from typing import Any, Dict, List, Optional, Tuple
@@ -80,8 +81,13 @@ def _set_path(node: Dict[str, Any], path: str, value: Any) -> None:
 
 
 def _split_dimensions(value: str) -> Tuple[int, int]:
-    w, h = value.lower().split("x", 1)
-    return int(w), int(h)
+    parts = value.lower().split("x", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid dimensions '{value}': expected WIDTHxHEIGHT")
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        raise ValueError(f"Invalid dimensions '{value}': expected WIDTHxHEIGHT")
 
 
 def _calculate_generation_dimensions(
@@ -134,8 +140,7 @@ def inject_from_manifest(
     """Inject parameters into the manifest's graph; returns a new dict.
 
     Merge order is package defaults, then model defaults, then user params;
-    seed -1 randomizes; output dims come from explicit
-    output_width/output_height (legacy payloads) or the dimensions enum;
+    seed -1 randomizes; output dims come from the dimensions param;
     gen dims derive inside the package's generation band.
     """
     workflow = copy.deepcopy(manifest.graph)
@@ -146,16 +151,17 @@ def inject_from_manifest(
     if merged.get("seed", -1) == -1:
         merged["seed"] = random.randint(0, 2**32 - 1)
 
-    if "output_width" in merged and "output_height" in merged:
-        out_w = int(merged["output_width"])
-        out_h = int(merged["output_height"])
-    else:
-        out_w, out_h = _split_dimensions(str(merged.get("dimensions", "1920x1080")))
+    out_w, out_h = _split_dimensions(str(merged.get("dimensions", "1920x1080")))
     merged["output_width"] = out_w
     merged["output_height"] = out_h
 
     gen = manifest.generation
     if merged.get("upscale", False):
+        # Upscale on: output dims are resize targets.
+        if not (64 <= out_w <= 4096 and 64 <= out_h <= 4096):
+            raise ValueError(
+                f"Output size {out_w}x{out_h} out of range: each side must be 64..4096"
+            )
         merged["width"], merged["height"] = _calculate_generation_dimensions(
             out_w,
             out_h,
@@ -164,6 +170,18 @@ def inject_from_manifest(
             snap=gen.get("snap", 64),
         )
     else:
+        # Upscale off: output dims are the generation dims, bound by the package band.
+        min_side = gen.get("min_side", 512)
+        max_side = gen.get("max_side", 2048)
+        if not (min_side <= out_w <= max_side and min_side <= out_h <= max_side):
+            raise ValueError(
+                f"Output size {out_w}x{out_h} out of range: each side must be "
+                f"{min_side}..{max_side} when upscale is off"
+            )
+        if out_w % 16 or out_h % 16:
+            raise ValueError(
+                f"Output size {out_w}x{out_h} must use multiples of 16 when upscale is off"
+            )
         merged["width"] = out_w
         merged["height"] = out_h
 
@@ -204,6 +222,12 @@ def validate_manifest_parameters(
     for name, value in parameters.items():
         spec = manifest.parameters.get(name)
         if spec is None:
+            # "workflow" is handler-injected, never a user parameter
+            if name != "workflow":
+                logger.warning(
+                    f"Parameter '{name}' is not in the parameter spec of "
+                    f"package {manifest.slug} and passes through unvalidated"
+                )
             continue
         ptype = spec.get("type")
         if ptype in ("integer", "float"):
@@ -218,5 +242,9 @@ def validate_manifest_parameters(
         elif ptype == "enum":
             if value not in _option_values(spec):
                 return False, f"Parameter '{name}' has invalid value '{value}'"
+        elif ptype == "string":
+            pattern = spec.get("pattern")
+            if pattern and not re.fullmatch(pattern, str(value)):
+                return False, f"Parameter '{name}' must match {pattern}"
 
     return True, None

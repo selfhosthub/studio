@@ -23,7 +23,10 @@ import type { WorkflowFormSchemaResponse, FormFieldResponse } from "@/shared/api
 import {
   FormFieldRenderer,
   collectMissingRequiredFields,
+  collectPatternViolations,
   type RequiredCheckEntry,
+  type PatternCheckEntry,
+  type PatternViolation,
 } from "@/features/form-field-renderer";
 import type { FormFieldConfig, FormFieldType } from "@/entities/workflow";
 
@@ -110,6 +113,7 @@ export default function PreRunForm({
   const [formInitialized, setFormInitialized] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [invalidFields, setInvalidFields] = useState<PatternViolation[]>([]);
 
   // Initialize form values from server-provided defaults once the schema arrives.
   useEffect(() => {
@@ -154,6 +158,7 @@ export default function PreRunForm({
   const handleFieldChange = (field: FormFieldResponse, value: unknown) => {
     setFormValues((prev) => ({ ...prev, [fieldKey(field)]: value }));
     if (missingFields.length > 0) setMissingFields([]);
+    if (invalidFields.length > 0) setInvalidFields([]);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -174,6 +179,22 @@ export default function PreRunForm({
       return;
     }
     setMissingFields([]);
+    const patternEntries: PatternCheckEntry[] = fields.map((field) => {
+      const key = fieldKey(field);
+      const typed = formValues[key];
+      const effective = typed !== undefined ? typed : field.config?.default_value;
+      return {
+        label: field.config?.label || field.parameter_key,
+        pattern: field.config?.pattern,
+        value: effective,
+      };
+    });
+    const invalid = collectPatternViolations(patternEntries);
+    if (invalid.length > 0) {
+      setInvalidFields(invalid);
+      return;
+    }
+    setInvalidFields([]);
     await onSubmit(formValues);
   };
 
@@ -197,6 +218,7 @@ export default function PreRunForm({
     maxLength: apiConfig?.max_length,
     min: apiConfig?.min,
     max: apiConfig?.max,
+    pattern: apiConfig?.pattern,
     acceptedFileTypes: apiConfig?.accepted_file_types,
     maxFileSizeMB: apiConfig?.max_file_size_mb,
     size: apiConfig?.size as FormFieldConfig["size"],
@@ -319,6 +341,15 @@ export default function PreRunForm({
                 <p className="text-sm text-danger">
                   Please fill in required field
                   {missingFields.length > 1 ? "s" : ""}: {missingFields.join(", ")}
+                </p>
+              </div>
+            )}
+            {invalidFields.length > 0 && (
+              <div className="alert alert-error mt-4" role="alert">
+                <p className="text-sm text-danger">
+                  Invalid format: {invalidFields
+                    .map((f) => `${f.label} (expected pattern: ${f.pattern})`)
+                    .join(", ")}
                 </p>
               </div>
             )}

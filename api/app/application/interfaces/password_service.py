@@ -11,5 +11,9 @@ class PasswordServiceInterface(ABC):
         pass
 
     @abstractmethod
+    def hash_password_one_time(self, password: str) -> str:
+        pass
+
+    @abstractmethod
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         pass

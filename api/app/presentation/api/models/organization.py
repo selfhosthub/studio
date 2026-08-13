@@ -56,6 +56,10 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(..., min_length=8)
 
 
+class AdminPasswordResetRequest(BaseModel):
+    new_password: str = Field(..., min_length=8)
+
+
 class UserResponse(BaseModel):
     id: UUID
     username: str

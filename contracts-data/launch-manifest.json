@@ -67,7 +67,7 @@
         },
         {
           "name": "SHS_PUBLIC_API_URL",
-          "description": "Browser-bundle API origin. ui-start.sh reads this from /workspace/.env to render __env.js (NEXT_PUBLIC_API_URL). The entrypoint writes it on first boot honoring a launcher-injected value (non-interactive provisioning), else the nginx-origin placeholder. First-boot-only: do NOT inject on relaunch (clobbers a wizard-set domain). Distinct from SHS_API_BASE_URL, which is SSR-only and stays on the in-container API.",
+          "description": "Browser-bundle API origin AND the API's externally-facing base for links it hands out (OAuth callbacks, webhook trigger URLs, provider-fetched signed asset URLs; the API falls back to SHS_API_BASE_URL when this is empty). ui-start.sh reads this from /workspace/.env to render __env.js (NEXT_PUBLIC_API_URL). The entrypoint writes it on first boot honoring a launcher-injected value (non-interactive provisioning), else the nginx-origin placeholder, and appends the same default to a pre-existing .env that lacks the line. First-boot-only: do NOT inject on relaunch (clobbers a wizard-set domain). Distinct from SHS_API_BASE_URL, which is SSR-only and stays on the in-container API.",
           "default_on_first_boot": "http://localhost:${SHS_NGINX_PORT}"
         },
         {
@@ -183,7 +183,7 @@
         },
         {
           "name": "SHS_PUBLIC_API_URL",
-          "description": "Browser-bundle API origin. ui-start.sh reads this from /workspace/.env to render __env.js (NEXT_PUBLIC_API_URL). The entrypoint writes it on first boot honoring a launcher-injected value (non-interactive provisioning), else the nginx-origin placeholder. First-boot-only: do NOT inject on relaunch (clobbers a wizard-set domain). Distinct from SHS_API_BASE_URL, which is SSR-only and stays on the in-container API.",
+          "description": "Browser-bundle API origin AND the API's externally-facing base for links it hands out (OAuth callbacks, webhook trigger URLs, provider-fetched signed asset URLs; the API falls back to SHS_API_BASE_URL when this is empty). ui-start.sh reads this from /workspace/.env to render __env.js (NEXT_PUBLIC_API_URL). The entrypoint writes it on first boot honoring a launcher-injected value (non-interactive provisioning), else the nginx-origin placeholder, and appends the same default to a pre-existing .env that lacks the line. First-boot-only: do NOT inject on relaunch (clobbers a wizard-set domain). Distinct from SHS_API_BASE_URL, which is SSR-only and stays on the in-container API.",
           "default_on_first_boot": "http://localhost:${SHS_NGINX_PORT}"
         },
         {

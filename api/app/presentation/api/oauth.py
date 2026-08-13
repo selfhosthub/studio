@@ -82,10 +82,12 @@ class OAuthTokenResponse(BaseModel):
 
 
 def get_redirect_uri(provider: str) -> str:
-    """Full OAuth callback URL. Raises if API_BASE_URL is unset."""
-    base_url = settings.API_BASE_URL
+    """Full OAuth callback URL. Raises if no externally-facing base URL is set."""
+    base_url = settings.external_api_base
     if not base_url:
-        raise RuntimeError("API_BASE_URL is required and not set")
+        raise RuntimeError(
+            "SHS_PUBLIC_API_URL (or legacy SHS_API_BASE_URL) is required and not set"
+        )
     return f"{base_url}/api/v1/oauth/{provider}/callback"
 
 

@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # ── Server ───────────────────────────────────────────────────────────
 
     API_BASE_URL: str = Field(default="")
+    # Externally-facing API origin (env: SHS_PUBLIC_API_URL, shared with the
+    # browser bundle). Read via external_api_base, never directly.
+    PUBLIC_API_URL: str = Field(default="")
     SIGNED_URL_TTL_SECONDS: int = Field(default=3600)
     CORS_ORIGINS: str = Field(
         description="Comma-separated list of allowed CORS origins. Required."
@@ -232,6 +235,15 @@ class Settings(BaseSettings):
     # ── Maintenance ──────────────────────────────────────────────────────
 
     MAINTENANCE_MODE: bool = Field(default=False)
+
+    # ── Derived ──────────────────────────────────────────────────────────
+
+    @property
+    def external_api_base(self) -> str:
+        """Browser/provider-reachable base for links the API hands out
+        (OAuth callbacks, webhook trigger URLs, signed asset URLs).
+        SHS_PUBLIC_API_URL, falling back to legacy SHS_API_BASE_URL."""
+        return self.PUBLIC_API_URL or self.API_BASE_URL
 
     # ── Validators ───────────────────────────────────────────────────────
 

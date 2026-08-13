@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import settings
 from app.domain.common.value_objects import Role
+from app.infrastructure.auth.password import is_one_time_hash
 from app.infrastructure.logging.request_context import update_request_identity
 from app.infrastructure.persistence.database import get_db_session
 from app.infrastructure.persistence.models import OrganizationModel, UserModel
@@ -30,6 +31,13 @@ WEBHOOK_TOKEN_EXPIRE_HOURS = settings.WEBHOOK_TOKEN_EXPIRE_HOURS
 logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+# Endpoints a user with a one-time (admin-set) password may still reach.
+MUST_CHANGE_PASSWORD_ALLOWED = {
+    ("POST", "/api/v1/organizations/users/me/change-password"),
+    ("GET", "/api/v1/organizations/users/me"),
+    ("POST", "/api/v1/auth/logout"),
+}
 
 
 def create_access_token(
@@ -141,6 +149,7 @@ def _iat_is_stale(
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     session: AsyncSession = Depends(get_db_session),
+    request: Request = None,  # type: ignore[assignment]  - FastAPI injects; None only in direct calls
 ) -> Dict[str, Any]:
     """Resolve the current user from a JWT, enforcing token-invalidation timestamps and org-active flag."""
     credentials_exception = HTTPException(
@@ -182,6 +191,7 @@ async def get_current_user(
                 UserModel.email,
                 UserModel.first_name,
                 UserModel.last_name,
+                UserModel.hashed_password,
             )
             .join(OrganizationModel, OrganizationModel.id == UserModel.organization_id)
             .where(UserModel.id == user_uuid)
@@ -204,6 +214,7 @@ async def get_current_user(
         email,
         first_name,
         last_name,
+        hashed_password,
     ) = row
 
     if not user_is_active or not org_is_active:
@@ -218,6 +229,16 @@ async def get_current_user(
         logged_out_at,
     ):
         raise credentials_exception
+
+    # One-time password lockout: until the user sets their own password, only
+    # the change-password endpoint and its auth basics are reachable.
+    if is_one_time_hash(hashed_password):
+        route = (request.method, request.url.path) if request is not None else None
+        if route not in MUST_CHANGE_PASSWORD_ALLOWED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Password change required",
+            )
 
     # Surface the DB-resolved identity (username + org) to the logging context
     # so log attribution matches the authz source of truth (not the JWT claim).
@@ -284,6 +305,7 @@ async def get_current_user_ws(
                         UserModel.email,
                         UserModel.first_name,
                         UserModel.last_name,
+                        UserModel.hashed_password,
                     )
                     .join(
                         OrganizationModel,
@@ -313,10 +335,15 @@ async def get_current_user_ws(
             email,
             first_name,
             last_name,
+            hashed_password,
         ) = row
 
         if not user_is_active:
             logger.warning("WebSocket rejected: user inactive")
+            return None
+
+        if is_one_time_hash(hashed_password):
+            logger.warning("WebSocket rejected: password change required")
             return None
 
         if not org_is_active:

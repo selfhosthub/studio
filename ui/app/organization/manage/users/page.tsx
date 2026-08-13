@@ -20,7 +20,8 @@ import {
   getOrganizationMembers,
   removeOrganizationMember,
   createAndInviteUser,
-  updateUserAsAdmin
+  updateUserAsAdmin,
+  resetMemberPassword
 } from "@/shared/api";
 import { useUser } from "@/entities/user";
 import { useToast } from "@/features/toast";
@@ -68,6 +69,12 @@ export default function OrganizationUsersPage() {
   });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+
+  // Reset password state
+  const [resetUser, setResetUser] = useState<any | null>(null);
+  const [resetForm, setResetForm] = useState({ password: '', confirmPassword: '' });
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSaving, setResetSaving] = useState(false);
 
   // Check permissions
   const isSuperAdmin = user?.role === 'super_admin';
@@ -176,6 +183,40 @@ export default function OrganizationUsersPage() {
       is_active: member.is_active !== false,
     });
     setEditError(null);
+  };
+
+  const handleResetPasswordClick = (member: any) => {
+    setResetUser(member);
+    setResetForm({ password: '', confirmPassword: '' });
+    setResetError(null);
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetUser) return;
+
+    if (resetForm.password !== resetForm.confirmPassword) {
+      setResetError('Passwords do not match');
+      return;
+    }
+
+    if (resetForm.password.length < 8) {
+      setResetError('Password must be at least 8 characters');
+      return;
+    }
+
+    setResetSaving(true);
+    setResetError(null);
+
+    try {
+      await resetMemberPassword(resetUser.id, resetForm.password);
+      setResetUser(null);
+      toast({ title: 'Password reset', description: 'The user must change it at next login.', variant: 'success' });
+    } catch (err: unknown) {
+      setResetError(err instanceof Error ? err.message : 'Failed to reset password');
+    } finally {
+      setResetSaving(false);
+    }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -291,6 +332,14 @@ export default function OrganizationUsersPage() {
                             <ActionButton variant="change" onClick={() => handleEditClick(member)}>
                               Edit
                             </ActionButton>
+                            {member.id !== user?.id && (isSuperAdmin || member.role === 'user') && (
+                              <ActionButton
+                                variant="warning"
+                                onClick={() => handleResetPasswordClick(member)}
+                              >
+                                Reset password
+                              </ActionButton>
+                            )}
                             {member.id !== user?.id && (
                               <ActionButton
                                 variant="destructive"
@@ -483,6 +532,48 @@ export default function OrganizationUsersPage() {
             </ActionButton>
             <button type="submit" className="btn-primary" disabled={editSaving}>
               {editSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Reset Password Modal */}
+      <Modal isOpen={!!resetUser} onClose={() => setResetUser(null)} title="Reset Password" size="sm">
+        <form onSubmit={handleResetPasswordSubmit} className="p-4 space-y-4">
+          <p className="text-sm text-secondary">
+            Set a one-time password for @{resetUser?.username}. They must change it at next login.
+          </p>
+          <div>
+            <label htmlFor="reset-user-password" className="block text-sm font-medium text-secondary mb-1">New Password</label>
+            <input
+              id="reset-user-password"
+              type="password"
+              required
+              value={resetForm.password}
+              onChange={(e) => setResetForm({ ...resetForm, password: e.target.value })}
+              className="form-input w-full"
+            />
+          </div>
+          <div>
+            <label htmlFor="reset-user-confirm-password" className="block text-sm font-medium text-secondary mb-1">Confirm Password</label>
+            <input
+              id="reset-user-confirm-password"
+              type="password"
+              required
+              value={resetForm.confirmPassword}
+              onChange={(e) => setResetForm({ ...resetForm, confirmPassword: e.target.value })}
+              className="form-input w-full"
+            />
+          </div>
+          {resetError && (
+            <div className="text-sm text-danger">{resetError}</div>
+          )}
+          <div className="flex justify-end gap-2">
+            <ActionButton variant="warning" onClick={() => setResetUser(null)} disabled={resetSaving}>
+              Cancel
+            </ActionButton>
+            <button type="submit" className="btn-primary" disabled={resetSaving}>
+              {resetSaving ? 'Resetting...' : 'Reset Password'}
             </button>
           </div>
         </form>

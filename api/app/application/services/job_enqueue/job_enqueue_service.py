@@ -544,20 +544,6 @@ class JobEnqueueService:
             )
             resolved_step_config.setdefault("job", {})["parameters"] = resolved_params
 
-        # Two-key transition (one train): old workers select comfyui graphs by
-        # model; derive it from the package ref so mid-upgrade workers resolve
-        # correctly. Runs after projection so the legacy key rides the payload
-        # without being schema-declared. Removal is pinned on the next train.
-        params_now = (resolved_step_config.get("job") or {}).get("parameters")
-        if (
-            isinstance(params_now, dict)
-            and params_now.get("package")
-            and "model" not in params_now
-        ):
-            ref = str(params_now["package"])
-            if "::" in ref:
-                params_now["model"] = ref.split("::", 1)[1]
-
         # Attach the wire envelope.
         http_request = try_build_http_request(
             endpoint=endpoint,

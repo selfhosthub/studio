@@ -154,6 +154,7 @@ FormFieldType = Literal[
     "select",
     "multiselect",
     "checkbox",
+    "combobox",
     "file",
     "date",
     "datetime",
@@ -173,6 +174,7 @@ class FormFieldConfigResponse(BaseModel):
     options: Optional[List[Dict[str, str]]] = None
     min_length: Optional[int] = None
     max_length: Optional[int] = None
+    pattern: Optional[str] = None
     min: Optional[float] = None
     max: Optional[float] = None
     accepted_file_types: Optional[List[str]] = None

@@ -2,5 +2,10 @@
 
 export { FormFieldRenderer } from './FormFieldRenderer';
 export type { FormFieldRendererProps } from './FormFieldRenderer';
-export { isRequiredValueMissing, collectMissingRequiredFields } from './validation';
-export type { RequiredCheckEntry } from './validation';
+export {
+  isRequiredValueMissing,
+  collectMissingRequiredFields,
+  compileFieldPattern,
+  collectPatternViolations,
+} from './validation';
+export type { RequiredCheckEntry, PatternCheckEntry, PatternViolation } from './validation';

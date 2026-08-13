@@ -87,6 +87,17 @@ export async function changePassword(oldPassword: string, newPassword: string): 
 }
 
 /**
+ * Admin only. Sets a one-time password on a member; the member must change it
+ * on first login. Org admins reach only their own org's non-admin users.
+ */
+export async function resetMemberPassword(userId: string, newPassword: string): Promise<void> {
+  await apiRequest<void>(`/organizations/users/${userId}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+}
+
+/**
  * Admin update of any user. Backend enforces: cannot demote the last admin in an org
  * (even super_admin), can deactivate it for billing/suspension, username + email unique.
  */

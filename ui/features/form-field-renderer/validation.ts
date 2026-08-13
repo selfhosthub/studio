@@ -45,3 +45,45 @@ export function collectMissingRequiredFields(entries: RequiredCheckEntry[]): str
   }
   return missing;
 }
+
+/**
+ * Compiles a field's `pattern` config into a full-match RegExp.
+ * Returns null for an invalid pattern so callers skip the check.
+ */
+export function compileFieldPattern(pattern: string): RegExp | null {
+  try {
+    return new RegExp(`^(?:${pattern})$`);
+  } catch {
+    return null;
+  }
+}
+
+export interface PatternCheckEntry {
+  /** Human-readable field label surfaced in the error message. */
+  label: string;
+  /** Optional regex the value must fully match. */
+  pattern?: string;
+  /** Effective current value (user-typed if present, saved/default otherwise). */
+  value: unknown;
+}
+
+export interface PatternViolation {
+  label: string;
+  pattern: string;
+}
+
+/**
+ * Returns the entries whose non-empty string value fails its pattern, in the
+ * order supplied. Empty values and invalid patterns are skipped.
+ */
+export function collectPatternViolations(entries: PatternCheckEntry[]): PatternViolation[] {
+  const violations: PatternViolation[] = [];
+  for (const entry of entries) {
+    if (!entry.pattern || typeof entry.value !== 'string' || entry.value === '') continue;
+    const regex = compileFieldPattern(entry.pattern);
+    if (regex && !regex.test(entry.value)) {
+      violations.push({ label: entry.label, pattern: entry.pattern });
+    }
+  }
+  return violations;
+}

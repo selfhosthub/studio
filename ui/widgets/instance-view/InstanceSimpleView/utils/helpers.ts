@@ -19,6 +19,7 @@ export function normalizeConfig(config: any): FormFieldConfig {
     maxLength: config.max_length,
     min: config.min,
     max: config.max,
+    pattern: config.pattern,
     acceptedFileTypes: config.accepted_file_types,
     maxFileSizeMB: config.max_file_size_mb,
     size: config.size as FormFieldConfig["size"],

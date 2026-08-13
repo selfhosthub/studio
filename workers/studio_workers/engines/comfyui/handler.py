@@ -262,8 +262,8 @@ class ComfyUIWorker(WorkerBase):
         try:
             custom_workflow = parameters.get("workflow")
 
-            # `package` selects the workflow (slug::model variant); the model
-            # key is the legacy selector, removed the train after next.
+            # `package` selects the workflow (slug::model variant); without one
+            # the service's default package serves.
             package_value = parameters.get("package")
             if package_value:
                 slug, sep, model_id = str(package_value).partition("::")
@@ -271,11 +271,9 @@ class ComfyUIWorker(WorkerBase):
                 del parameters["package"]
                 if sep and model_id:
                     parameters["model"] = model_id
-                manifest = self.package_store.resolve(operation, None, slug=slug)
+                manifest = self.package_store.resolve(operation, slug=slug)
             else:
-                manifest = self.package_store.resolve(
-                    operation, parameters.get("model")
-                )
+                manifest = self.package_store.resolve(operation)
 
             if custom_workflow:
                 logger.debug("Using custom workflow from job payload")

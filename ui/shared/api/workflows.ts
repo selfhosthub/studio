@@ -28,6 +28,8 @@ export interface FormFieldConfigResponse {
   field_type: FormFieldType;
   default_value?: any;
   options?: { value: string; label: string }[];
+  /** Regex the value must fully match (text/combobox). */
+  pattern?: string;
   item_type?: string;
   key_placeholder?: string;
   value_placeholder?: string;

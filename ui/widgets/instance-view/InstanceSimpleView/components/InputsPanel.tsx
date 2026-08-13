@@ -8,7 +8,10 @@ import { FormField } from "@/entities/workflow";
 import {
   FormFieldRenderer,
   collectMissingRequiredFields,
+  collectPatternViolations,
   type RequiredCheckEntry,
+  type PatternCheckEntry,
+  type PatternViolation,
 } from "@/features/form-field-renderer";
 import { JsonTreeView } from "./JsonTreeView";
 import { normalizeConfig, extractDisplayValues } from "../utils";
@@ -32,6 +35,7 @@ export function InputsPanel({
   isSubmittingForm,
 }: InputsPanelProps) {
   const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [invalidFields, setInvalidFields] = useState<PatternViolation[]>([]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +43,7 @@ export function InputsPanel({
     const fields = formSchema?.fields || [];
     const finalValues: Record<string, unknown> = {};
     const entries: RequiredCheckEntry[] = [];
+    const patternEntries: PatternCheckEntry[] = [];
 
     for (const field of fields) {
       const cfg = normalizeConfig(field.config);
@@ -58,6 +63,11 @@ export function InputsPanel({
         required: !!cfg.required,
         value: effective,
       });
+      patternEntries.push({
+        label: cfg.label || field.parameter_key,
+        pattern: cfg.pattern,
+        value: effective,
+      });
     }
 
     const missing = collectMissingRequiredFields(entries);
@@ -66,12 +76,19 @@ export function InputsPanel({
       return;
     }
     setMissingFields([]);
+    const invalid = collectPatternViolations(patternEntries);
+    if (invalid.length > 0) {
+      setInvalidFields(invalid);
+      return;
+    }
+    setInvalidFields([]);
     onFormSubmit({ ...finalValues, ...formValues });
   };
 
   const handleChange = (formValueKey: string, newValue: unknown) => {
     setFormValues((prev) => ({ ...prev, [formValueKey]: newValue }));
     if (missingFields.length > 0) setMissingFields([]);
+    if (invalidFields.length > 0) setInvalidFields([]);
   };
 
   return (
@@ -117,6 +134,16 @@ export function InputsPanel({
                 <p className="text-sm text-danger">
                   Please fill in required field
                   {missingFields.length > 1 ? "s" : ""}: {missingFields.join(", ")}
+                </p>
+              </div>
+            )}
+
+            {invalidFields.length > 0 && (
+              <div className="alert alert-error" role="alert">
+                <p className="text-sm text-danger">
+                  Invalid format: {invalidFields
+                    .map((f) => `${f.label} (expected pattern: ${f.pattern})`)
+                    .join(", ")}
                 </p>
               </div>
             )}

@@ -13,16 +13,17 @@ export default function Login() {
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
-  const { login, isLoading, error, status } = useUser();
+  const { login, isLoading, error, status, mustChangePassword } = useUser();
   const { allowRegistration } = useRegistrationSettings();
   const router = useRouter();
 
-  // Redirect already-authenticated users to dashboard
+  // Redirect already-authenticated users; a must-change user goes to the
+  // change-password screen, never the dashboard the API would refuse.
   useEffect(() => {
     if (status === 'authenticated') {
-      router.push('/dashboard');
+      router.push(mustChangePassword ? '/settings/account' : '/dashboard');
     }
-  }, [status, router]);
+  }, [status, mustChangePassword, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -8,6 +8,7 @@ import { TextField } from './fields/TextField';
 import { TextareaField } from './fields/TextareaField';
 import { NumberField } from './fields/NumberField';
 import { SelectField } from './fields/SelectField';
+import { ComboboxField } from './fields/ComboboxField';
 import { MultiselectField } from './fields/MultiselectField';
 import { CheckboxField } from './fields/CheckboxField';
 import { FileField } from './fields/FileField';
@@ -59,6 +60,8 @@ export function FormFieldRenderer({
       return <NumberField config={config} value={value} onChange={onChange} error={error} autoFocus={autoFocus} />;
     case 'select':
       return <SelectField config={config} value={value} onChange={onChange} error={error} />;
+    case 'combobox':
+      return <ComboboxField config={config} value={value} onChange={onChange} error={error} autoFocus={autoFocus} paramKey={paramKey} />;
     case 'multiselect':
       return <MultiselectField config={config} value={value} onChange={onChange} paramKey={paramKey} />;
     case 'checkbox':

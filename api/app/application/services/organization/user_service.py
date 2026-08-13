@@ -15,6 +15,7 @@ from app.application.interfaces import (
     ValidationError,
     EntityNotFoundError,
 )
+from app.application.interfaces.exceptions import PermissionDeniedError
 from app.application.interfaces.password_service import PasswordServiceInterface
 from app.application.services.organization.auth_helpers import (
     verify_admin_access,
@@ -184,6 +185,34 @@ class UserService:
 
         new_hashed_password = self.password_service.hash_password(new_password)
         user.change_password(new_hashed_password)
+
+        await self.user_repository.update(user)
+
+    async def reset_user_password(
+        self, user_id: uuid.UUID, new_password: str, current_user_id: uuid.UUID
+    ) -> None:
+        """Admin-set one-time password. Org admins may reset only non-admin users."""
+        user = await self.user_repository.get_by_id(user_id)
+        if not user:
+            raise EntityNotFoundError(
+                entity_type="User",
+                entity_id=user_id,
+                code="USER_NOT_FOUND",
+            )
+
+        actor = await verify_admin_access(
+            self.user_repository, current_user_id, user.organization_id
+        )
+
+        if actor.role != Role.SUPER_ADMIN and user.role != Role.USER:
+            raise PermissionDeniedError(
+                message="Only super admins can reset an admin's password",
+                code="INSUFFICIENT_PERMISSIONS",
+            )
+
+        user.change_password(
+            self.password_service.hash_password_one_time(new_password)
+        )
 
         await self.user_repository.update(user)
 

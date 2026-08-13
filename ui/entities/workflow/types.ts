@@ -24,6 +24,7 @@ export type FormFieldType =
   | 'textarea'       // Multi-line text input
   | 'number'         // Numeric input
   | 'select'         // Dropdown selection
+  | 'combobox'       // Text input with datalist suggestions; free typing allowed
   | 'multiselect'    // Multiple selection
   | 'checkbox'       // Boolean checkbox
   | 'file'           // File upload
@@ -54,7 +55,8 @@ export interface FormFieldConfig {
   default_value?: any;
 
   // Type-specific options
-  options?: SelectOption[];      // For select/multiselect
+  options?: SelectOption[];      // For select/multiselect/combobox
+  pattern?: string;              // Regex the value must fully match (text/combobox)
   minLength?: number;
   min_length?: number;
   maxLength?: number;

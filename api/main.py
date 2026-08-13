@@ -240,6 +240,16 @@ async def lifespan(app: FastAPI):
             logger.error(msg)
             raise SystemExit(msg)
 
+        # Warn (don't block) when no externally-facing base URL is configured:
+        # OAuth connect fails outright, and webhook trigger / signed asset URLs
+        # come out relative instead of absolute.
+        if not settings.external_api_base:
+            logger.warning(
+                "SHS_PUBLIC_API_URL (and legacy SHS_API_BASE_URL) not set - "
+                "OAuth connect will fail, and webhook trigger URLs and "
+                "provider-fetched signed asset URLs will be relative."
+            )
+
         logger.info("Initializing application...")
         db.init()
 

@@ -117,6 +117,13 @@ class OrganizationService:
             user_id, current_password, new_password
         )
 
+    async def reset_user_password(
+        self, user_id: uuid.UUID, new_password: str, current_user_id: uuid.UUID
+    ) -> None:
+        return await self._user_service.reset_user_password(
+            user_id, new_password, current_user_id
+        )
+
     async def list_users(
         self,
         organization_id: uuid.UUID,

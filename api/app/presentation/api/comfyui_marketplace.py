@@ -606,12 +606,14 @@ async def _service_conformance_violation(
 
     The service is a parameter contract (ruling 2026-08-03): a joining
     package may declare a subset of the contract's parameters, must cover the
-    contract's required ones, and may not invent its own. Packages without a
-    service block never join a service and are exempt.
+    contract's required ones, and may not invent its own. Declared parameter
+    types must agree with the contract's, and package options must stay
+    inside a contract enum. Packages without a service block never join a
+    service and are exempt.
     """
     service_id = (workflow_data.get("service") or {}).get("id")
     params = workflow_data.get("parameters") or {}
-    if not service_id or not params:
+    if not service_id:
         return None
     rows = (
         (
@@ -626,8 +628,15 @@ async def _service_conformance_violation(
     )
     if not rows:
         return None
+    if len(rows) > 1:
+        candidates = ", ".join(r.service_id for r in rows)
+        logger.warning(
+            f"service id '{service_id}' matches multiple services "
+            f"({candidates}); using '{rows[0].service_id}'"
+        )
     contract = rows[0].parameter_schema or {}
-    contract_props = set((contract.get("properties") or {}).keys()) - {"package"}
+    contract_properties = contract.get("properties") or {}
+    contract_props = set(contract_properties.keys()) - {"package"}
     extra = sorted(set(params.keys()) - contract_props)
     if extra:
         return (
@@ -642,6 +651,36 @@ async def _service_conformance_violation(
             f"service '{service_id}' requires parameters the package does not "
             f"declare: {', '.join(missing_required)}"
         )
+    # (package type, contract type) pairs accepted as narrowings.
+    narrowings = {("enum", "string"), ("float", "number"), ("integer", "number")}
+    for name, spec in params.items():
+        if not isinstance(spec, dict):
+            continue
+        contract_prop = contract_properties.get(name) or {}
+        pkg_type = spec.get("type")
+        contract_type = contract_prop.get("type")
+        if (
+            pkg_type
+            and contract_type
+            and pkg_type != contract_type
+            and (pkg_type, contract_type) not in narrowings
+        ):
+            return (
+                f"parameter '{name}' type '{pkg_type}' does not match service "
+                f"'{service_id}' contract type '{contract_type}'"
+            )
+        contract_enum = contract_prop.get("enum")
+        if contract_enum:
+            option_values = [
+                o.get("value") if isinstance(o, dict) else o
+                for o in spec.get("options") or []
+            ]
+            outside = [v for v in option_values if v not in contract_enum]
+            if outside:
+                return (
+                    f"parameter '{name}' options not in service '{service_id}' "
+                    f"contract enum: {', '.join(str(v) for v in outside)}"
+                )
     return None
 
 

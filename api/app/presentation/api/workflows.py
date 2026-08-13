@@ -579,7 +579,7 @@ async def generate_webhook_token(
 
     try:
         result = await service.generate_webhook_token(workflow_id)
-        webhook_url = f"{settings.API_BASE_URL}/api/v1/webhooks/incoming/{result['token']}"
+        webhook_url = f"{settings.external_api_base}/api/v1/webhooks/incoming/{result['token']}"
         return WebhookTokenResponse(
             webhook_token=result["token"],
             webhook_secret=result["secret"],
@@ -626,7 +626,7 @@ async def regenerate_webhook_token(
 
     try:
         result = await service.regenerate_webhook_token(workflow_id)
-        webhook_url = f"{settings.API_BASE_URL}/api/v1/webhooks/incoming/{result['token']}"
+        webhook_url = f"{settings.external_api_base}/api/v1/webhooks/incoming/{result['token']}"
         return WebhookTokenResponse(
             webhook_token=result["token"],
             webhook_secret=result["secret"],
@@ -824,7 +824,7 @@ async def recall_workflow_api_key(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No API key is configured for this workflow",
         )
-    trigger_url = f"{settings.API_BASE_URL}/api/v1/webhooks/trigger/{workflow_id}"
+    trigger_url = f"{settings.external_api_base}/api/v1/webhooks/trigger/{workflow_id}"
     shared_by_count = await service.trigger_secret_share_count(workflow_id)
     return ApiKeyResponse(
         api_key=api_key, trigger_url=trigger_url, shared_by_count=shared_by_count
@@ -970,7 +970,7 @@ async def generate_workflow_api_key(
     try:
         api_key = await service.generate_api_key(workflow_id)
         trigger_url = (
-            f"{settings.API_BASE_URL}/api/v1/webhooks/trigger/{workflow_id}"
+            f"{settings.external_api_base}/api/v1/webhooks/trigger/{workflow_id}"
         )
         shared_by_count = await service.trigger_secret_share_count(workflow_id)
         return ApiKeyResponse(
@@ -1013,7 +1013,7 @@ async def regenerate_workflow_api_key(
     try:
         api_key = await service.regenerate_api_key(workflow_id)
         trigger_url = (
-            f"{settings.API_BASE_URL}/api/v1/webhooks/trigger/{workflow_id}"
+            f"{settings.external_api_base}/api/v1/webhooks/trigger/{workflow_id}"
         )
         shared_by_count = await service.trigger_secret_share_count(workflow_id)
         return ApiKeyResponse(

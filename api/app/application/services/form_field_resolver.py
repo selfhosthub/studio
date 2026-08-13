@@ -1,11 +1,11 @@
 # api/app/application/services/form_field_resolver.py
 
-"""Derive a workflow's run-form field set from its config — the single owner of
+"""Derive a workflow's run-form field set from its config - the single owner of
 the external ``field_id`` ⇄ internal ``{step_id}.{parameter_key}`` contract.
 
 Used by both the form-schema endpoint (UI run form) and ``TriggerDispatcher``
 so api/webhook/schedule/event triggers resolve form defaults identically to the
-UI. The field set is 100% computable from workflow config — no instance state.
+UI. The field set is 100% computable from workflow config - no instance state.
 """
 
 import logging
@@ -36,6 +36,7 @@ def _derive_field_type_from_schema(param_schema: Dict[str, Any]) -> FormFieldTyp
     Mapping:
     - ui.widget=tags (array) -> tags
     - ui.widget=key-value (object) -> key-value
+    - ui.widget=combobox (string) -> combobox
     - string -> text (or textarea if format=textarea)
     - string with enum -> select
     - array with items.enum -> multiselect
@@ -55,6 +56,8 @@ def _derive_field_type_from_schema(param_schema: Dict[str, Any]) -> FormFieldTyp
         return "tags"
     if ui_widget == "key-value" and schema_type == "object":
         return "key-value"
+    if ui_widget == "combobox" and schema_type == "string":
+        return "combobox"
 
     # Check for enum first (dropdown)
     if param_schema.get("enum"):
@@ -273,6 +276,17 @@ def _derive_form_config_from_schema(
         options = [
             {"value": str(v), "label": str(n)} for v, n in zip(enum_values, enum_names)
         ]
+    elif field_type == "combobox":
+        # Suggestions may be {"value","label"} dicts or plain strings
+        suggestions = (param_schema.get("ui") or {}).get("suggestions") or []
+        options = [
+            (
+                {"value": str(s["value"]), "label": str(s.get("label", s["value"]))}
+                if isinstance(s, dict)
+                else {"value": str(s), "label": str(s)}
+            )
+            for s in suggestions
+        ] or None
 
     # Get default value
     default_value = param_schema.get("default")
@@ -307,6 +321,7 @@ def _derive_form_config_from_schema(
         options=options,
         min_length=param_schema.get("minLength"),
         max_length=param_schema.get("maxLength"),
+        pattern=param_schema.get("pattern"),
         min=param_schema.get("minimum"),
         max=param_schema.get("maximum"),
         accepted_file_types=None,
@@ -368,7 +383,7 @@ class FormFieldResolver:
     @staticmethod
     def _normalize_steps(steps: Dict[str, Any]) -> Dict[str, Any]:
         """The walk is dict-based. The dispatcher passes a domain Workflow whose
-        step values are StepConfig — serialize those to dicts. The form-schema
+        step values are StepConfig - serialize those to dicts. The form-schema
         endpoint passes a WorkflowResponse (already dicts), which passes through
         untouched."""
         return {
@@ -618,6 +633,7 @@ class FormFieldResolver:
                         options=field_config.options,
                         min_length=field_config.min_length,
                         max_length=field_config.max_length,
+                        pattern=field_config.pattern,
                         min=field_config.min,
                         max=field_config.max,
                         accepted_file_types=field_config.accepted_file_types,
@@ -657,13 +673,13 @@ class FormFieldResolver:
 
     @staticmethod
     def field_id_to_internal_key(fields: List[FormFieldResponse]) -> Dict[str, str]:
-        """``{field_id: "{step_id}.{parameter_key}"}`` — the external→internal
+        """``{field_id: "{step_id}.{parameter_key}"}`` - the external→internal
         translation the dispatcher applies last, before writing form_values."""
         return {f.field_id: f"{f.step_id}.{f.parameter_key}" for f in fields}
 
     @staticmethod
     def required_without_default(fields: List[FormFieldResponse]) -> List[str]:
-        """field_ids of fields that are required and have no default — the set a
+        """field_ids of fields that are required and have no default - the set a
         synchronous (api/webhook) trigger must supply or be rejected."""
         return [
             f.field_id

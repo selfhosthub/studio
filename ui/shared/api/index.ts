@@ -38,6 +38,7 @@ export {
   uploadUserAvatar,
   deleteUserAvatar,
   changePassword,
+  resetMemberPassword,
   updateUserAsAdmin,
   createAndInviteUser,
   addOrganizationMember,

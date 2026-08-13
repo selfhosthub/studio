@@ -313,12 +313,13 @@ class IterationJobEnqueuer:
         # Mint each row's token now (before row creation) so it can be both the
         # row's external_id (the inbound match key) and the body's callback_url.
         if use_execution_token:
-            if not settings.API_BASE_URL:
+            if not settings.external_api_base:
                 raise BusinessRuleViolation(
                     message=(
-                        "Webhook completion requires API_BASE_URL to be set to an "
-                        "absolute, publicly reachable URL so the provider can "
-                        "deliver its callback."
+                        "Webhook completion requires SHS_PUBLIC_API_URL (or "
+                        "legacy SHS_API_BASE_URL) to be set to an absolute, "
+                        "publicly reachable URL so the provider can deliver "
+                        "its callback."
                     ),
                     code="WEBHOOK_CALLBACK_BASE_URL_MISSING",
                 )
@@ -439,7 +440,7 @@ class IterationJobEnqueuer:
             if use_execution_token:
                 token = iteration_requests[i]["callback_token"]
                 iter_callback_url = (
-                    f"{settings.API_BASE_URL.rstrip('/')}"
+                    f"{settings.external_api_base.rstrip('/')}"
                     f"/api/v1/webhooks/incoming/{token}"
                 )
             iter_http_request = try_build_http_request(
@@ -583,18 +584,19 @@ class IterationJobEnqueuer:
         # the inbound callback matches the new fire, then build the callback URL.
         iter_callback_url: Optional[str] = None
         if use_execution_token:
-            if not settings.API_BASE_URL:
+            if not settings.external_api_base:
                 raise BusinessRuleViolation(
                     message=(
-                        "Webhook completion requires API_BASE_URL to be set to an "
-                        "absolute, publicly reachable URL so the provider can "
-                        "deliver its callback."
+                        "Webhook completion requires SHS_PUBLIC_API_URL (or "
+                        "legacy SHS_API_BASE_URL) to be set to an absolute, "
+                        "publicly reachable URL so the provider can deliver "
+                        "its callback."
                     ),
                     code="WEBHOOK_CALLBACK_BASE_URL_MISSING",
                 )
             token = secrets.token_urlsafe(settings.WEBHOOK_TOKEN_LENGTH)
             iter_callback_url = (
-                f"{settings.API_BASE_URL.rstrip('/')}"
+                f"{settings.external_api_base.rstrip('/')}"
                 f"/api/v1/webhooks/incoming/{token}"
             )
             await self._stamp_external_id_on_row(

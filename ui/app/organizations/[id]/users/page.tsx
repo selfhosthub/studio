@@ -20,7 +20,8 @@ import {
   getOrganizationMembers,
   removeOrganizationMember,
   createAndInviteUser,
-  updateUserAsAdmin
+  updateUserAsAdmin,
+  resetMemberPassword
 } from "@/shared/api";
 import { useUser } from "@/entities/user";
 import { useToast } from "@/features/toast";
@@ -66,6 +67,12 @@ export default function OrganizationUsersPage() {
   });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+
+  // Reset password state
+  const [resetUser, setResetUser] = useState<any | null>(null);
+  const [resetForm, setResetForm] = useState({ password: '', confirmPassword: '' });
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSaving, setResetSaving] = useState(false);
 
   // Check permissions
   const isSuperAdmin = user?.role === 'super_admin';
@@ -171,6 +178,43 @@ export default function OrganizationUsersPage() {
       setEditError(err instanceof Error ? err.message : 'Failed to update user');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  // Handle reset password - open modal
+  const handleResetPasswordClick = (member: any) => {
+    setResetUser(member);
+    setResetForm({ password: '', confirmPassword: '' });
+    setResetError(null);
+  };
+
+  // Handle reset password submit
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetUser) return;
+
+    if (resetForm.password !== resetForm.confirmPassword) {
+      setResetError('Passwords do not match');
+      return;
+    }
+
+    if (resetForm.password.length < 8) {
+      setResetError('Password must be at least 8 characters');
+      return;
+    }
+
+    setResetSaving(true);
+    setResetError(null);
+
+    try {
+      await resetMemberPassword(resetUser.id, resetForm.password);
+      setResetUser(null);
+      toast({ title: 'Password reset', description: 'The user must change it at next login.', variant: 'success' });
+    } catch (err: unknown) {
+      console.error('Failed to reset password:', err);
+      setResetError(err instanceof Error ? err.message : 'Failed to reset password');
+    } finally {
+      setResetSaving(false);
     }
   };
 
@@ -333,6 +377,9 @@ export default function OrganizationUsersPage() {
                   const canRemove = !isMemberSuperAdmin && !isOnlyAdmin;
                   // Super admins can edit anyone; others can edit non-super_admins
                   const canEdit = canManageUsers && (isCurrentUserSuperAdmin || !isMemberSuperAdmin);
+                  // Super admins can reset anyone's password; org admins only non-admin users. Never self.
+                  const canResetPassword = member.id !== user?.id &&
+                    (isCurrentUserSuperAdmin || member.role === 'user');
 
                   return (
                     <tr key={member.id}>
@@ -370,6 +417,11 @@ export default function OrganizationUsersPage() {
                             {canEdit && (
                               <ActionButton variant="change" onClick={() => handleEditUser(member)}>
                                 Edit
+                              </ActionButton>
+                            )}
+                            {canResetPassword && (
+                              <ActionButton variant="warning" onClick={() => handleResetPasswordClick(member)}>
+                                Reset password
                               </ActionButton>
                             )}
                             {canRemove && (
@@ -685,6 +737,72 @@ export default function OrganizationUsersPage() {
               onClick={() => {
                 setEditingUser(null);
                 setEditError(null);
+              }}
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-primary shadow-sm px-4 py-2 bg-card text-base font-medium text-secondary hover:bg-surface focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Reset Password Modal */}
+      <Modal isOpen={!!resetUser} onClose={() => setResetUser(null)} title="Reset Password" size="md">
+        <form onSubmit={handleResetPasswordSubmit}>
+          <div className="p-4 space-y-4">
+            {resetError && (
+              <div className="alert alert-error">
+                <p className="text-sm text-danger">{resetError}</p>
+              </div>
+            )}
+
+            <p className="text-sm text-secondary">
+              Set a one-time password for @{resetUser?.username}. They must change it at next login.
+            </p>
+
+            <div>
+              <label htmlFor="reset-password" className="form-label">
+                New Password *
+              </label>
+              <input
+                type="password"
+                id="reset-password"
+                required
+                value={resetForm.password}
+                onChange={(e) => setResetForm({ ...resetForm, password: e.target.value })}
+                className="form-input"
+                placeholder="Minimum 8 characters"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="reset-confirm-password" className="form-label">
+                Confirm Password *
+              </label>
+              <input
+                type="password"
+                id="reset-confirm-password"
+                required
+                value={resetForm.confirmPassword}
+                onChange={(e) => setResetForm({ ...resetForm, confirmPassword: e.target.value })}
+                className="form-input"
+                placeholder="Re-enter password"
+              />
+            </div>
+          </div>
+          <div className="bg-surface px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+            <button
+              type="submit"
+              disabled={resetSaving}
+              className="btn-primary w-full sm:ml-3 sm:w-auto"
+            >
+              {resetSaving ? 'Resetting...' : 'Reset Password'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setResetUser(null);
+                setResetError(null);
               }}
               className="mt-3 w-full inline-flex justify-center rounded-md border border-primary shadow-sm px-4 py-2 bg-card text-base font-medium text-secondary hover:bg-surface focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >

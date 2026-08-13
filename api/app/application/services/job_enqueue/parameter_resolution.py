@@ -154,7 +154,7 @@ def resolve_file_references(
     Uses the configured public base URL. Idempotent - already-absolute URLs
     and strings without recognized extensions pass through unchanged.
     """
-    api_base = settings.API_BASE_URL.rstrip("/")
+    api_base = settings.external_api_base.rstrip("/")
     return _resolve_recursive(parameters, org_id, instance_id, api_base)
 
 

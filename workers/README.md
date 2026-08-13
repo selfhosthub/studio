@@ -31,18 +31,22 @@ brew install homebrew-ffmpeg/ffmpeg/ffmpeg
 
 ### Video Worker
 
+Run from the monorepo root:
+
 ```bash
-make video-local-setup   # Creates venv, installs deps, fonts
-make video-run-local     # Starts worker (polls API at localhost:8000)
+make -f dev/Makefile.dev video-setup-local   # Creates venv, installs deps (fonts are bundled in the repo)
+make -f dev/Makefile.dev video-run-local     # Starts worker (polls the dev API at localhost:8100)
 ```
 
 **Apple Silicon GPU (MPS)**: Whisper transcription runs on the MPS GPU automatically. A monkey-patch handles Whisper's DTW alignment step which calls `.double()` (float64) - unsupported on MPS - by moving that tensor to CPU before conversion. Inference stays on GPU.
 
 ### Audio Worker
 
+Run from the monorepo root:
+
 ```bash
-make audio-local-setup   # Creates venv, installs Chatterbox TTS
-make audio-run-local     # Starts worker (MPS/CPU)
+make -f dev/Makefile.dev audio-setup-local   # Creates venv, installs Chatterbox TTS
+make -f dev/Makefile.dev audio-run-local     # Starts worker (MPS/CPU)
 ```
 
 ## Documentation

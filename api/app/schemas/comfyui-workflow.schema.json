@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/selfhosthub/studio-community/main/schemas/comfyui-workflow.schema.json",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "title": "Studio ComfyUI Workflow",
   "description": "A ComfyUI workflow catalog package: Studio metadata + manifest + the native ComfyUI API graph in a single file. Metadata fields (slug, version, name, description, author, category) live at the top level; the manifest fields (service, models, capabilities, parameters, generation, node_mappings, outputs, requirements) declare everything the API, UI, and worker need to execute the package; the raw ComfyUI graph (numeric node IDs as keys) lives under the `graph` key, opaque to Studio and rendered by the worker after parameter injection. Manifest fields are optional at the schema level so pre-manifest packages keep validating; cross-field coherence (model references, node existence) is enforced by scripts/validate-comfyui-manifests.py.\n\nStability: future versions of this schema must remain backward-compatible with content authored against earlier versions of itself - once a package is published with a given version, it must continue to validate against the schema in force at install time. Add fields conservatively (optional first); promote to required only with a major schema revision and a migration story.",
   "type": "object",
@@ -50,6 +50,29 @@
         "options": {
           "type": "array",
           "description": "Enum choices: bare strings, or value/label pairs when the UI label differs.",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["value", "label"],
+                "properties": {
+                  "value": { "type": "string" },
+                  "label": { "type": "string" }
+                }
+              }
+            ]
+          }
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex a string parameter's value must match; the worker validates against it."
+        },
+        "suggestions": {
+          "type": "array",
+          "description": "Combobox suggestions for a free-form string parameter (UI-only, not a closed set): bare strings, or value/label pairs when the UI label differs.",
           "minItems": 1,
           "items": {
             "oneOf": [
