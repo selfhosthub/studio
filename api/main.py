@@ -618,4 +618,9 @@ if __name__ == "__main__":
         reload_excludes=["*.pyc", "__pycache__", "tests/*", "*.log"],
         log_config=None,  # Use the logging config already set up above
         access_log=ENABLE_ACCESS_LOGS,  # Controlled by ENABLE_ACCESS_LOGS env var
+        # Trust X-Forwarded-Proto/For from the nginx front door so redirects and
+        # generated URLs use the edge scheme. Uvicorn's 127.0.0.1 default drops
+        # them in split, where nginx is a separate container IP.
+        proxy_headers=True,
+        forwarded_allow_ips=os.getenv("FORWARDED_ALLOW_IPS", "*"),
     )

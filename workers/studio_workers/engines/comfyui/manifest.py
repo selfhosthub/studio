@@ -19,6 +19,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Set by the handler from the job's package selector, not by the caller.
+HANDLER_INJECTED = frozenset({"workflow", "model"})
+
 
 @dataclass
 class PackageManifest:
@@ -222,8 +225,8 @@ def validate_manifest_parameters(
     for name, value in parameters.items():
         spec = manifest.parameters.get(name)
         if spec is None:
-            # "workflow" is handler-injected, never a user parameter
-            if name != "workflow":
+            # "workflow" and "model" are handler-injected, never user parameters
+            if name not in HANDLER_INJECTED:
                 logger.warning(
                     f"Parameter '{name}' is not in the parameter spec of "
                     f"package {manifest.slug} and passes through unvalidated"

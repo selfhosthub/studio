@@ -6,7 +6,6 @@ import React, { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/widgets/layout';
 import { useUser } from '@/entities/user';
-import { isComfyUIMarketplaceEnabled } from '@/shared/lib/config';
 import { uploadComfyUIPackage } from '@/shared/api/comfyui';
 
 export default function UploadComfyUIPackagePage() {
@@ -19,7 +18,7 @@ export default function UploadComfyUIPackagePage() {
   const [dragActive, setDragActive] = useState(false);
 
   const isSuperAdmin = user?.role === 'super_admin';
-  if (!isSuperAdmin || !isComfyUIMarketplaceEnabled()) {
+  if (!isSuperAdmin) {
     return (
       <DashboardLayout>
         <div className="px-4 sm:px-6 lg:px-8 py-8">

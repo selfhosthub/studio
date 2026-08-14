@@ -15,6 +15,8 @@ export default function UploadWorkflowPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [importedId, setImportedId] = useState<string | null>(null);
 
   const handleFileSelect = (file: File) => {
     if (!file.name.endsWith('.json')) {
@@ -62,6 +64,13 @@ export default function UploadWorkflowPage() {
 
     try {
       const result = await importWorkflow(selectedFile, user?.org_id);
+      // Warnings mean steps imported unlinked; let the user read them first.
+      if (result.warnings?.length) {
+        setWarnings(result.warnings);
+        setImportedId(result.workflow.id);
+        setLoading(false);
+        return;
+      }
       router.push(`/workflows/${result.workflow.id}/edit`);
     } catch (err: unknown) {
       console.error('Failed to upload workflow:', err);
@@ -93,6 +102,32 @@ export default function UploadWorkflowPage() {
                 <p className="text-sm text-danger">{error}</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {warnings.length > 0 && (
+          <div className="mb-6 bg-warning-subtle border border-warning rounded-md p-4">
+            <p className="text-sm font-semibold text-warning">
+              Imported with {warnings.length} warning{warnings.length === 1 ? '' : 's'}
+            </p>
+            <ul className="mt-2 list-disc list-inside space-y-1">
+              {warnings.map((w) => (
+                <li key={w} className="text-sm text-warning">{w}</li>
+              ))}
+            </ul>
+            <p className="text-sm text-secondary mt-2">
+              Steps naming a missing provider or prompt import unlinked. Install what is
+              missing, then set it on the step.
+            </p>
+            {importedId && (
+              <button
+                type="button"
+                onClick={() => router.push(`/workflows/${importedId}/edit`)}
+                className="btn btn-primary mt-3"
+              >
+                Open workflow
+              </button>
+            )}
           </div>
         )}
 

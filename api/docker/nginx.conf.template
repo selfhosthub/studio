@@ -24,6 +24,15 @@ http {
         ""      close;
     }
 
+    # Forwarded scheme from the edge when present, else nginx's own listener
+    # scheme. cloudflared terminates TLS and proxies plain HTTP, so $scheme
+    # alone reports http for an https request.
+    map $http_x_forwarded_proto $forwarded_proto {
+        default $scheme;
+        https   https;
+        http    http;
+    }
+
     upstream studio_api {
         server 127.0.0.1:8000;
     }
@@ -34,6 +43,9 @@ http {
 
     server {
         listen ${SHS_NGINX_PORT};
+        # nginx builds its own Location headers from $scheme; relative keeps
+        # them on the edge scheme.
+        absolute_redirect off;
 
         # nginx's own liveness, independent of upstreams.
         location /nginx-health {
@@ -48,7 +60,7 @@ http {
             proxy_set_header Host              $host;
             proxy_set_header X-Real-IP         $remote_addr;
             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
         }
 
         # Worker control endpoints never go through the front door; native
@@ -68,7 +80,7 @@ http {
             proxy_set_header Host              $host;
             proxy_set_header X-Real-IP         $remote_addr;
             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
 
             proxy_set_header Upgrade    $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
@@ -83,7 +95,7 @@ http {
             proxy_set_header Host              $host;
             proxy_set_header X-Real-IP         $remote_addr;
             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
         }
     }
 
@@ -92,6 +104,9 @@ http {
     # SHS_API_HOSTNAME is unset the server_name never matches a real Host.
     server {
         listen ${SHS_NGINX_PORT};
+        # nginx builds its own Location headers from $scheme; relative keeps
+        # them on the edge scheme.
+        absolute_redirect off;
         server_name ${SHS_API_HOSTNAME};
 
         location /nginx-health {
@@ -105,7 +120,7 @@ http {
             proxy_set_header Host              $host;
             proxy_set_header X-Real-IP         $remote_addr;
             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
 
             proxy_set_header Upgrade    $http_upgrade;
             proxy_set_header Connection $connection_upgrade;

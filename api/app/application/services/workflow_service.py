@@ -14,8 +14,13 @@ from app.application.dtos.workflow_dto import (
 from app.application.interfaces.event_bus import EventBus
 from app.application.interfaces import EntityNotFoundError
 from app.application.interfaces.exceptions import DuplicateEntityError
+from app.application.services.workflow_slug_resolution import (
+    collect_slugs,
+    is_slug,
+    resolve_step_slugs,
+)
 from app.domain.common.exceptions import BusinessRuleViolation
-from app.domain.common.value_objects import StepConfig, Visibility
+from app.domain.common.value_objects import PromptSource, StepConfig, Visibility
 from app.domain.provider.repository import ProviderRepository
 from app.domain.workflow.models import (
     Workflow,
@@ -875,8 +880,31 @@ class WorkflowService:
 
         warnings: List[str] = []
 
-        # Check provider compatibility if repo provided
         steps = data.get("steps", {})
+        if not isinstance(steps, dict):
+            steps = {}
+
+        # Catalog files reference providers and prompts by slug; resolve them
+        # to UUIDs so an uploaded catalog workflow links up like an install.
+        provider_slugs, prompt_slugs = collect_slugs(steps)
+        provider_slug_to_uuid: Dict[str, str] = {}
+        if provider_repo:
+            for slug in provider_slugs:
+                provider = await provider_repo.get_by_slug(slug)
+                if provider:
+                    provider_slug_to_uuid[slug] = str(provider.id)
+        prompt_slug_to_uuid: Dict[str, str] = {}
+        if prompt_repo:
+            for slug in prompt_slugs:
+                prompt = await prompt_repo.get_by_slug(slug, organization_id)
+                if prompt and prompt.source != PromptSource.UNINSTALLED:
+                    prompt_slug_to_uuid[slug] = str(prompt.id)
+        steps, slug_warnings = resolve_step_slugs(
+            steps, provider_slug_to_uuid, prompt_slug_to_uuid
+        )
+        warnings.extend(slug_warnings)
+
+        # Check provider compatibility if repo provided
         if provider_repo:
             for step_id, step_config in steps.items():
                 if not isinstance(step_config, dict):
@@ -888,6 +916,8 @@ class WorkflowService:
                 provider_id_str = step_config.get("provider_id") or job.get(
                     "provider_id"
                 )
+                if is_slug(provider_id_str):
+                    continue
                 if provider_id_str:
                     try:
                         provider_id = uuid.UUID(provider_id_str)
@@ -911,6 +941,8 @@ class WorkflowService:
                     if not isinstance(mapping, dict):
                         continue
                     if mapping.get("mappingType") != "prompt":
+                        continue
+                    if mapping.get("promptSlug"):
                         continue
                     prompt_id_str = mapping.get("promptId")
                     if not prompt_id_str:

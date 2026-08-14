@@ -21,6 +21,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.catalog_merge_service import merge_with_marketplace
+from app.application.services.workflow_slug_resolution import resolve_step_slugs
 from app.config.sources import DEFAULT_TIER, VALID_TIERS
 from app.domain.common.json_serialization import deserialize_steps
 from app.infrastructure.persistence.models import (
@@ -1090,44 +1091,16 @@ async def _org_copy_workflow(
         row[0]: str(row[1]) for row in prompt_result.all()
     }
 
-    # Parse steps - move service routing fields from job to step level
-    # and resolve provider slugs to UUIDs and prompt slugs to prompt IDs
-    steps: Dict[str, Any] = {}
-    if "steps" in workflow_data and isinstance(workflow_data["steps"], dict):
-        for step_id, step_data in workflow_data["steps"].items():
-            try:
-                step_data = dict(step_data)
-                if "job" in step_data and isinstance(step_data["job"], dict):
-                    step_data["job"] = dict(step_data["job"])
-                    job = step_data["job"]
-
-                    # Resolve provider_id slug → UUID
-                    provider_slug = job.get("provider_id", "")
-                    if provider_slug and provider_slug in slug_to_uuid:
-                        job["provider_id"] = slug_to_uuid[provider_slug]
-
-                    # Resolve credential_provider_id slug → UUID
-                    cred_provider_slug = job.get("credential_provider_id", "")
-                    if cred_provider_slug and cred_provider_slug in slug_to_uuid:
-                        job["credential_provider_id"] = slug_to_uuid[cred_provider_slug]
-
-                    for field in ("service_type", "provider_id", "service_id"):
-                        if field in step_data["job"] and field not in step_data:
-                            step_data[field] = step_data["job"].pop(field)
-                # Resolve promptSlug → promptId in input_mappings
-                input_mappings = step_data.get("input_mappings", {})
-                if isinstance(input_mappings, dict):
-                    for mapping in input_mappings.values():
-                        if not isinstance(mapping, dict):
-                            continue
-                        prompt_slug = mapping.get("promptSlug")
-                        if prompt_slug and prompt_slug in prompt_slug_to_uuid:
-                            mapping["promptId"] = prompt_slug_to_uuid[prompt_slug]
-                            del mapping["promptSlug"]
-
-                steps[step_id] = step_data
-            except Exception as e:
-                logger.warning(f"Failed to parse step {step_id}: {e}")
+    # Resolve slugs to UUIDs; unresolved ones are already reported as
+    # missing packages/prompts above. Malformed steps are dropped so one bad
+    # entry does not fail the install.
+    source_steps = workflow_data.get("steps")
+    source_steps = source_steps if isinstance(source_steps, dict) else {}
+    steps, _ = resolve_step_slugs(
+        {k: v for k, v in source_steps.items() if isinstance(v, dict)},
+        slug_to_uuid,
+        prompt_slug_to_uuid,
+    )
 
     # Build client_metadata from package_versions data
     merged_metadata = dict(workflow_data.get("client_metadata", {}))

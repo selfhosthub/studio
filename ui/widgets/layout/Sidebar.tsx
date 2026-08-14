@@ -27,7 +27,6 @@ import { useState, useEffect } from "react";
 import { useUser } from "@/entities/user";
 import { usePageVisibility } from "@/entities/page-visibility";
 import { TIMEOUTS } from "@/shared/lib/constants";
-import { isComfyUIMarketplaceEnabled } from "@/shared/lib/config";
 
 type NavItemProps = {
   href: string;
@@ -270,7 +269,7 @@ const Sidebar = ({
           />
 
           {/* ComfyUI Marketplace (super_admin only) */}
-          {user?.role === "super_admin" && isComfyUIMarketplaceEnabled() && (
+          {user?.role === "super_admin" && (
             <NavItem
               href="/comfyui/marketplace?tab=marketplace"
               icon={<ImagePlay size={20} />}

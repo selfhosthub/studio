@@ -8,7 +8,6 @@ import { Upload } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { DashboardLayout } from '@/widgets/layout';
 import { useUser } from '@/entities/user';
-import { isComfyUIMarketplaceEnabled } from '@/shared/lib/config';
 import { ComfyUIMarketplaceTab } from './components/ComfyUIMarketplaceTab';
 import { ComfyUICustomTab } from './components/ComfyUICustomTab';
 
@@ -33,7 +32,7 @@ function ComfyUIMarketplaceContent() {
     }
   }, [activeTab, searchParams]);
 
-  if (!isSuperAdmin || !isComfyUIMarketplaceEnabled()) {
+  if (!isSuperAdmin) {
     return (
       <DashboardLayout>
         <div className="px-4 sm:px-6 lg:px-8 py-8">

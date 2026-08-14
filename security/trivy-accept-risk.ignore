@@ -19,9 +19,12 @@ CVE-2026-5241 exp:2026-10-31
 CVE-2026-48818 exp:2026-10-31
 CVE-2026-54283 exp:2026-10-31
 
-# cloudflared 2026.7.3 (latest upstream, built 2026-07-23) bundles
-# google.golang.org/grpc v1.81.1 and Go stdlib 1.26.4; fixes exist upstream
-# (grpc 1.82.1, Go 1.26.5) but no cloudflared release carries them yet.
+# cloudflared 2026.8.1 bundles Go stdlib 1.26.4 (read from the binary's build
+# info, not from release notes). Fixed in Go 1.26.5 and 1.26.6, but no
+# cloudflared release carries either: 2026.8.2, built 2026-08-14, is still on
+# 1.26.4. Building cloudflared from source was ruled out 2026-08-14.
 # Ships in studio-core and studio-full.
 GHSA-hrxh-6v49-42gf exp:2026-09-30
 CVE-2026-39822 exp:2026-09-30
+CVE-2026-39821 exp:2026-09-30
+CVE-2026-46600 exp:2026-09-30

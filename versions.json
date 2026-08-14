@@ -1,4 +1,6 @@
 {
   "$comment": "Pinned versions baked into release artifacts. claude-production reads these when building Core and Full images. Bumping a version here is the only way to roll a baked tool forward - the Dockerfiles refuse to default the build arg, so a forgotten value fails the build loudly.",
-  "studio_console": "1.9.0"
+  "studio_console": "1.9.1",
+  "cloudflared": "2026.8.1",
+  "cloudflared_digest": "sha256:d9ff527dc19799e24d3689058161fb01e752a24be1823577bae54c9c2489275f"
 }
