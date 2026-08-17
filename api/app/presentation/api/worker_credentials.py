@@ -80,7 +80,7 @@ async def refresh_oauth_token(
         )
 
     oauth_config = await get_oauth_config_from_provider(
-        credential.provider_id, provider_repo
+        credential.provider_slug, provider_repo
     )
 
     # client creds come from the credential's DB row
@@ -180,6 +180,7 @@ async def _authorize_credential_for_job(
     job: QueuedJob,
     credential_repo: ProviderCredentialRepository,
     provider_service_repo: ProviderServiceRepository,
+    provider_repo: ProviderRepository,
 ) -> ProviderCredential:
     """Enforce that the worker's claimed job is entitled to this credential.
 
@@ -236,9 +237,16 @@ async def _authorize_credential_for_job(
         )
 
     # 3. Credential <-> provider binding: the job must target the provider that
-    #    owns this credential.
+    #    owns this credential. Compared by slug, since the job carries whichever
+    #    version row was current when it was enqueued.
     job_provider_id = input_data.get("provider_id")
-    if not job_provider_id or str(job_provider_id) != str(credential.provider_id):
+    job_provider = None
+    if job_provider_id:
+        try:
+            job_provider = await provider_repo.get_by_id(UUID(str(job_provider_id)))
+        except ValueError:
+            job_provider = None
+    if not job_provider or job_provider.slug != credential.provider_slug:
         raise _reject(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Credential does not belong to this worker's active job",
@@ -264,10 +272,14 @@ async def _authorize_credential_for_job(
     service = await provider_service_repo.get_by_service_id(
         str(job_service_id), skip=0, limit=1
     )
+    service_provider = (
+        await provider_repo.get_by_id(service.provider_id) if service else None
+    )
     if (
         not service
         or not service.is_active
-        or service.provider_id != credential.provider_id
+        or not service_provider
+        or service_provider.slug != credential.provider_slug
     ):
         raise _reject(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -355,6 +367,7 @@ async def get_credential_token(
         job,
         credential_repo,
         provider_service_repo,
+        provider_repo,
     )
 
     if credential.credential_type == CredentialType.OAUTH2:
@@ -450,7 +463,7 @@ async def _resolve_worker_job(
     """Validate the worker JWT and return the QueuedJob the worker may write to.
 
     Shared between `/files/upload` (multipart) and `/files/register`
-    (metadata-only) — they apply the same auth + job-ownership checks.
+    (metadata-only) - they apply the same auth + job-ownership checks.
     """
     if not authorization:
         raise HTTPException(
@@ -529,7 +542,7 @@ async def register_worker_local_file(
     worker has already written the bytes to
     `/workspace/orgs/{org_id}/instances/{instance_id}/{sanitized_filename}`;
     we stat that file, recompute the checksum, and create the OrgFile
-    row. The worker never controls the path — the API derives it from
+    row. The worker never controls the path - the API derives it from
     the JWT-bound job, so a hostile or buggy `filename` value cannot
     escape the instance directory.
 

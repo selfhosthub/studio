@@ -225,7 +225,9 @@ class ProviderCredentialUpdate(BaseModel):
 
 class ProviderCredentialResponse(BaseModel):
     id: uuid.UUID
+    # The credential is keyed on the slug; provider_id is the current row for it.
     provider_id: uuid.UUID
+    provider_slug: str
     organization_id: uuid.UUID
     credential_type: CredentialType
     name: str
@@ -251,12 +253,13 @@ class ProviderCredentialResponse(BaseModel):
 
     @classmethod
     def from_domain(
-        cls, credential: ProviderCredential
+        cls, credential: ProviderCredential, provider_id: uuid.UUID
     ) -> "ProviderCredentialResponse":
         creds = credential.credentials or {}
         return cls(
             id=credential.id,
-            provider_id=credential.provider_id,
+            provider_id=provider_id,
+            provider_slug=credential.provider_slug,
             organization_id=credential.organization_id,
             credential_type=credential.credential_type,
             name=credential.name,
@@ -286,11 +289,12 @@ class ProviderCredentialWithSecretResponse(ProviderCredentialResponse):
 
     @classmethod
     def from_domain(
-        cls, credential: ProviderCredential
+        cls, credential: ProviderCredential, provider_id: uuid.UUID
     ) -> "ProviderCredentialWithSecretResponse":
         return cls(
             id=credential.id,
-            provider_id=credential.provider_id,
+            provider_id=provider_id,
+            provider_slug=credential.provider_slug,
             organization_id=credential.organization_id,
             credential_type=credential.credential_type,
             name=credential.name,

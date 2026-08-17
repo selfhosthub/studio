@@ -3,7 +3,6 @@
 """OAuth helpers that read config from provider DB records (config.oauth column)."""
 import logging
 from typing import Any, Dict
-from uuid import UUID
 
 from fastapi import HTTPException, status
 
@@ -14,15 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 async def get_oauth_config_from_provider(
-    provider_id: UUID,
+    provider_slug: str,
     provider_repo: ProviderRepository,
 ) -> Dict[str, Any]:
     """OAuth config dict from provider.config.oauth. 404 if absent."""
-    provider = await provider_repo.get_by_id(provider_id)
+    provider = await provider_repo.get_by_slug(provider_slug)
     if not provider:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Provider {provider_id} not found",
+            detail=f"Provider {provider_slug} not found",
         )
 
     oauth_config = provider.config.get("oauth")

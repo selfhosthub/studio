@@ -14,21 +14,21 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Bell, X, CheckCheck } from 'lucide-react';
 import { useUser } from '@/entities/user';
-import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '@/shared/api';
+import { markNotificationAsRead, markAllNotificationsAsRead } from '@/shared/api';
 import type { NotificationResponse } from '@/shared/types/api';
-import { useNotificationWebSocket } from '../hooks/useNotificationWebSocket';
+import { useNotificationSocket, useNotificationEvents, type NotificationEvent } from '../NotificationSocketProvider';
+import { useNotificationsQuery, useRefreshNotifications, usePatchNotifications } from '../useNotificationsQuery';
 import { useToast } from '@/features/toast';
+import { NOTIFICATION_DEFAULTS } from '@/shared/defaults';
 
 export default function NotificationBell() {
   const { user } = useUser();
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationResponse[]>([]);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // WebSocket connection for real-time updates
-  const { status: wsStatus, lastEvent } = useNotificationWebSocket();
+  const { status: wsStatus } = useNotificationSocket();
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -48,33 +48,17 @@ export default function NotificationBell() {
   // dependency array (react-hooks/preserve-manual-memoization).
   const userId = user?.id;
 
-  // Must be defined before useEffect hooks that reference it (temporal dead zone)
-  const fetchNotifications = useCallback(async () => {
-    if (!userId) return;
+  // Shared with the notifications page, so two readers cost one request.
+  const { notifications, loading } = useNotificationsQuery(userId);
+  const refreshNotifications = useRefreshNotifications(userId);
+  const patchNotifications = usePatchNotifications(userId);
 
-    setLoading(true);
-    try {
-      const data = await getNotifications(userId);
-      setNotifications(data || []);
-    } catch {
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
-
-  // Fetch notifications on mount and when dropdown opens
-  useEffect(() => {
-    if (userId) {
-      void (async () => { await fetchNotifications(); })();
-    }
-  }, [userId, fetchNotifications]);
-
+  // Opening the dropdown is a deliberate "show me now".
   useEffect(() => {
     if (isOpen && userId) {
-      void (async () => { await fetchNotifications(); })();
+      void refreshNotifications();
     }
-  }, [isOpen, userId, fetchNotifications]);
+  }, [isOpen, userId, refreshNotifications]);
 
   // Refetch on WebSocket reconnect to catch notifications missed while disconnected
   const prevWsStatusRef = useRef(wsStatus);
@@ -82,37 +66,32 @@ export default function NotificationBell() {
     const prev = prevWsStatusRef.current;
     prevWsStatusRef.current = wsStatus;
     if (wsStatus === 'connected' && prev !== 'connected' && prev !== undefined && userId) {
-      void (async () => { await fetchNotifications(); })();
+      void refreshNotifications();
     }
-  }, [wsStatus, userId, fetchNotifications]);
+  }, [wsStatus, userId, refreshNotifications]);
 
-  // Handle incoming WebSocket events
-  useEffect(() => {
-    if (!lastEvent) return;
-
-    if (lastEvent.event_type === 'notification_created') {
-      void (async () => { await fetchNotifications(); })();
+  // Fires once per arriving event, so a remount cannot re-toast an earlier notification.
+  useNotificationEvents(useCallback((event: NotificationEvent) => {
+    if (event.event_type === 'notification_created') {
+      void refreshNotifications();
 
       // Show toast via global toast system (uses portal, avoids CSS containment issues)
-      const title = lastEvent.data.title || 'New Notification';
-      const message = lastEvent.data.message || 'You have a new notification';
-      const isError = lastEvent.data.tags?.includes('error');
+      const isError = event.data.tags?.includes('error');
       toast({
-        title,
-        description: message,
+        title: event.data.title || NOTIFICATION_DEFAULTS.toastTitle,
+        description: event.data.message || NOTIFICATION_DEFAULTS.toastMessage,
         variant: isError ? 'destructive' : 'success',
       });
-    } else if (lastEvent.event_type === 'notification_read') {
-      void (async () => { await fetchNotifications(); })();
+    } else if (event.event_type === 'notification_read') {
+      void refreshNotifications();
     }
-  }, [lastEvent, fetchNotifications, toast]);
+  }, [refreshNotifications, toast]));
 
   async function handleMarkAsRead(notificationId: string) {
     try {
       await markNotificationAsRead(notificationId);
 
-      // Update local state
-      setNotifications(prev =>
+      patchNotifications(prev =>
         prev.map(notif =>
           notif.id === notificationId
             ? { ...notif, read_at: new Date().toISOString() }
@@ -130,7 +109,7 @@ export default function NotificationBell() {
       await markAllNotificationsAsRead(user.id);
 
       const now = new Date().toISOString();
-      setNotifications(prev =>
+      patchNotifications(prev =>
         prev.map(notif => notif.read_at ? notif : { ...notif, read_at: now })
       );
     } catch {

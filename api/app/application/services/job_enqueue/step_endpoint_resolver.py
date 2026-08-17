@@ -164,7 +164,7 @@ class StepEndpointResolver:
             if not provider:
                 return None
             credential = await self.credential_repository.get_default_credential(
-                provider_id=provider.id, organization_id=organization_id
+                provider_slug=provider.slug, organization_id=organization_id
             )
             return str(credential.id) if credential else None
         except Exception as e:

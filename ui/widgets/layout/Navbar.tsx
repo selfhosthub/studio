@@ -105,7 +105,7 @@ const Navbar = ({ onMobileMenuToggle }: NavbarProps) => {
 
                 {/* Help icon - links to documentation */}
                 <Link
-                  href={userData.role === 'super_admin' ? '/docs/super-admin' : '/docs'}
+                  href="/docs"
                   className="p-1.5 rounded-md opacity-80 hover:opacity-100 transition-opacity text-info"
                   title="Documentation"
                 >

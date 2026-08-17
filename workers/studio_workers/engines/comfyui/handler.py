@@ -27,6 +27,11 @@ from studio_workers.settings import settings
 from studio_workers.engines.comfyui.settings import settings as comfyui_settings
 
 from studio_workers.engines.comfyui import ComfyUIClient
+from studio_workers.engines.comfyui.model_map import (
+    ModelMap,
+    build_model_map,
+    resolve_graph_models,
+)
 from studio_workers.engines.comfyui.manifest import (
     inject_from_manifest,
     validate_manifest_parameters,
@@ -76,6 +81,9 @@ class ComfyUIWorker(WorkerBase):
         self.comfyui_retry_interval = comfyui_settings.COMFYUI_RETRY_INTERVAL_S
 
         self.client: Optional[ComfyUIClient] = None
+        # Built once, on the first object_info that parses, then frozen: a model
+        # added afterwards needs a restart.
+        self.model_map: Optional[ModelMap] = None
         self._comfyui_available = False
         self._last_availability_log = 0
 
@@ -95,6 +103,18 @@ class ComfyUIWorker(WorkerBase):
             self.client = ComfyUIClient(self.comfyui_url)
 
         is_available = self.client.health_check()
+
+        if is_available and self.model_map is None:
+            object_info = self.client.get_object_info()
+            if object_info is None:
+                # Reachable but not answering usefully. Not ready, not an error
+                # about any particular model.
+                is_available = False
+            else:
+                self.model_map = build_model_map(object_info)
+                logger.info(
+                    f"Indexed model names for {len(self.model_map)} ComfyUI inputs"
+                )
 
         if is_available and not self._comfyui_available:
             logger.info(f"ComfyUI is now available at {self.comfyui_url}")
@@ -277,7 +297,7 @@ class ComfyUIWorker(WorkerBase):
 
             if custom_workflow:
                 logger.debug("Using custom workflow from job payload")
-                workflow = custom_workflow
+                workflow = resolve_graph_models(custom_workflow, self.model_map or {})
             elif manifest:
                 is_valid, error_msg = validate_manifest_parameters(
                     manifest, parameters
@@ -290,6 +310,9 @@ class ComfyUIWorker(WorkerBase):
                     + (f" model={model}" if model else "")
                 )
                 workflow = inject_from_manifest(manifest, parameters, model=model)
+                workflow = resolve_graph_models(
+                    workflow, self.model_map or {}, manifest.model_directories
+                )
             else:
                 raise ValueError(
                     f"No catalog package for operation '{operation}'"

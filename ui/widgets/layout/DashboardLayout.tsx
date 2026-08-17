@@ -10,7 +10,7 @@ import Footer from './Footer';
 import { MaintenanceBanner } from '@/features/maintenance';
 import { usePreferences } from '@/entities/preferences';
 import { useMaintenance } from '@/features/maintenance';
-import { useNotificationWebSocket } from '@/features/notifications';
+import { useNotificationSocket } from '@/features/notifications';
 import { EntitlementTokenBanner } from '@/features/entitlement';
 import { CatalogStatusProvider } from '@/features/marketplace';
 
@@ -18,7 +18,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { preferences, updatePreference } = usePreferences();
 
   // Get maintenance events from authenticated WebSocket (for all logged-in users)
-  const { lastMaintenanceEvent } = useNotificationWebSocket();
+  const { lastMaintenanceEvent } = useNotificationSocket();
 
   // Use maintenance hook with authenticated WebSocket events
   const { maintenanceMode, warningMode, warningUntil, reason } = useMaintenance({

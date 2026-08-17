@@ -40,6 +40,8 @@ export const TIMEOUTS = {
   TOAST_DEFAULT: 4000,
   /** Notification auto-dismiss */
   NOTIFICATION_DISMISS: 5000,
+  /** How long the cached notification list is served without a refetch */
+  NOTIFICATIONS_STALE: 30000,
   /** Countdown interval for timers */
   COUNTDOWN_INTERVAL: 1000,
   /** Fade-out animation delay for toasts/notifications */

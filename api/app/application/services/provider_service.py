@@ -123,6 +123,13 @@ class ProviderService:
             return ProviderResponse.from_domain(provider)
         return None
 
+    async def get_provider_by_slug(self, slug: str) -> Optional[ProviderResponse]:
+        """Get the current provider row for a slug."""
+        provider = await self.provider_repo.get_by_slug(slug)
+        if provider:
+            return ProviderResponse.from_domain(provider)
+        return None
+
     async def list_providers(
         self,
         skip: int = 0,
@@ -215,7 +222,7 @@ class ProviderService:
             )
 
         credential = ProviderCredential(
-            provider_id=command.provider_id,
+            provider_slug=provider.slug,
             organization_id=command.organization_id,
             credential_type=command.credential_type,
             name=command.name,
@@ -235,7 +242,37 @@ class ProviderService:
 
         created = await self.credential_repo.create(credential)
 
-        return ProviderCredentialResponse.from_domain(created)
+        return await self._credential_response(created)
+
+    async def _current_provider_id(self, slug: str) -> uuid.UUID:
+        """Id of the current provider row for a slug; credentials key on the slug."""
+        provider = await self.provider_repo.get_by_slug(slug)
+        if not provider:
+            raise EntityNotFoundError(
+                entity_type="Provider",
+                entity_id=slug,
+                code=f"Provider {slug} not found",
+            )
+        return provider.id
+
+    async def _credential_response(
+        self, credential: ProviderCredential
+    ) -> ProviderCredentialResponse:
+        return ProviderCredentialResponse.from_domain(
+            credential, await self._current_provider_id(credential.provider_slug)
+        )
+
+    async def _credential_responses(
+        self, credentials: List[ProviderCredential]
+    ) -> List[ProviderCredentialResponse]:
+        ids = {
+            slug: await self._current_provider_id(slug)
+            for slug in {c.provider_slug for c in credentials}
+        }
+        return [
+            ProviderCredentialResponse.from_domain(c, ids[c.provider_slug])
+            for c in credentials
+        ]
 
     async def update_credential(
         self, credential_id: uuid.UUID, command: ProviderCredentialUpdate
@@ -279,7 +316,7 @@ class ProviderService:
 
         updated = await self.credential_repo.update(credential)
 
-        return ProviderCredentialResponse.from_domain(updated)
+        return await self._credential_response(updated)
 
     async def get_credential(
         self, credential_id: uuid.UUID
@@ -287,7 +324,7 @@ class ProviderService:
         """Get a credential by ID (without secret data)."""
         credential = await self.credential_repo.get_by_id(credential_id)
         if credential:
-            return ProviderCredentialResponse.from_domain(credential)
+            return await self._credential_response(credential)
         return None
 
     async def get_credential_with_secret(
@@ -305,10 +342,13 @@ class ProviderService:
         self, provider_id: uuid.UUID, skip: int = 0, limit: int = 100
     ) -> List[ProviderCredentialResponse]:
         """List credentials for a provider."""
+        provider = await self.provider_repo.get_by_id(provider_id)
+        if not provider:
+            return []
         credentials = await self.credential_repo.list_by_provider(
-            provider_id=provider_id, skip=skip, limit=limit
+            provider_slug=provider.slug, skip=skip, limit=limit
         )
-        return [ProviderCredentialResponse.from_domain(c) for c in credentials]
+        return await self._credential_responses(credentials)
 
     async def list_credentials_by_organization(
         self,
@@ -330,16 +370,23 @@ class ProviderService:
             except ValueError:
                 pass  # Invalid type, ignore filter
 
+        provider_slug = None
+        if provider_id is not None:
+            provider = await self.provider_repo.get_by_id(provider_id)
+            if not provider:
+                return []
+            provider_slug = provider.slug
+
         credentials = await self.credential_repo.list_by_organization(
             organization_id=organization_id,
             skip=skip,
             limit=limit,
-            provider_id=provider_id,
+            provider_slug=provider_slug,
             credential_type=cred_type_enum,
             is_active=is_active,
             search=search,
         )
-        return [ProviderCredentialResponse.from_domain(c) for c in credentials]
+        return await self._credential_responses(credentials)
 
     async def delete_credential(self, credential_id: uuid.UUID) -> bool:
         """Delete a credential by ID."""

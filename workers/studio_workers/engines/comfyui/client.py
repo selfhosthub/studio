@@ -42,6 +42,27 @@ class ComfyUIClient:
             logger.debug(f"Health check failed: {e}")
             return False
 
+    def get_object_info(self) -> Optional[Dict[str, Any]]:
+        """Every node type and the values each input accepts.
+
+        None when ComfyUI does not answer or answers with something that is not
+        a JSON object: a proxy error page carrying a 200 is not an answer, and
+        treating it as one would report every model as missing.
+        """
+        try:
+            response = self.client.get(f"{self.base_url}/object_info")
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as e:
+            logger.warning(f"Could not read ComfyUI object_info: {e}")
+            return None
+
+        if not isinstance(payload, dict) or not payload:
+            logger.warning("ComfyUI object_info was not a node map")
+            return None
+
+        return payload
+
     def queue_prompt(self, workflow: Dict[str, Any]) -> str:
         """Submit workflow to ComfyUI; returns prompt_id."""
         payload = {

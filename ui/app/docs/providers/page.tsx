@@ -4,7 +4,7 @@
 
 import React, { Suspense, useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Navbar, Footer, PageVisibilityGuard } from '@/widgets/layout';
@@ -28,6 +28,7 @@ export default function ProvidersDocsPage() {
 }
 
 function ProvidersDocsContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialProvider = searchParams.get('provider');
 
@@ -100,10 +101,13 @@ function ProvidersDocsContent() {
 
   const handleSelect = useCallback((slug: string) => {
     setSelectedSlug(slug);
+    // The slug lives in the URL so the selection survives navigating away and
+    // back, and so a doc link can be shared.
+    router.replace(`/docs/providers?provider=${encodeURIComponent(slug)}`, { scroll: false });
     // Scroll content area to top
     const contentArea = document.getElementById('provider-doc-content');
     contentArea?.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [router]);
 
   if (isLoadingList) {
     return (

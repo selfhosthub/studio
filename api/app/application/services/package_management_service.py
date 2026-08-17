@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.common.value_objects import OperationalStatus
 from app.domain.provider.models import PackageType
+from app.infrastructure.utils.semver import parse_semver
 from app.infrastructure.persistence.models import (
     PackageVersionModel,
     ProviderCredentialModel,
@@ -190,20 +191,32 @@ class PackageManagementService:
     # Provider lookup
     # ------------------------------------------------------------------
 
-    async def get_provider_id_by_slug(self, slug: str) -> Optional[str]:
-        """Return provider UUID as string, or None."""
-        result = await self._session.execute(
-            select(ProviderModel.id).where(ProviderModel.slug == slug)
-        )
-        provider_id = result.scalar_one_or_none()
-        return str(provider_id) if provider_id else None
+    async def _row_for_slug(self, slug: str) -> Optional[ProviderModel]:
+        """The ACTIVE row for a slug, else the highest-version deactivated one.
 
-    async def get_provider_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
-        """Return provider row as dict, or None."""
+        Uninstall wants the current row; reinstall runs only when no row is
+        ACTIVE and wants the one it deactivated. `scalar_one_or_none` cannot
+        serve either: a slug has one row per installed version.
+        """
         result = await self._session.execute(
             select(ProviderModel).where(ProviderModel.slug == slug)
         )
-        provider = result.scalar_one_or_none()
+        rows = list(result.scalars().all())
+        if not rows:
+            return None
+        for row in rows:
+            if row.operational_status == OperationalStatus.ACTIVE:
+                return row
+        return max(rows, key=lambda r: parse_semver(r.version or "0"))
+
+    async def get_provider_id_by_slug(self, slug: str) -> Optional[str]:
+        """Return provider UUID as string, or None."""
+        provider = await self._row_for_slug(slug)
+        return str(provider.id) if provider else None
+
+    async def get_provider_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
+        """Return provider row as dict, or None."""
+        provider = await self._row_for_slug(slug)
         if not provider:
             return None
         return {
@@ -234,7 +247,12 @@ class PackageManagementService:
 
         await self._session.execute(
             update(ProviderCredentialModel)
-            .where(ProviderCredentialModel.provider_id == provider_id)
+            .where(
+                ProviderCredentialModel.provider_slug
+                == select(ProviderModel.slug)
+                .where(ProviderModel.id == provider_id)
+                .scalar_subquery()
+            )
             .values(is_active=False)
         )
 
@@ -274,6 +292,19 @@ class PackageManagementService:
 
         Returns list of reactivated service_ids.
         """
+        # One ACTIVE row per slug, so activating this version retires whichever
+        # version is current. Same transaction: the index forbids an overlap.
+        await self._session.execute(
+            update(ProviderModel)
+            .where(
+                ProviderModel.slug == provider_slug,
+                ProviderModel.id != provider_id,
+                ProviderModel.operational_status == OperationalStatus.ACTIVE,
+            )
+            .values(operational_status=OperationalStatus.INACTIVE)
+        )
+        await self._session.flush()
+
         await self._session.execute(
             update(ProviderModel)
             .where(ProviderModel.id == provider_id)
@@ -288,7 +319,12 @@ class PackageManagementService:
 
         await self._session.execute(
             update(ProviderCredentialModel)
-            .where(ProviderCredentialModel.provider_id == provider_id)
+            .where(
+                ProviderCredentialModel.provider_slug
+                == select(ProviderModel.slug)
+                .where(ProviderModel.id == provider_id)
+                .scalar_subquery()
+            )
             .values(is_active=True)
         )
 

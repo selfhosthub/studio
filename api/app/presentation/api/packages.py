@@ -650,15 +650,12 @@ async def uninstall_package(
 
                 # Soft-delete: deactivate instead of deleting.
                 # Credentials preserved so reinstall restores API keys
-                display_name = await pkg_service.soft_delete_provider(
-                    provider_id, provider_slug
-                )
+                await pkg_service.soft_delete_provider(provider_id, provider_slug)
 
-                # Unregister adapter from in-memory registry
-                # Registry keys use display name (e.g. "Airtable"), not slug ("airtable")
+                # Unregister by row id: display names repeat across versions.
                 try:
                     registry = get_adapter_registry()
-                    registry.unregister_adapter(display_name or provider_slug)
+                    registry.unregister_adapter_by_id(provider_id)
                 except Exception as e:
                     logger.warning(f"Could not unregister adapter: {e}")
 
@@ -668,6 +665,10 @@ async def uninstall_package(
             raise  # Re-raise HTTP exceptions
         except Exception as e:
             logger.error(f"Failed to soft-delete provider from database: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to uninstall '{package_name}': {safe_error_message(e)}",
+            )
 
     message = f"Package '{package_name}' uninstalled successfully"
     if workflows_affected > 0:

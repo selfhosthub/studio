@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dtos.catalog_dto import CatalogEntry, CatalogOrigin
-from app.domain.common.value_objects import Visibility
+from app.domain.common.value_objects import OperationalStatus, Visibility
 from app.domain.provider.models import PackageType
 from app.infrastructure.persistence.models import (
     ComfyUIWorkflowModel,
@@ -219,17 +219,23 @@ async def merge_providers_with_marketplace(
     entitlement gate: public reaches all orgs, staging only staging organizations,
     private never surfaces here. Unlike the copy-install types, providers WIRE
     ``operational_status`` - it is carried through on each entry so the
-    marketplace can render installed-vs-deactivated. Only the highest-semver row
-    per slug is returned (latest published)."""
+    marketplace can render installed-vs-deactivated. One entry per slug: the
+    ACTIVE row, or the highest-semver row when every version is deactivated."""
     allowed = _allowed_visibilities(caller_is_staging)
     result = await session.execute(
         select(ProviderModel).where(ProviderModel.visibility.in_(allowed))
     )
-    by_slug: dict[str, CatalogEntry] = {}
+    rows_by_slug: dict[str, list[ProviderModel]] = {}
     for row in result.scalars().all():
-        existing = by_slug.get(row.slug)
-        if existing is None or _semver_key(row.version) > _semver_key(
-            existing.version or "0"
-        ):
-            by_slug[row.slug] = _provider_to_entry(row)
-    return list(by_slug.values())
+        rows_by_slug.setdefault(row.slug, []).append(row)
+
+    entries: list[CatalogEntry] = []
+    for rows in rows_by_slug.values():
+        active = [r for r in rows if r.operational_status == OperationalStatus.ACTIVE]
+        chosen = (
+            active[0]
+            if active
+            else max(rows, key=lambda r: _semver_key(r.version or "0"))
+        )
+        entries.append(_provider_to_entry(chosen))
+    return entries

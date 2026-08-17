@@ -269,7 +269,10 @@ export function ArrayItemsPanel({
 
     const renderStaticFieldInput = () => {
       if (fieldSchema.type === 'array') {
-        const widgetName = fieldSchema.ui?.widget || (fieldSchema.items?.enum ? 'multiselect' : null);
+        // Scalar items fall back to tags: NestedArrayField renders per-item property groups, of which a scalar item has none.
+        const widgetName = fieldSchema.ui?.widget
+          || (fieldSchema.items?.enum ? 'multiselect' : null)
+          || (fieldSchema.items?.properties ? null : 'tags');
         const WidgetComponent = widgetName ? getArrayWidget(widgetName) : null;
         if (WidgetComponent) {
           const commonProps = {
@@ -401,7 +404,8 @@ export function ArrayItemsPanel({
       );
     };
 
-    const supportsDragDrop = fieldSchema.type !== 'boolean' && fieldSchema.type !== 'array';
+    // Mirrors the predicate the mode dropdown uses: an array of scalars is mappable, an array of objects is not.
+    const supportsDragDrop = fieldSchema.type !== 'boolean' && (fieldSchema.type !== 'array' || !fieldSchema.items?.properties);
     const isItemDragOver = dragOverField === stateKey;
 
     const handleItemFieldDragOver = (e: React.DragEvent) => {

@@ -39,6 +39,9 @@ class PackageManifest:
     default_model: Optional[str] = None
     generation: Dict[str, Any] = field(default_factory=dict)
     capabilities: Dict[str, bool] = field(default_factory=dict)
+    # filename -> the directory the package declares for it, a tiebreaker when
+    # one ComfyUI holds the same filename in two subfolders.
+    model_directories: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_package(cls, package: Dict[str, Any]) -> Optional["PackageManifest"]:
@@ -64,6 +67,11 @@ class PackageManifest:
             default_model=default_model,
             generation=package.get("generation", {}),
             capabilities=package.get("capabilities", {}),
+            model_directories={
+                m["filename"]: m["directory"]
+                for m in package.get("required_models", [])
+                if m.get("filename") and m.get("directory")
+            },
         )
 
     def defaults(self) -> Dict[str, Any]:

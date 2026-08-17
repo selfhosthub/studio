@@ -227,7 +227,8 @@ class ProviderService(Entity):
 class ProviderCredential(Entity):
     """Org-specific credentials for system-wide providers."""
 
-    provider_id: uuid.UUID
+    # Keyed on the provider slug so a credential survives a version upgrade.
+    provider_slug: str
     organization_id: uuid.UUID
     credential_type: CredentialType
     name: str

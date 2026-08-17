@@ -93,7 +93,6 @@ class LifecycleService:
                 provider = await self.provider_repository.get_by_id(provider_ref)
             else:
                 provider = await self.provider_repository.get_by_slug(str(provider_ref))
-            provider_id = provider.id if provider else None
             provider_name = provider.name if provider else str(provider_ref)
 
             # Internal and local-worker providers don't need credentials.
@@ -105,12 +104,12 @@ class LifecycleService:
                 ):
                     continue
 
-            if not provider_id:
+            if not provider:
                 missing_providers.append(str(provider_ref))
                 continue
 
             credential = await self.credential_repository.get_default_credential(
-                organization_id=organization_id, provider_id=provider_id
+                organization_id=organization_id, provider_slug=provider.slug
             )
 
             if not credential:

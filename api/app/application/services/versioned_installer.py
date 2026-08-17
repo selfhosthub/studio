@@ -79,12 +79,15 @@ async def install_versioned(
     validator: Optional[Callable[[dict[str, Any]], None]] = None,
     extra_insert_fields: Optional[dict[str, Any]] = None,
     on_conflict: str = "overwrite",
+    is_soft_deleted: Optional[Callable[[Any], bool]] = None,
 ) -> InstallOutcome:
     """Install a versioned catalog row from unified-format content.
 
     Raises `KeyError` if content is missing `slug` or `version` - no silent
     defaulting. `on_conflict='error'` raises VersionConflictError when the same
     slug@version arrives with different content (external uploaders).
+    `is_soft_deleted` reads the per-model deactivation column, which differs by
+    type (providers use operational_status, comfyui workflows use is_active).
     """
     if validator is not None:
         validator(content)
@@ -104,7 +107,7 @@ async def install_versioned(
             # Same content on a soft-deleted row is a re-install after
             # uninstall: reactivate via apply_content. A live row is a true
             # no-op.
-            if getattr(existing, "is_active", True) is False:
+            if is_soft_deleted is not None and is_soft_deleted(existing):
                 apply_content(existing, content)
                 await session.flush()
                 logger.info(

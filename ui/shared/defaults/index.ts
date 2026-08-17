@@ -18,3 +18,6 @@ export type { InstanceDefaults } from './instance';
 
 export { STEP_CONFIG_DEFAULTS } from './step-config';
 export type { StepConfigDefaults } from './step-config';
+
+export { NOTIFICATION_DEFAULTS } from './notification';
+export type { NotificationDefaults } from './notification';

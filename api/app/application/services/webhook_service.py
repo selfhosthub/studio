@@ -363,7 +363,7 @@ class WebhookService:
 
         # Provider-level envelope: the inbound callback shape + auth, one per
         # provider, resolvable from the credential alone (pre-demux).
-        provider = await provider_repo.get_by_id(credential.provider_id)
+        provider = await provider_repo.get_by_slug(credential.provider_slug)
         envelope = (getattr(provider, "client_metadata", None) or {}).get(
             "webhook_completion"
         )

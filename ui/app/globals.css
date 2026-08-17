@@ -40,6 +40,26 @@
   }
 }
 
+/* Draws the scrollbar instead of letting the OS overlay it, so a scrollable
+   pane reads as scrollable before the user scrolls. */
+@utility scrollbar-stable {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border-secondary) transparent;
+  &::-webkit-scrollbar {
+    width: 10px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--theme-border-secondary);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
+
 @layer utilities {
   /* ==============================================
    BRANDING SYSTEM

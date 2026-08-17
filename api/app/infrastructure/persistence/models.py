@@ -675,7 +675,8 @@ class ProviderModel(Base):
     """Keyed by (slug, version). Each install of a new version creates a sibling row.
 
     Deterministic UUID: uuid5(NAMESPACE_DNS, f"provider.{slug}@{version}").
-    Slug and name are not unique across rows.
+    Slug and name are not unique across rows, but exactly one row per slug may be
+    ACTIVE (uix_providers_one_active_per_slug).
     """
 
     __tablename__ = "providers"
@@ -723,9 +724,6 @@ class ProviderModel(Base):
         server_default=OperationalStatus.ACTIVE.name,
     )
 
-    credentials: Mapped[List["ProviderCredentialModel"]] = relationship(
-        back_populates="provider"
-    )
     services: Mapped[List["ProviderServiceModel"]] = relationship(
         back_populates="provider"
     )
@@ -744,6 +742,13 @@ class ProviderModel(Base):
             "ix_providers_visibility_operational",
             "visibility",
             "operational_status",
+        ),
+        # One current version per slug. Makes an ambiguous read unwritable.
+        Index(
+            "uix_providers_one_active_per_slug",
+            "slug",
+            unique=True,
+            postgresql_where=text("operational_status = 'ACTIVE'"),
         ),
     )
 
@@ -883,9 +888,9 @@ class ProviderCredentialModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    provider_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("providers.id")
-    )
+    # Keyed on the slug, not a provider row: a credential belongs to the operator's
+    # account and outlives every version upgrade.
+    provider_slug: Mapped[str] = mapped_column(String(255), nullable=False)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id")
     )
@@ -916,11 +921,12 @@ class ProviderCredentialModel(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
-    provider: Mapped["ProviderModel"] = relationship(back_populates="credentials")
     organization: Mapped["OrganizationModel"] = relationship()
 
     __table_args__ = (
-        Index("ix_provider_credentials_provider_org", "provider_id", "organization_id"),
+        Index(
+            "ix_provider_credentials_provider_org", "provider_slug", "organization_id"
+        ),
     )
 
 

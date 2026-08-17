@@ -158,7 +158,7 @@ class WorkflowCredentialService:
             # No credential explicitly selected - check if any default exists
             credential = await credential_repo.get_default_credential(
                 organization_id=organization_id,
-                provider_id=provider_id,
+                provider_slug=provider.slug if provider else "",
             )
             if credential:
                 return CredentialIssue(

@@ -127,9 +127,17 @@ async def oauth_authorize(
             detail="Credential must have client_id and client_secret populated before OAuth authorization",
         )
 
-    resolved_provider_id = str(credential.provider_id)
+    # The redirect back to the UI addresses a provider by id, so resolve the
+    # credential's slug to the current row.
+    _provider = await provider_repo.get_by_slug(credential.provider_slug)
+    if not _provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Provider {credential.provider_slug} not found",
+        )
+    resolved_provider_id = str(_provider.id)
     oauth_config = await get_oauth_config_from_provider(
-        credential.provider_id, provider_repo
+        credential.provider_slug, provider_repo
     )
 
     # Generate secure state token
@@ -438,7 +446,7 @@ async def oauth_refresh(
         )
 
     oauth_config = await get_oauth_config_from_provider(
-        credential.provider_id, provider_repo
+        credential.provider_slug, provider_repo
     )
 
     client_id = credential.credentials.get("client_id")

@@ -94,6 +94,30 @@ class AdapterRegistry:
 
         logger.info(f"Unregistered adapter for '{provider_name}'")
 
+    def unregister_adapter_by_id(self, provider_id: UUID) -> None:
+        """Unregister by provider row id. Display names repeat across versions,
+        so name-keyed removal can delete a sibling version's adapter."""
+        adapter = self._adapters_by_id.get(provider_id)
+        if adapter is None:
+            raise AdapterNotFoundError(
+                f"No adapter registered for provider id '{provider_id}'"
+            )
+
+        del self._adapters_by_id[provider_id]
+
+        for name, adpt in list(self._adapters_by_name.items()):
+            if adpt is adapter:
+                del self._adapters_by_name[name]
+
+        for service_id in adapter.supported_services:
+            if (
+                service_id in self._adapters_by_service
+                and self._adapters_by_service[service_id] is adapter
+            ):
+                del self._adapters_by_service[service_id]
+
+        logger.info(f"Unregistered adapter for provider id '{provider_id}'")
+
     def get_adapter_by_name(self, provider_name: str) -> IProviderAdapter:
         if provider_name not in self._adapters_by_name:
             raise AdapterNotFoundError(

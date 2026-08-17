@@ -140,6 +140,7 @@ class ComfyUIWorkflowInstaller:
                 apply_content=apply_workflow_content,
                 extra_insert_fields={"created_by": created_by},
                 on_conflict=on_conflict,
+                is_soft_deleted=lambda row: row.is_active is False,
             )
         except VersionConflictError:
             raise

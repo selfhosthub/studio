@@ -129,17 +129,29 @@ class SQLAlchemyProviderRepository(ProviderRepository):
         return self._to_domain(provider_model) if provider_model else None
 
     async def get_by_slug(self, slug: str) -> Optional[Provider]:
-        """Return the highest semver row for a slug; non-conforming versions sort below all valid ones."""
-        from app.infrastructure.utils.semver import parse_semver
-
-        stmt = select(ProviderModel).where(ProviderModel.slug == slug)
+        """Return the current row for a slug: uix_providers_one_active_per_slug
+        guarantees at most one ACTIVE row, so this is a filter, not a sort."""
+        stmt = select(ProviderModel).where(
+            ProviderModel.slug == slug,
+            ProviderModel.operational_status == OperationalStatus.ACTIVE,
+        )
         result = await self.session.execute(stmt)
-        candidates = list(result.scalars().all())
-        if not candidates:
-            return None
+        provider_model = result.scalars().first()
 
-        latest = max(candidates, key=lambda p: parse_semver(p.version))
-        return self._to_domain(latest)
+        return self._to_domain(provider_model) if provider_model else None
+
+    async def get_by_slug_and_version(
+        self, slug: str, version: str
+    ) -> Optional[Provider]:
+        """Exact row, status-blind. Never falls back to the current version."""
+        stmt = select(ProviderModel).where(
+            ProviderModel.slug == slug,
+            ProviderModel.version == version,
+        )
+        result = await self.session.execute(stmt)
+        provider_model = result.scalars().first()
+
+        return self._to_domain(provider_model) if provider_model else None
 
     async def find_active_providers(self, skip: int, limit: int) -> List[Provider]:
         stmt = select(ProviderModel).where(
@@ -358,8 +370,16 @@ class SQLAlchemyProviderServiceRepository(ProviderServiceRepository):
     async def get_by_service_id(
         self, service_id: str, skip: int, limit: int
     ) -> Optional[ProviderService]:
-        stmt = select(ProviderServiceModel).where(
-            ProviderServiceModel.service_id == service_id
+        """Service row of the ACTIVE provider version. A service_id exists once
+        per installed version, so scoping to ACTIVE is what makes the parameter
+        schema deterministic."""
+        stmt = (
+            select(ProviderServiceModel)
+            .join(ProviderModel, ProviderModel.id == ProviderServiceModel.provider_id)
+            .where(
+                ProviderServiceModel.service_id == service_id,
+                ProviderModel.operational_status == OperationalStatus.ACTIVE,
+            )
         )
 
         stmt = stmt.offset(skip).limit(limit)
@@ -473,7 +493,7 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
 
         return ProviderCredential(
             id=model.id,
-            provider_id=model.provider_id,
+            provider_slug=model.provider_slug,
             organization_id=model.organization_id,
             credential_type=CredentialType(model.credential_type),
             name=model.name,
@@ -496,7 +516,7 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
 
         credential_model = ProviderCredentialModel(
             id=credential.id,
-            provider_id=credential.provider_id,
+            provider_slug=credential.provider_slug,
             organization_id=credential.organization_id,
             name=credential.name,
             description=credential.description,
@@ -573,13 +593,13 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
 
     async def get_default_credential(
         self,
-        provider_id: uuid.UUID,
+        provider_slug: str,
         organization_id: uuid.UUID,
     ) -> Optional[ProviderCredential]:
         stmt = (
             select(ProviderCredentialModel)
             .where(
-                ProviderCredentialModel.provider_id == provider_id,
+                ProviderCredentialModel.provider_slug == provider_slug,
                 ProviderCredentialModel.organization_id == organization_id,
                 ProviderCredentialModel.is_active == True,
             )
@@ -592,14 +612,14 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
 
     async def list_by_provider(
         self,
-        provider_id: uuid.UUID,
+        provider_slug: str,
         skip: int,
         limit: int,
         credential_type: Optional[CredentialType] = None,
         is_active: Optional[bool] = None,
     ) -> List[ProviderCredential]:
         stmt = select(ProviderCredentialModel).where(
-            ProviderCredentialModel.provider_id == provider_id
+            ProviderCredentialModel.provider_slug == provider_slug
         )
 
         if credential_type is not None:
@@ -620,7 +640,7 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
         organization_id: uuid.UUID,
         skip: int,
         limit: int,
-        provider_id: Optional[uuid.UUID] = None,
+        provider_slug: Optional[str] = None,
         credential_type: Optional[CredentialType] = None,
         is_active: Optional[bool] = None,
         search: Optional[str] = None,
@@ -629,8 +649,10 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
             ProviderCredentialModel.organization_id == organization_id
         )
 
-        if provider_id is not None:
-            stmt = stmt.where(ProviderCredentialModel.provider_id == provider_id)
+        if provider_slug is not None:
+            stmt = stmt.where(
+                ProviderCredentialModel.provider_slug == provider_slug
+            )
 
         if credential_type is not None:
             stmt = stmt.where(

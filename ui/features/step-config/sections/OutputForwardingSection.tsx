@@ -259,7 +259,7 @@ export function OutputForwardingSection({
 
                 {/* Field checkboxes (when mode='selected') */}
                 {config.mode === 'selected' && (
-                  <div className="mt-3 space-y-2 max-h-48 overflow-y-auto border border-primary rounded-md p-2">
+                  <div className="mt-3 space-y-2 max-h-48 overflow-y-auto scrollbar-stable border border-primary rounded-md p-2">
                     {uniqueFieldNames.length === 0 ? (
                       <p className="text-xs text-secondary italic">
                         No fields available from previous steps

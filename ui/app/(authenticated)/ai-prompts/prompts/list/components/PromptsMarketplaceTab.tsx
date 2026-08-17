@@ -1,0 +1,396 @@
+// ui/app/(authenticated)/ai-prompts/prompts/list/components/PromptsMarketplaceTab.tsx
+
+'use client';
+
+import React, { useState } from 'react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+  SearchInput,
+  Pagination,
+  LoadingState,
+  ErrorState,
+  EmptyState,
+  Modal,
+} from '@/shared/ui';
+import { getPromptDetail, type MarketplacePrompt } from '@/shared/api';
+import { InstallAllDropdown } from '@/features/marketplace';
+import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import {
+  Download,
+  Trash2,
+  RefreshCw,
+  Lock,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
+import { usePromptsMarketplace } from './usePromptsMarketplace';
+import type { SortField } from './usePromptsMarketplace';
+
+interface PromptsMarketplaceTabProps {
+  isSuperAdmin: boolean;
+  onPromptsChanged: () => void;
+}
+
+export function PromptsMarketplaceTab({ isSuperAdmin, onPromptsChanged }: PromptsMarketplaceTabProps) {
+  const mp = usePromptsMarketplace({ onPromptsChanged });
+  const [viewPrompt, setViewPrompt] = useState<MarketplacePrompt | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // Catalog list omits chunks/variables to stay lean; fetch the full prompt
+  // detail on modal-open when they're absent (super-admin pre-install view).
+  const openPrompt = async (tpl: MarketplacePrompt) => {
+    setViewPrompt(tpl);
+    if (tpl.chunks.length > 0 || tpl.variables.length > 0) return;
+    setDetailLoading(true);
+    try {
+      const detail = await getPromptDetail(tpl.id);
+      setViewPrompt((cur) => (cur?.id === tpl.id ? detail : cur));
+    } catch {
+      // Leave the metadata-only view in place on failure.
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const sortIcon = (field: SortField) => {
+    if (mp.sortField !== field) return null;
+    return mp.sortDirection === 'asc'
+      ? <ChevronUp className="inline w-4 h-4 ml-1" />
+      : <ChevronDown className="inline w-4 h-4 ml-1" />;
+  };
+
+  const getTierBadge = (tier: string) => tier === 'plus'
+    ? { label: 'Plus', className: 'bg-warning-subtle text-warning' }
+    : { label: 'Community', className: 'bg-surface text-secondary' };
+
+  return (
+    <>
+      {/* Search + Filters + Admin Actions + Pagination */}
+      <div className="mb-6 flex flex-wrap gap-3 items-center">
+        <div className="w-full sm:w-auto sm:flex-1">
+          <SearchInput
+            value={mp.search}
+            onChange={mp.setSearch}
+            placeholder="Search marketplace..."
+          />
+        </div>
+        {isSuperAdmin && (
+          <>
+            {(mp.catalogPrompts.some(t => t.tier === 'community' && !mp.installedIds.has(t.id)) ||
+              (mp.tokenConfigured && mp.catalogPrompts.some(t => t.tier === 'plus' && !mp.installedIds.has(t.id)))) && (
+              <InstallAllDropdown
+                hasCommunity={mp.catalogPrompts.some(t => t.tier === 'community' && !mp.installedIds.has(t.id))}
+                hasPlus={mp.tokenConfigured && mp.catalogPrompts.some(t => t.tier === 'plus' && !mp.installedIds.has(t.id))}
+                installing={mp.installAllInProgress}
+                onInstall={mp.handleInstallAllByTier}
+              />
+            )}
+            <button
+              onClick={mp.handleRefresh}
+              disabled={mp.uploading}
+              className="btn-primary inline-flex items-center justify-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4${mp.uploading ? ' animate-spin' : ''}`} />
+              {mp.uploading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </>
+        )}
+        <select
+          value={mp.categoryFilter}
+          onChange={(e) => mp.setCategoryFilter(e.target.value)}
+          className="form-select text-sm w-auto"
+        >
+          <option value="all">All Categories</option>
+          {mp.catalogFilterOptions.category.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+            </option>
+          ))}
+        </select>
+        <select
+          value={mp.tierFilter}
+          onChange={(e) => mp.setTierFilter(e.target.value as 'all' | 'community' | 'plus')}
+          className="form-select text-sm w-auto"
+        >
+          <option value="all">All Tiers</option>
+          <option value="community">Community</option>
+          <option value="plus">Plus</option>
+        </select>
+        <Pagination
+          currentPage={mp.page}
+          totalPages={mp.totalPages}
+          totalCount={mp.filteredCatalog.length}
+          pageSize={mp.pageSize}
+          onPageChange={mp.setPage}
+          onPageSizeChange={(size) => {
+            mp.setPageSize(size);
+            mp.setPage(1);
+          }}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          position="top"
+          itemLabel="prompt"
+        />
+      </div>
+
+      {mp.loading && <LoadingState message="Loading marketplace catalog..." />}
+
+      {!mp.loading && mp.error && (
+        <ErrorState title="Error" message={mp.error} onRetry={mp.fetchMarketplace} />
+      )}
+
+      {!mp.loading && !mp.error && mp.filteredCatalog.length === 0 && (
+        <EmptyState
+          title="No Prompts Found"
+          description={
+            mp.search || mp.tierFilter !== 'all' || mp.categoryFilter !== 'all'
+              ? 'Try adjusting your filters to see more prompts.'
+              : 'No prompts are available yet.'
+          }
+        />
+      )}
+
+      {!mp.loading && !mp.error && mp.paginatedCatalog.length > 0 && (
+        <>
+          <TableContainer>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHeaderCell onClick={() => mp.handleSort('display_name')}>
+                    Prompt
+                    {sortIcon('display_name')}
+                  </TableHeaderCell>
+                  <TableHeaderCell align="center" onClick={() => mp.handleSort('category')}>
+                    Category
+                    {sortIcon('category')}
+                  </TableHeaderCell>
+                  <TableHeaderCell align="center" onClick={() => mp.handleSort('tier')}>
+                    Tier
+                    {sortIcon('tier')}
+                  </TableHeaderCell>
+                  <TableHeaderCell align="center">Actions</TableHeaderCell>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mp.paginatedCatalog.map((tpl) => (
+                  <TableRow key={tpl.id} onClick={() => openPrompt(tpl)}>
+                    <TableCell>
+                      <div>
+                        <div className="text-sm font-medium">
+                          {tpl.display_name}
+                          {tpl.version && (
+                            <span className="ml-2 text-xs text-muted">
+                              v{tpl.version}
+                            </span>
+                          )}
+                        </div>
+                        <div className="section-subtitle line-clamp-2">
+                          {tpl.description}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell align="center">
+                      <span className="text-sm">
+                        {tpl.category
+                          .replace(/_/g, ' ')
+                          .replace(/\b\w/g, (c) => c.toUpperCase())}
+                      </span>
+                    </TableCell>
+                    <TableCell align="center">
+                      <span className={`badge${getTierBadge(tpl.tier).className}`}>
+                        {getTierBadge(tpl.tier).label}
+                      </span>
+                    </TableCell>
+                    <TableCell align="center">
+                      <div className="flex justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        {mp.installedIds.has(tpl.id) ? (
+                          isSuperAdmin ? (
+                            <button
+                              type="button"
+                              onClick={() => mp.handleUninstall(tpl.id)}
+                              disabled={mp.uninstallingId === tpl.id}
+                              className="action-btn-uninstall"
+                            >
+                              {mp.uninstallingId === tpl.id ? (
+                                'Removing...'
+                              ) : (
+                                <>
+                                  <Trash2 className="w-3 h-3 mr-1" />
+                                  Remove
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => mp.handleInstall(tpl, { force: true })}
+                                disabled={mp.installingId === tpl.id}
+                                className="action-btn-install"
+                                title="Make another copy with a unique name; lets you edit one without losing the original."
+                              >
+                                {mp.installingId === tpl.id ? (
+                                  'Copying...'
+                                ) : (
+                                  <>
+                                    <Download className="w-3 h-3 mr-1" />
+                                    Copy
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )
+                        ) : isSuperAdmin && tpl.tier === 'plus' && !mp.tokenConfigured ? (
+                          <span
+                            className="action-btn-locked"
+                            title="Plus prompt - requires entitlement token"
+                          >
+                            <Lock className="w-3 h-3 mr-1" />
+                            Plus
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => mp.handleInstall(tpl)}
+                            disabled={mp.installingId === tpl.id}
+                            className="action-btn-install"
+                          >
+                            {mp.installingId === tpl.id ? (
+                              isSuperAdmin ? 'Installing...' : 'Copying...'
+                            ) : (
+                              <>
+                                <Download className="w-3 h-3 mr-1" />
+                                {isSuperAdmin ? 'Install' : 'Copy'}
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <Pagination
+            currentPage={mp.page}
+            totalPages={mp.totalPages}
+            totalCount={mp.filteredCatalog.length}
+            pageSize={mp.pageSize}
+            onPageChange={mp.setPage}
+            itemLabel="prompt"
+            position="bottom"
+          />
+        </>
+      )}
+      {/* Read-only prompt detail modal */}
+      <Modal
+        isOpen={!!viewPrompt}
+        onClose={() => setViewPrompt(null)}
+        title={viewPrompt?.display_name ?? 'Prompt Details'} // defaults-ok
+        size="lg"
+      >
+        {viewPrompt && (
+          <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+            {/* Meta info */}
+            <div className="flex flex-wrap gap-3 text-sm">
+              <span className="badge bg-surface text-secondary">
+                {viewPrompt.category.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+              </span>
+              <span className={`badge ${getTierBadge(viewPrompt.tier).className}`}>
+                {getTierBadge(viewPrompt.tier).label}
+              </span>
+              {viewPrompt.version && (
+                <span className="text-muted">v{viewPrompt.version}</span>
+              )}
+              {viewPrompt.author && (
+                <span className="text-muted">by {viewPrompt.author}</span>
+              )}
+            </div>
+
+            {/* Description */}
+            {viewPrompt.description && (
+              <div>
+                <h4 className="text-sm font-semibold text-primary mb-1">Description</h4>
+                <p className="text-sm text-secondary">{viewPrompt.description}</p>
+              </div>
+            )}
+
+            {/* Loading full detail (chunks/variables fetched on open) */}
+            {detailLoading && viewPrompt.chunks.length === 0 && (
+              <p className="text-sm text-muted">Loading prompt details...</p>
+            )}
+
+            {/* Prompt chunks */}
+            {viewPrompt.chunks.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-primary mb-2">Prompt</h4>
+                <div className="space-y-2">
+                  {viewPrompt.chunks
+                    .sort((a, b) => a.order - b.order)
+                    .map((chunk, idx) => (
+                      <div key={idx} className="bg-surface rounded-md p-3">
+                        {chunk.role && (
+                          <span className="text-xs font-medium text-muted uppercase tracking-wide">
+                            {chunk.role}
+                          </span>
+                        )}
+                        <pre className="text-sm text-secondary whitespace-pre-wrap font-mono mt-1">
+                          {chunk.text}
+                        </pre>
+                        {chunk.variable && (
+                          <span className="text-xs text-info mt-1 inline-block">
+                            Variable: {chunk.variable}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* Variables */}
+            {viewPrompt.variables.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-primary mb-2">Variables</h4>
+                <div className="space-y-2">
+                  {viewPrompt.variables.map((v, idx) => (
+                    <div key={idx} className="bg-surface rounded-md p-3 text-sm">
+                      <span className="font-medium text-primary">{v.label || v.name}</span>
+                      <span className="text-muted ml-2">({v.type})</span>
+                      {v.default && (
+                        <span className="text-secondary ml-2">Default: {v.default}</span>
+                      )}
+                      {v.options && v.options.length > 0 && (
+                        <div className="text-muted mt-1">
+                          Options: {v.options.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Close button */}
+            <div className="flex justify-end pt-2 border-t border-primary">
+              <button
+                type="button"
+                onClick={() => setViewPrompt(null)}
+                className="btn-secondary text-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </>
+  );
+}

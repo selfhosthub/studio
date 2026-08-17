@@ -381,7 +381,7 @@ const Sidebar = ({
       {/* Bottom section - Documentation link */}
       <div className={`border-t ${isDarkMode ? 'border-secondary' : 'border-primary'} px-2 py-4`}>
         <Link
-          href={user?.role === "super_admin" ? "/docs/super-admin" : "/docs"}
+          href="/docs"
           prefetch={false}
           className={`
             group flex items-center gap-x-3 px-3 py-2.5 rounded-md text-sm font-medium

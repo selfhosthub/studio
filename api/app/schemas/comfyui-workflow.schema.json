@@ -294,8 +294,8 @@
           "filename": { "type": "string", "minLength": 1 },
           "directory": {
             "type": "string",
-            "description": "ComfyUI models/ subdirectory, current names (diffusion_models, not unet).",
-            "pattern": "^[a-z][a-z0-9_]*$"
+            "description": "ComfyUI model kind, optionally with the subfolder the file sits in (vae/FLUX1). The kind is the first segment.",
+            "pattern": "^[a-z][a-z0-9_]*(/[a-zA-Z0-9_.-]+)*$"
           },
           "size_gb": { "type": "number", "exclusiveMinimum": 0 },
           "source_url": { "type": "string", "format": "uri" },

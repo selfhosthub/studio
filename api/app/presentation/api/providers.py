@@ -474,8 +474,8 @@ async def update_credential(
         await validate_organization_access(str(credential.organization_id), user)
 
         # Get provider name for audit logging
-        provider = await service.get_provider(credential.provider_id)
-        provider_name = provider.name if provider else str(credential.provider_id)
+        provider = await service.get_provider_by_slug(credential.provider_slug)
+        provider_name = provider.name if provider else credential.provider_slug
 
         updated = await service.update_credential(credential_id, credential_update)
 
@@ -515,8 +515,8 @@ async def delete_credential(
     await validate_organization_access(str(credential.organization_id), user)
 
     # Get provider name for audit logging before deletion
-    provider = await service.get_provider(credential.provider_id)
-    provider_name = provider.name if provider else str(credential.provider_id)
+    provider = await service.get_provider_by_slug(credential.provider_slug)
+    provider_name = provider.name if provider else credential.provider_slug
     credential_name = credential.name
     organization_id = credential.organization_id
 
@@ -626,8 +626,8 @@ async def reveal_credential_secret(
         )
 
     # Get provider name for audit logging
-    provider = await service.get_provider(credential.provider_id)
-    provider_name = provider.name if provider else str(credential.provider_id)
+    provider = await service.get_provider_by_slug(credential.provider_slug)
+    provider_name = provider.name if provider else credential.provider_slug
 
     # Audit log the reveal action (CRITICAL severity - sensitive data access)
     from app.domain.audit.models import (

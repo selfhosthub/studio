@@ -158,14 +158,14 @@ class ProviderCredentialRepository(ABC):
     @abstractmethod
     async def get_default_credential(
         self,
-        provider_id: uuid.UUID,
+        provider_slug: str,
         organization_id: uuid.UUID,
     ) -> Optional[ProviderCredential]: ...
 
     @abstractmethod
     async def list_by_provider(
         self,
-        provider_id: uuid.UUID,
+        provider_slug: str,
         skip: int,
         limit: int,
         credential_type: Optional[CredentialType] = None,
@@ -178,7 +178,7 @@ class ProviderCredentialRepository(ABC):
         organization_id: uuid.UUID,
         skip: int,
         limit: int,
-        provider_id: Optional[uuid.UUID] = None,
+        provider_slug: Optional[str] = None,
         credential_type: Optional[CredentialType] = None,
         is_active: Optional[bool] = None,
         search: Optional[str] = None,

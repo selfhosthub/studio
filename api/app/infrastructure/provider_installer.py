@@ -105,6 +105,8 @@ class ProviderInstaller:
         logger.info(f"Installing provider: {slug} v{version}")
 
         try:
+            await self._retire_current_version(session, slug, version)
+
             provider_id = await self._upsert_provider(
                 session,
                 provider_data,
@@ -161,6 +163,27 @@ class ProviderInstaller:
                 success=False,
                 error=safe_error_message(e),
             )
+
+    @staticmethod
+    async def _retire_current_version(
+        session: AsyncSession, slug: str, version: str
+    ) -> None:
+        """Deactivate the slug's current row before the new one is written.
+
+        uix_providers_one_active_per_slug forbids a moment where both are
+        ACTIVE, so the retire leads the insert rather than following it.
+        """
+        result = await session.execute(
+            select(ProviderModel).where(
+                ProviderModel.slug == slug,
+                ProviderModel.operational_status == OperationalStatus.ACTIVE,
+                ProviderModel.version != version,
+            )
+        )
+        for row in result.scalars().all():
+            row.operational_status = OperationalStatus.INACTIVE
+            logger.info(f"Retiring provider {slug}@{row.version}")
+        await session.flush()
 
     async def _upsert_provider(
         self,
@@ -261,6 +284,8 @@ class ProviderInstaller:
             content=provider_data,
             apply_content=apply_provider_content,
             extra_insert_fields=extra_insert_fields,
+            is_soft_deleted=lambda row: row.operational_status
+            != OperationalStatus.ACTIVE,
         )
         return outcome.row_id
 

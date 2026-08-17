@@ -28,3 +28,11 @@ GHSA-hrxh-6v49-42gf exp:2026-09-30
 CVE-2026-39822 exp:2026-09-30
 CVE-2026-39821 exp:2026-09-30
 CVE-2026-46600 exp:2026-09-30
+# Same binary, same Go 1.26.4, disclosed since the 1.6.0 train. Fixed in Go
+# 1.26.6, which no cloudflared release carries yet.
+CVE-2026-33818 exp:2026-09-30
+CVE-2026-56853 exp:2026-09-30
+CVE-2026-56858 exp:2026-09-30
+CVE-2026-56859 exp:2026-09-30
+CVE-2026-56860 exp:2026-09-30
+CVE-2026-56862 exp:2026-09-30
