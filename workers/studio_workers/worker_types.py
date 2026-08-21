@@ -89,6 +89,9 @@ class WorkerTypeConfig:
         default_factory=set
     )  # Which ServiceTypes this worker handles
     resource_requirements: Dict[str, Any] = field(default_factory=dict)
+    # Requirements verified before the worker registers. Keys: required_modules,
+    # required_modules_by_setting, writable_path_envs.
+    startup_requirements: Dict[str, Any] = field(default_factory=dict)
 
 
 # Standard Worker Type Definitions
@@ -118,16 +121,14 @@ WORKER_TYPES: Dict[str, WorkerTypeConfig] = {
     "video": WorkerTypeConfig(
         type_id="video",
         display_name="Video Worker",
-        description="GPU worker for video processing with Whisper STT (shs-video provider)",
+        description="Video processing worker with Whisper STT (shs-video provider)",
         queue_name="video_jobs",
         # NOTE: queue_labels MUST include queue_name for JWT authorization
-        queue_labels=["video_jobs", "video", "gpu", "ffmpeg", "whisper", "shs-video"],
+        queue_labels=["video_jobs", "video", "ffmpeg", "whisper", "shs-video"],
         capabilities={
             "type": "video",
             "provider": "shs-video",
             "handles": ["video_jobs"],
-            "gpu": True,
-            "gpu_type": "cuda",  # For hardware-accelerated encoding + Whisper
             "max_concurrent_jobs": 2,
             "operations": [
                 "shs_create_video",  # Scenes → video with effects, audio, subtitles
@@ -144,8 +145,15 @@ WORKER_TYPES: Dict[str, WorkerTypeConfig] = {
         resource_requirements={
             "cpu": "4",
             "memory": "8Gi",
-            "gpu": "1",
-            "gpu_memory": "8Gi",  # Whisper needs GPU memory
+        },
+        startup_requirements={
+            "required_modules_by_setting": {
+                "WHISPER_BACKEND": {
+                    "openai": "whisper",
+                    "faster": "faster_whisper",
+                },
+            },
+            "writable_path_envs": ["XDG_CACHE_HOME"],
         },
     ),
     "comfyui-image": WorkerTypeConfig(

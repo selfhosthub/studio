@@ -43,7 +43,9 @@ LABEL org.opencontainers.image.title="Self-Host Studio worker (general)" \
 COPY LICENSE LEGAL.md /app/
 
 # Pull the patched kernel headers package
-RUN apt-get update && apt-get install -y --only-upgrade linux-libc-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --only-upgrade linux-libc-dev \
+    bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN groupadd -g 1000 worker && useradd -u 1000 -g worker -d /app -s /sbin/nologin worker && chown -R worker:worker /app

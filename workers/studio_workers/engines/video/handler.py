@@ -66,6 +66,9 @@ class VideoWorker(WorkerBase):
         os.makedirs(self.cache_dir, exist_ok=True)
         self.max_cache_mb = video_settings.VIDEO_CACHE_MAX_MB
 
+    def startup_setting_values(self) -> Dict[str, str]:
+        return {"WHISPER_BACKEND": video_settings.WHISPER_BACKEND}
+
     def process_jobs(self):
         logger.info(f"{self.worker_type.upper()} Worker Started")
         logger.info(f"Monitoring queues: {', '.join(self.queues)}")

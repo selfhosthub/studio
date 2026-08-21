@@ -47,6 +47,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 from studio_workers.settings import settings
+from studio_workers.utils.startup_checks import StartupCheckError
 from studio_workers.worker_types import WORKER_TYPES
 
 # Legacy aliases.
@@ -148,6 +149,18 @@ def main():
         logger.error(f"Valid types: {valid}")
         sys.exit(1)
 
+    # Lazily import and instantiate the appropriate worker
+    worker_class = get_worker_handler(worker_type)
+    worker = worker_class(worker_type=standard_type)
+
+    # Local requirements first: a missing engine or an unwritable cache path is
+    # answerable now, not after minutes of waiting for an API.
+    try:
+        worker.verify_startup_requirements()
+    except StartupCheckError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
     # Wait for API before starting
     logger.debug("Checking dependencies...")
     if not wait_for_api(retry_interval, max_retries):
@@ -156,9 +169,6 @@ def main():
 
     logger.info("Polling for jobs...")
 
-    # Lazily import and instantiate the appropriate worker
-    worker_class = get_worker_handler(worker_type)
-    worker = worker_class(worker_type=standard_type)
     worker.run()
 
 

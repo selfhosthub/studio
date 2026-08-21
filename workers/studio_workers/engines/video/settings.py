@@ -35,7 +35,7 @@ class VideoSettings(BaseSettings):
     VIDEO_CACHE_MAX_MB: int = 1000
     WHISPER_MODEL: str = "base"
     # "openai" (openai-whisper) or "faster" (faster-whisper); default when a job omits it.
-    WHISPER_BACKEND: str = "openai"
+    WHISPER_BACKEND: str = "faster"
 
 
 settings = VideoSettings()

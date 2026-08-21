@@ -35,6 +35,7 @@ import httpx
 
 from studio_workers.contracts.version import WORKERS_VERSION
 from studio_workers.settings import settings
+from studio_workers.utils.startup_checks import StartupCheckError, run_startup_checks
 
 logger = logging.getLogger(__name__)
 
@@ -473,10 +474,26 @@ class WorkerBase(ABC):
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+    def startup_setting_values(self) -> Dict[str, str]:
+        """Settings the worker type's startup requirements are checked against."""
+        return {}
+
+    def verify_startup_requirements(self) -> None:
+        """Raise StartupCheckError when the worker type's declared requirements are unmet."""
+        failures = run_startup_checks(self.worker_type, self.startup_setting_values())
+        if failures:
+            for failure in failures:
+                logger.error(f"Startup check failed: {failure}")
+            raise StartupCheckError(
+                f"{self.worker_type} worker cannot start: " + "; ".join(failures)
+            )
+
     def run(self):
         """Register and start processing jobs."""
         # Setup signal handlers first to catch Ctrl+C cleanly
         self._setup_signal_handlers()
+
+        self.verify_startup_requirements()
 
         self.running = True
 

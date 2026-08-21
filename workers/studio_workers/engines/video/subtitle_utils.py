@@ -157,7 +157,14 @@ def _transcribe_faster(
             {"word": w.word, "start": w.start, "end": w.end}
             for w in (seg.words or [])
         ]
-        out_segments.append({"text": seg.text, "words": words})
+        out_segments.append(
+            {
+                "text": seg.text,
+                "start": seg.start,
+                "end": seg.end,
+                "words": words,
+            }
+        )
         full_text.append(seg.text)
 
     return {

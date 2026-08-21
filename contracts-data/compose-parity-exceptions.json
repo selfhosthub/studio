@@ -1,0 +1,27 @@
+{
+  "$comment": "Declared differences between docker-compose.yml and the console-shipped copy. Any other difference in a shared service fails the parity gate. reason states why the difference is allowed; drift entries are differences that should not exist and are printed on every run until they are fixed.",
+  "services": {
+    "*": {
+      "env_file": {
+        "reason": "The console writes its .env into the operator's studio dir and loads it per service; the repo compose expects the operator's own env.",
+        "drift": false
+      },
+      "volumes": {
+        "reason": "Same mounts, different host-side variable names: the repo uses SHS_WORKSPACE_HOST, the console splits storage into SHS_STORAGE_ROOT, SHS_DB_DATA and SHS_MODELS_ROOT.",
+        "drift": false
+      }
+    },
+    "worker-video": {
+      "environment": {
+        "reason": "The repo sets XDG_CACHE_HOME so whisper model files persist on the volume; the console copy has no model cache path yet.",
+        "drift": true
+      }
+    },
+    "worker-audio": {
+      "environment": {
+        "reason": "HF_HOME points at the workspace volume in the repo and at the separate /models mount in the console; SHS_AUDIO_MODEL_IDLE_SECONDS is absent from the console copy.",
+        "drift": true
+      }
+    }
+  }
+}

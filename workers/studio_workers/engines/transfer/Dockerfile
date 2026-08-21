@@ -9,6 +9,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Pull the patched util-linux packages
+RUN apt-get update && apt-get install -y --only-upgrade \
+    bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv for fast dependency resolution
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 

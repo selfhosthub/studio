@@ -56,7 +56,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -104,7 +104,8 @@ services:
         condition: service_started
         required: false
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/nginx-health"]
+      # 127.0.0.1, not localhost: /etc/hosts resolves localhost to ::1 and nginx listens on IPv4 only.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -184,6 +185,9 @@ services:
       - SHS_WORKSPACE_ROOT=/workspace
       - SHS_WORKER_TYPE=video
       - SHS_WHISPER_MODEL=${SHS_WHISPER_MODEL:-base}
+      # Whisper model files land here instead of container-local scratch, so they
+      # survive a recreate and are shared by every worker on the same volume.
+      - XDG_CACHE_HOME=/workspace/models
     volumes:
       - ${SHS_WORKSPACE_HOST:?SHS_WORKSPACE_HOST is required}:/workspace
     extra_hosts:

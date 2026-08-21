@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     && apt-get install -y --only-upgrade libexpat1 \
+    bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
