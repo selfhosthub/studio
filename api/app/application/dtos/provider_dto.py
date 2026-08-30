@@ -239,6 +239,8 @@ class ProviderCredentialResponse(BaseModel):
     has_client_credentials: bool = False
     # access_token present (OAuth authorization completed).
     has_access_token: bool = False
+    # refresh_token present (the token can be renewed without re-authorizing).
+    has_refresh_token: bool = False
     # webhook_callback_api_key present (credential is webhook-capable). Drives the
     # step editor's "webhook mode but no callback key" warning.
     has_webhook_callback_key: bool = False
@@ -270,6 +272,7 @@ class ProviderCredentialResponse(BaseModel):
                 creds.get("client_id") and creds.get("client_secret")
             ),
             has_access_token=bool(creds.get("access_token")),
+            has_refresh_token=bool(creds.get("refresh_token")),
             has_webhook_callback_key=bool(creds.get("webhook_callback_api_key")),
             webhook_callback_token=getattr(
                 credential, "webhook_callback_token", None

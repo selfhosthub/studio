@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     && apt-get install -y --only-upgrade libexpat1 \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
+    libssl3t64 openssl openssl-provider-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution

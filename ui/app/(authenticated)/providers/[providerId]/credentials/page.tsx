@@ -183,6 +183,7 @@ function ProviderCredentialsPageContent() {
                       refreshingCredential={oauth.refreshingCredential}
                       credentialNeedsOAuth={oauth.credentialNeedsOAuth}
                       credentialHasOAuth={oauth.credentialHasOAuth}
+                      credentialCanRefresh={oauth.credentialCanRefresh}
                       onOAuthAuthorize={oauth.handleOAuthAuthorize}
                       onRefreshOAuthToken={oauth.handleRefreshOAuthToken}
                       onReauthorize={oauth.handleReauthorize}

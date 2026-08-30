@@ -34,6 +34,11 @@ export function useOAuthFlow({
     return !!cred.has_access_token;
   };
 
+  /** Refresh only reaches a provider that issued a refresh token */
+  const credentialCanRefresh = (cred: Credential): boolean => {
+    return !!cred.has_refresh_token;
+  };
+
   /** Start OAuth authorization for an existing credential */
   const handleOAuthAuthorize = async (credentialId: string) => {
     if (!oauthProviderKey) return;
@@ -90,6 +95,7 @@ export function useOAuthFlow({
     refreshingCredential,
     credentialNeedsOAuth,
     credentialHasOAuth,
+    credentialCanRefresh,
     handleOAuthAuthorize,
     handleRefreshOAuthToken,
     handleReauthorize,

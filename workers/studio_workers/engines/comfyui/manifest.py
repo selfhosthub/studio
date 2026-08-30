@@ -147,12 +147,17 @@ def inject_from_manifest(
     manifest: PackageManifest,
     parameters: Dict[str, Any],
     model: Optional[str] = None,
+    resolved: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Inject parameters into the manifest's graph; returns a new dict.
 
     Merge order is package defaults, then model defaults, then user params;
     seed -1 randomizes; output dims come from the dimensions param;
     gen dims derive inside the package's generation band.
+
+    A `resolved` dict is filled with the merged parameters, which is the only
+    place the randomized seed exists: the graph carries it under whatever node
+    key the package maps it to, and not every package has one to read back.
     """
     workflow = copy.deepcopy(manifest.graph)
 
@@ -195,6 +200,9 @@ def inject_from_manifest(
             )
         merged["width"] = out_w
         merged["height"] = out_h
+
+    if resolved is not None:
+        resolved.update(merged)
 
     for name, value in merged.items():
         for target in manifest.node_mappings.get(name, []):

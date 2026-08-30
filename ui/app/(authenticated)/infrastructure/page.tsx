@@ -17,6 +17,7 @@ import { useInfrastructureData } from './hooks/useInfrastructureData';
 import { MessagingTabPanel } from './components/MessagingTabPanel';
 import { QueueTabPanel } from './components/QueueTabPanel';
 import { WorkersTabPanel } from './components/WorkersTabPanel';
+import { WorkerEnrollmentPanel } from './components/WorkerEnrollmentPanel';
 import { StorageTabPanel } from './components/StorageTabPanel';
 import { DatabaseTabPanel } from './components/DatabaseTabPanel';
 
@@ -268,7 +269,10 @@ function InfrastructureContent() {
               {data.activeTab === 'messaging' && <MessagingTabPanel health={data.health} />}
               {data.activeTab === 'queue' && <QueueTabPanel health={data.health} />}
               {data.activeTab === 'workers' && (
-                <WorkersTabPanel health={data.health} onDeregister={data.handleDeregisterWorker} />
+                <>
+                  <WorkersTabPanel health={data.health} onDeregister={data.handleDeregisterWorker} />
+                  <WorkerEnrollmentPanel />
+                </>
               )}
               {data.activeTab === 'storage' && (
                 <StorageTabPanel

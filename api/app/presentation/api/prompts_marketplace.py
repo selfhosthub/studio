@@ -78,6 +78,7 @@ class CatalogVariable(BaseModel):
     label: str
     type: str = "string"
     options: Optional[List[str]] = None
+    option_labels: Optional[List[str]] = None
     default: Optional[str] = None
     required: bool = False
 

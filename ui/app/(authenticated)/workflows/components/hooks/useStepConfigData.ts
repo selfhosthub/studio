@@ -328,7 +328,16 @@ export function useStepConfigData({ step, onUpdate, allSteps }: UseStepConfigDat
             return { ...prev, collapsedSections: merged };
           });
 
-          if (data.result_schema?.properties) {
+          const serviceOutputs = data.client_metadata?.outputs as AnyRecord | undefined;
+
+          if (serviceOutputs && Object.keys(serviceOutputs).length > 0) {
+            // Service-declared outputs (e.g. `response` on chat services) name the
+            // useful value; the raw result schema only exposes the wire envelope.
+            setOutputFields((prev: AnyRecord) => ({
+              ...serviceOutputs,
+              ...prev
+            }));
+          } else if (data.result_schema?.properties) {
             const schemaOutputs: AnyRecord = {};
 
             Object.entries(data.result_schema.properties).forEach(([key, schema]) => {

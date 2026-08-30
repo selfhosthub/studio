@@ -148,6 +148,10 @@ export function MappableParameterField({
   const isIterationEnabled = iterationConfig?.enabled === true;
   const hasStarPath = isMapped && (effectiveMapping?.outputField?.includes('[*]') ?? false);
   const isIteratorMapping = isMapped && isIterationEnabled && !isArrayType && (mappedOutputType === 'array' || hasStarPath);
+  // The mode the badge shows, reused as the automation contract's data-param-mode.
+  const displayMode = isIterationEnabled && isMapped && mappedOutputType === 'array' && !isArrayType
+    ? 'iterate'
+    : isMapped ? 'mapped' : isPrompt ? 'prompt' : isForm ? 'form' : 'static';
   const isIterationApplicable = onIterationChange && (
     (isMapped && mappedOutputType === 'array' && !isArrayType) ||
     (schema.iterable && isComplexArray && nestedArrayMappings.length > 0)
@@ -337,6 +341,11 @@ export function MappableParameterField({
   return (
     <div
       className={`param-field-wrapper ${isDragOver && !isComplexArray ? 'ring-2 ring-info bg-info-subtle' : ''}`}
+      data-testid={`param-field-${paramKey}`}
+      data-param-id={paramKey}
+      data-param-type={schema.type}
+      data-param-mode={displayMode}
+      data-param-required={required ? 'true' : 'false'}
       onDragOver={handleDragOverFiltered}
       onDragLeave={handleDragLeave}
       onDrop={handleDropFiltered}
@@ -366,6 +375,7 @@ export function MappableParameterField({
             <button
               ref={modeDropdownButtonRef}
               type="button"
+              data-testid={`param-mode-${paramKey}`}
               onClick={handleModeDropdownToggle}
               className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors ${
                 isIterationEnabled && isMapped && mappedOutputType === 'array' && !isArrayType ? 'bg-success-subtle text-success border border-success' :
@@ -380,17 +390,17 @@ export function MappableParameterField({
             </button>
             {showModeDropdown && modeDropdownPosition && ReactDOM.createPortal(
               <div ref={modeDropdownMenuRef} data-step-config-dropdown className="fixed w-48 bg-card border border-primary rounded-md shadow-lg z-[9999]" style={{ top: modeDropdownPosition.top, left: modeDropdownPosition.left }}>
-                <button type="button" onClick={(e) => { e.stopPropagation(); handleModeChange('static'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'static' ? 'bg-surface' : ''}`}><Type className="h-4 w-4 text-secondary" /><div><div className="font-medium">Static</div><div className="text-xs text-secondary">{isComplexArray ? 'Edit items individually' : 'Fixed value set here'}</div></div></button>
-                {!isComplexArray && previousSteps.length > 0 && <button type="button" onClick={(e) => { e.stopPropagation(); handleModeChange('mapped'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'mapped' && !isIterationEnabled ? 'bg-surface' : ''}`}><Link2 className="h-4 w-4 text-critical" /><div><div className="font-medium">Mapped</div><div className="text-xs text-secondary">From previous step output</div></div></button>}
-                {!isComplexArray && <button type="button" onClick={(e) => { e.stopPropagation(); handleModeChange('form'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'form' ? 'bg-surface' : ''}`}><FileInput className="h-4 w-4 text-info" /><div><div className="font-medium">Form</div><div className="text-xs text-secondary">User provides at runtime</div></div></button>}
-                {schema.ui?.prompt && <button type="button" onClick={(e) => { e.stopPropagation(); handleModeChange('prompt'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'prompt' ? 'bg-surface' : ''}`}><Sparkles className="h-4 w-4 text-success" /><div><div className="font-medium">Prompt</div><div className="text-xs text-secondary">From AI Prompts library</div></div></button>}
+                <button type="button" data-testid={`param-mode-option-static-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('static'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'static' ? 'bg-surface' : ''}`}><Type className="h-4 w-4 text-secondary" /><div><div className="font-medium">Static</div><div className="text-xs text-secondary">{isComplexArray ? 'Edit items individually' : 'Fixed value set here'}</div></div></button>
+                {!isComplexArray && previousSteps.length > 0 && <button type="button" data-testid={`param-mode-option-mapped-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('mapped'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'mapped' && !isIterationEnabled ? 'bg-surface' : ''}`}><Link2 className="h-4 w-4 text-critical" /><div><div className="font-medium">Mapped</div><div className="text-xs text-secondary">From previous step output</div></div></button>}
+                {!isComplexArray && <button type="button" data-testid={`param-mode-option-form-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('form'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'form' ? 'bg-surface' : ''}`}><FileInput className="h-4 w-4 text-info" /><div><div className="font-medium">Form</div><div className="text-xs text-secondary">User provides at runtime</div></div></button>}
+                {schema.ui?.prompt && <button type="button" data-testid={`param-mode-option-prompt-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('prompt'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'prompt' ? 'bg-surface' : ''}`}><Sparkles className="h-4 w-4 text-success" /><div><div className="font-medium">Prompt</div><div className="text-xs text-secondary">From AI Prompts library</div></div></button>}
               </div>,
               document.body
             )}
           </div>
         )}
       </div>
-      <div className="param-field-input-row">
+      <div className="param-field-input-row" data-testid={`param-control-${paramKey}`}>
         {isPrompt ? (
           <PromptInput
             promptId={mapping?.promptId || ''}

@@ -402,3 +402,54 @@ export async function getActorAuditHistory(
     `/audit/actor/${actorId}?skip=${skip}&limit=${limit}`
   );
 }
+
+export interface JoinToken {
+  id: string;
+  label: string;
+  queues: string[];
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+}
+
+/** The plaintext token, returned once and never stored. */
+export interface MintedJoinToken {
+  id: string;
+  token: string;
+  expires_at: string;
+}
+
+export interface WorkerEnrollment {
+  id: string;
+  label: string;
+  queues: string[];
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export async function mintJoinToken(
+  label: string,
+  queues: string[],
+  ttlSeconds: number
+): Promise<MintedJoinToken> {
+  return apiRequest<MintedJoinToken>('/infrastructure/workers/join-tokens', {
+    method: 'POST',
+    body: JSON.stringify({ label, queues, ttl_seconds: ttlSeconds }),
+  });
+}
+
+export async function getJoinTokens(): Promise<JoinToken[]> {
+  return apiRequest<JoinToken[]>('/infrastructure/workers/join-tokens');
+}
+
+export async function getWorkerEnrollments(): Promise<WorkerEnrollment[]> {
+  return apiRequest<WorkerEnrollment[]>('/infrastructure/workers/enrollments');
+}
+
+/** The worker keeps its current JWT until it expires, then cannot register again. */
+export async function revokeWorkerEnrollment(enrollmentId: string): Promise<void> {
+  return apiRequest<void>(`/infrastructure/workers/enrollments/${enrollmentId}`, {
+    method: 'DELETE',
+  });
+}

@@ -357,6 +357,8 @@ async def update_workflow(
         "webhook_auth_header_name",
         "webhook_auth_header_value",
         "webhook_jwt_secret",
+        "webhook_secret",
+        "webhook_config",
     )
     touches_trigger_config = any(
         getattr(workflow_update, f) is not None for f in _TRIGGER_CONFIG_FIELDS
@@ -1346,6 +1348,10 @@ async def export_workflow(
         "steps": workflow.steps,
         "trigger_input_schema": workflow.trigger_input_schema,
         "client_metadata": workflow.client_metadata,
+        "webhook_method": workflow.webhook_method,
+        "webhook_auth_type": workflow.webhook_auth_type,
+        "webhook_auth_header_name": workflow.webhook_auth_header_name,
+        "webhook_config": workflow.webhook_config,
     }
 
     # Sanitize filename

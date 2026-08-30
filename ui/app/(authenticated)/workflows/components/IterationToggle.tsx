@@ -122,7 +122,11 @@ export function IterationToggle({
 
   return (
     <>
-      <div className={`mb-4 p-3 rounded-lg border${isIterationEnabled ? 'bg-success-subtle border-success' : 'bg-surface border-primary'}`}>
+      <div
+        data-testid="step-iteration"
+        data-iteration-enabled={isIterationEnabled ? 'true' : 'false'}
+        className={`mb-4 p-3 rounded-lg border${isIterationEnabled ? 'bg-success-subtle border-success' : 'bg-surface border-primary'}`}
+      >
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-2 cursor-pointer flex-1">
             <input

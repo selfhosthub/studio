@@ -131,6 +131,7 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             webhook_method=model.webhook_method,
             webhook_auth_type=model.webhook_auth_type,
             webhook_auth_header_name=model.webhook_auth_header_name,
+            webhook_config=model.webhook_config,
             trigger_input_schema=trigger_schema,
             schedule_dtstart=model.schedule_dtstart,
             schedule_rrule=model.schedule_rrule,
@@ -228,6 +229,7 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             webhook_method=workflow.webhook_method,
             webhook_auth_type=workflow.webhook_auth_type,
             webhook_auth_header_name=workflow.webhook_auth_header_name,
+            webhook_config=workflow.webhook_config,
             schedule_dtstart=workflow.schedule_dtstart,
             schedule_rrule=workflow.schedule_rrule,
             schedule_timezone=workflow.schedule_timezone,
@@ -301,6 +303,7 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         workflow_model.webhook_method = workflow.webhook_method
         workflow_model.webhook_auth_type = workflow.webhook_auth_type
         workflow_model.webhook_auth_header_name = workflow.webhook_auth_header_name
+        workflow_model.webhook_config = workflow.webhook_config
         workflow_model.schedule_dtstart = workflow.schedule_dtstart
         workflow_model.schedule_rrule = workflow.schedule_rrule
         workflow_model.schedule_timezone = workflow.schedule_timezone

@@ -67,6 +67,7 @@ export interface Credential {
   updated_at?: string;
   has_client_credentials?: boolean;
   has_access_token?: boolean;
+  has_refresh_token?: boolean;
   /** True when the credential holds a webhook_callback_api_key (webhook-capable). */
   has_webhook_callback_key?: boolean;
   /** Stable routing key for this credential's inbound callback URL; null until first webhook save. */

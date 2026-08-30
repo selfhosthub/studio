@@ -1,6 +1,7 @@
 # workers/studio_workers/cli.py
 
-"""studio-workers console entrypoint: `doctor` (environment check) and `run` (start a worker)."""
+"""studio-workers console entrypoint: `doctor` (environment check), `enroll`
+(exchange a join token for this worker's credential) and `run` (start a worker)."""
 
 import argparse
 import platform
@@ -118,6 +119,41 @@ def run(worker_type: str | None, queues: str | None = None) -> int:
     return 0
 
 
+def enroll(join_token: str, label: str | None) -> int:
+    """Exchange a join token for this worker's credential and print it."""
+    import httpx
+
+    from studio_workers.settings import settings
+
+    body: dict[str, str] = {"join_token": join_token}
+    if label:
+        body["label"] = label
+
+    try:
+        response = httpx.post(
+            f"{settings.API_BASE_URL.rstrip('/')}/api/v1/workers/enroll",
+            json=body,
+            timeout=30,
+        )
+    except httpx.HTTPError as exc:
+        print(f"FAIL  cannot reach {settings.API_BASE_URL}: {exc}", file=sys.stderr)
+        return 1
+
+    if response.status_code != 201:
+        detail = response.json().get("detail", response.text)
+        print(f"FAIL  {response.status_code}: {detail}", file=sys.stderr)
+        return 1
+
+    data = response.json()
+    print("Enrolled. Set this on the worker and keep it secret:")
+    print()
+    print(f"SHS_WORKER_CREDENTIAL={data['credential']}")
+    print()
+    print(f"Queues this worker may serve: {', '.join(data['queues']) or 'none'}")
+    print("The credential is shown once. Re-enrol with a new join token if it is lost.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="studio-workers")
     parser.add_argument("--version", action="version", version=WORKERS_VERSION)
@@ -130,6 +166,12 @@ def main(argv: list[str] | None = None) -> int:
         help="engine you intend to run; makes torch mandatory for audio/video and ffmpeg (libass) for video",
     )
 
+    p_enroll = sub.add_parser(
+        "enroll", help="exchange a join token for this worker's own credential"
+    )
+    p_enroll.add_argument("--join-token", required=True, help="token from a super admin")
+    p_enroll.add_argument("--label", help="name for this worker; defaults to the token's label")
+
     p_run = sub.add_parser("run", help="start a worker (same loop as python -m studio_workers.worker)")
     p_run.add_argument("--type", dest="worker_type", help="worker type; overrides SHS_WORKER_TYPE")
     p_run.add_argument(
@@ -140,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "doctor":
         return doctor(args.engine)
+    if args.command == "enroll":
+        return enroll(args.join_token, args.label)
     return run(args.worker_type, args.queues)
 
 

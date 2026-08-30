@@ -25,6 +25,9 @@ RUN npm run build
 FROM node:24-alpine AS runner
 WORKDIR /app
 
+# Patch base-image CVEs the upstream tag has not picked up yet.
+RUN apk upgrade --no-cache libcrypto3 libssl3
+
 # Standalone runtime execs node directly; drop the npm/corepack CLIs
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 

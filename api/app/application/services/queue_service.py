@@ -275,16 +275,19 @@ class QueueService(QueueServiceInterface):
         gpu_memory_percent: Optional[float] = None,
         storage_mode: str = "remote",
         worker_version: Optional[str] = None,
+        credential_verified: bool = False,
     ) -> WorkerResponse:
-        """Register a new worker via shared-secret self-registration.
+        """Register a new worker via shared-secret or enrollment-credential self-registration.
 
         queue_id is optional; omit for general-purpose workers not bound to a specific queue.
+        credential_verified means an enrollment credential already authenticated the
+        caller, so the shared secret is not consulted.
 
         Raises:
             ValidationError: If secret is invalid or worker_version mismatches
             EntityNotFoundError: If queue_id is provided but the queue doesn't exist
         """
-        if secret != settings.WORKER_SHARED_SECRET:
+        if not credential_verified and secret != settings.WORKER_SHARED_SECRET:
             raise ValidationError("Invalid worker secret")
 
         if worker_version != WORKERS_VERSION:

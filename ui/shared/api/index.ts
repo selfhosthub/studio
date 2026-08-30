@@ -253,6 +253,13 @@ export {
   type AuditEvent,
   type AuditEventListResponse,
   type AuditEventFilters,
+  mintJoinToken,
+  getJoinTokens,
+  getWorkerEnrollments,
+  revokeWorkerEnrollment,
+  type JoinToken,
+  type MintedJoinToken,
+  type WorkerEnrollment,
 } from './admin';
 
 export {

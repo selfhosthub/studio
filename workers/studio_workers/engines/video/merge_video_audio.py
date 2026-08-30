@@ -289,6 +289,7 @@ def _process_subtitles(
         return default
 
     style_params = {
+        "style": get_param("style", "standard"),
         "all_caps": get_param("all_caps", False),
         "font_size": get_param("font_size", 24),
         "font_family": get_param("font_family", "Luckiest Guy"),

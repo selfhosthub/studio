@@ -24,7 +24,7 @@ from studio_workers.utils.cf_access import cf_access_headers
 
 # Configuration
 API_BASE_URL: str = settings.API_BASE_URL
-WORKER_SHARED_SECRET: str = settings.WORKER_SHARED_SECRET
+WORKER_AUTH_SECRET: str = settings.auth_secret
 JOB_POLL_INTERVAL = settings.JOB_POLL_INTERVAL_S
 JOB_POLL_BACKOFF_MAX = settings.JOB_POLL_BACKOFF_MAX_S
 JOB_POLL_JITTER_FRAC = settings.JOB_POLL_JITTER_FRAC
@@ -39,7 +39,7 @@ class HTTPJobClient:
         token_getter: Optional[Callable[[], Optional[str]]] = None,
     ):
         self.api_base_url = API_BASE_URL.rstrip("/")
-        self.worker_secret = WORKER_SHARED_SECRET
+        self.worker_secret = WORKER_AUTH_SECRET
         self.worker_id = worker_id or f"worker-{os.getpid()}"
         self.token_getter = token_getter
         self.poll_interval = JOB_POLL_INTERVAL

@@ -16,7 +16,8 @@ Variables that have no defaults and must be present before startup.
 |----------|---------|-------------|
 | `SHS_STUDIO_VERSION` | Compose | Docker image tag for all Studio containers. |
 | `SHS_JWT_SECRET_KEY` | API | JWT signing secret. 32+ random chars. |
-| `SHS_WORKER_SHARED_SECRET` | API, workers | Shared secret for worker authentication. 32+ random chars. |
+| `SHS_WORKER_SHARED_SECRET` | API, workers | Fleet shared secret for worker authentication. 32+ random chars. |
+| `SHS_WORKER_CREDENTIAL` | workers | This worker's own enrollment credential, from `studio-workers enroll`. Optional; wins over the shared secret when set. |
 | `SHS_CREDENTIAL_ENCRYPTION_KEY` | API | AES key for stored provider credentials. 32+ random chars. |
 | `SHS_DATABASE_URL` | API | PostgreSQL connection URL. Format: `postgresql+asyncpg://user:pass@host:port/db`. |
 | `POSTGRES_PASSWORD` | Postgres | Database superuser password. |
@@ -49,7 +50,7 @@ Variables that have no defaults and must be present before startup.
 | Variable | Written to `.env` | Description |
 |----------|-------------------|-------------|
 | `SHS_JWT_SECRET_KEY` | Yes | JWT signing secret. 32+ chars. Required. |
-| `SHS_WORKER_SHARED_SECRET` | Yes | Worker auth secret. 32+ chars. Required. |
+| `SHS_WORKER_SHARED_SECRET` | Yes | Fleet worker auth secret. 32+ chars. Required on the API. |
 | `SHS_CREDENTIAL_ENCRYPTION_KEY` | Yes | AES encryption key for stored provider credentials. Required. |
 | `SHS_ADMIN_PASSWORD` | **No (shell only)** | Initial admin password. Used during first-boot bootstrap only; never persisted to `.env` for security. |
 | `SHS_ENTITLEMENT_TOKEN` | Yes | Plus catalog access token. Leave blank to use community catalog only. |
@@ -384,7 +385,8 @@ Precedence: **process env > `workers/envs/.env.dev` > `workers/envs/.env.local` 
 |----------|-------------|
 | `SHS_API_BASE_URL` | URL workers use to reach the API. Docker: `http://api:8000` (hardcoded in compose). Native host: `http://localhost:8100`. |
 | `SHS_PUBLIC_BASE_URL` | Publicly reachable URL used by external APIs to download files from the workspace. Must be a tunnel URL or public address in dev. |
-| `SHS_WORKER_SHARED_SECRET` | Shared secret for `POST /workers/register`. |
+| `SHS_WORKER_SHARED_SECRET` | Fleet shared secret for `POST /workers/register`. A worker sets this or `SHS_WORKER_CREDENTIAL`. |
+| `SHS_WORKER_CREDENTIAL` | This worker's enrollment credential from `studio-workers enroll --join-token`. Scoped to the queues its join token granted, and revocable on its own. |
 | `SHS_WORKSPACE_ROOT` | Workspace root. Docker: `/workspace`. Native host: absolute path. |
 
 ### Shared - Optional

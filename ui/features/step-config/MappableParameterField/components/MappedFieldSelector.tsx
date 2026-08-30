@@ -82,8 +82,9 @@ export function MappedFieldSelector({
 
   return (
     <div className="flex-1 min-w-0 space-y-2">
-      <div className="param-field-input-row">
+      <div className="param-field-input-row" data-map-step={effectiveMapping?.stepId || ''}>
         <select
+          data-testid={`param-map-step-${paramKey}`}
           value={effectiveMapping?.stepId || ''}
           onChange={(e) => handleStepChange(e.target.value)}
           className="p-2 border rounded text-sm"
@@ -97,6 +98,7 @@ export function MappedFieldSelector({
           ))}
         </select>
         <select
+          data-testid={`param-map-output-${paramKey}`}
           value={effectiveMapping?.outputField?.replace(/\[\*\]$/, '') || ''}
           onChange={(e) => handleOutputFieldChange(e.target.value)}
           disabled={!effectiveMapping?.stepId}

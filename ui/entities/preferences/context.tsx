@@ -22,9 +22,9 @@ export interface UserPreferences {
 
 // Default preferences
 const defaultPreferences: UserPreferences = {
-  defaultEditorHeight: 500,
+  defaultEditorHeight: 720,
   sidebarCollapsed: false,
-  editorWidth: 'centered',
+  editorWidth: 'full',
   nodeSpacing: 'normal',
   nodeWidth: 'normal',
   edgeStyle: 'bezier',

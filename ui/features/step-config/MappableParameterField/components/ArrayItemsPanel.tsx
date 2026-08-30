@@ -245,6 +245,10 @@ export function ArrayItemsPanel({
 
     const fieldLabel = fieldSchema.title || fieldKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     const stateKey = keyPrefix ? `${keyPrefix}:${itemIndex}:${fieldKey}` : `${itemIndex}:${fieldKey}`;
+    // Addressed by the same bracket path input_mappings uses, e.g. scenes[0].elements[0].src.
+    const fieldPath = keyPrefix
+      ? `${keyPrefix}.${fieldKey}`
+      : `${paramKey}[${itemIndex}].${fieldKey}`;
     const fieldMode = getItemFieldMode(itemIndex, fieldKey, keyPrefix);
     const fieldMapping = getItemFieldMapping(itemIndex, fieldKey, keyPrefix);
     const isDropdownOpen = showItemModeDropdown === stateKey;
@@ -456,6 +460,10 @@ export function ArrayItemsPanel({
       <div
         key={fieldKey}
         className={`space-y-1 relative rounded transition-all ${isItemDragOver ? 'ring-2 ring-info bg-info-subtle' : ''}`}
+        data-testid={`param-field-${fieldPath}`}
+        data-param-id={fieldPath}
+        data-param-type={fieldSchema.type}
+        data-param-mode={fieldMode}
         onDragOver={handleItemFieldDragOver}
         onDragLeave={handleItemFieldDragLeave}
         onDrop={handleItemFieldDrop}
@@ -496,6 +504,7 @@ export function ArrayItemsPanel({
             </div>
           )}
         </div>
+        <div className="param-field-input-row" data-testid={`param-control-${fieldPath}`}>
         {fieldMode === 'prompt' ? (() => {
           const nestedKey = `${paramKey}[${itemIndex}].${fieldKey}`;
           const savedMapping = allInputMappings?.[nestedKey];
@@ -518,6 +527,7 @@ export function ArrayItemsPanel({
             )}
           </>
         ) : fieldMode === 'form' ? <div className="p-2 bg-info-subtle border border-info rounded text-xs text-info">User provides at runtime</div> : renderStaticFieldInput()}
+        </div>
       </div>
     );
   };
@@ -529,8 +539,13 @@ export function ArrayItemsPanel({
         const fieldGroups = groupFields(item);
         const sortedGroupIds = getSortedGroupIds(fieldGroups);
         return (
-          <div key={itemId} className="border border-primary rounded-lg">
-            <div role="button" tabIndex={0} className="flex w-full items-center justify-between px-3 py-2 bg-surface cursor-pointer hover:bg-card /50 rounded-t-lg" onClick={() => toggleExpand(index)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(index); } }}>
+          <div
+            key={itemId}
+            className="border border-primary rounded-lg"
+            data-testid={`param-array-item-${paramKey}-${index}`}
+            data-array-item-expanded={expandedArrayItems[itemId] ? 'true' : 'false'}
+          >
+            <div role="button" tabIndex={0} data-testid={`param-array-item-toggle-${paramKey}-${index}`} className="flex w-full items-center justify-between px-3 py-2 bg-surface cursor-pointer hover:bg-card /50 rounded-t-lg" onClick={() => toggleExpand(index)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(index); } }}>
               <div className="flex items-center gap-2">
                 <ChevronRight className={`h-4 w-4 text-secondary transition-transform ${expandedArrayItems[itemId] ? 'rotate-90' : ''}`} />
                 <span className="text-sm font-medium text-secondary">{getItemLabel(item, index, itemSchema)}</span>
@@ -570,7 +585,7 @@ export function ArrayItemsPanel({
         );
       })}
       {(!schema.maxItems || arrayValue.length < schema.maxItems) && (
-        <button type="button" onClick={addItem} className="flex items-center gap-2 px-3 py-2 text-sm text-info hover:bg-info-subtle rounded-lg border border-dashed border-info w-full justify-center">
+        <button type="button" data-testid={`param-array-add-${paramKey}`} onClick={addItem} className="flex items-center gap-2 px-3 py-2 text-sm text-info hover:bg-info-subtle rounded-lg border border-dashed border-info w-full justify-center">
           <Plus className="h-4 w-4" />Add {itemSchema?.title || schema.title?.replace(/s$/, '') || 'Item'}
         </button>
       )}

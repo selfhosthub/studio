@@ -12,7 +12,10 @@ from app.domain.queue.models import WorkerStatus
 
 
 class WorkerRegistrationRequest(BaseModel):
-    secret: str = Field(..., description="Shared secret for worker registration")
+    secret: str = Field(
+        ...,
+        description="The fleet shared secret, or an enrollment credential (shswrk_ prefix)",
+    )
     worker_version: Optional[str] = Field(
         default=None,
         description="studio-workers version the worker runs; checked against the API's expected version",
@@ -181,3 +184,49 @@ class WorkerResponse(BaseModel):
     updated_at: Optional[datetime] = Field(
         default=None, description="Last update timestamp"
     )
+
+
+class WorkerEnrollRequest(BaseModel):
+    join_token: str = Field(..., description="Single-use join token from a super admin")
+    label: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Name for this worker's credential; defaults to the token's label",
+    )
+
+
+class WorkerEnrollResponse(BaseModel):
+    credential: str = Field(..., description="The worker's credential; shown once, never again")
+    queues: List[str] = Field(..., description="Queues this credential may register for")
+
+
+class JoinTokenCreateRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=255)
+    queues: List[str] = Field(..., description="Queues a worker enrolling with this token may serve")
+    ttl_seconds: int = Field(
+        default=900, ge=60, le=86400, description="How long the token stays claimable"
+    )
+
+
+class JoinTokenCreateResponse(BaseModel):
+    id: UUID
+    token: str = Field(..., description="Shown once; only its hash is stored")
+    expires_at: datetime
+
+
+class JoinTokenResponse(BaseModel):
+    id: UUID
+    label: str
+    queues: List[str]
+    expires_at: datetime
+    used_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class WorkerEnrollmentResponse(BaseModel):
+    id: UUID
+    label: str
+    queues: List[str]
+    revoked_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    created_at: datetime

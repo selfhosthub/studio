@@ -97,32 +97,11 @@ def _resolve_instance_form_field(
 ) -> Any:
     """Resolve an __instance_form__ field from instance parameters.
 
-    Searches both top-level keys and form_values (where submit_form_and_start
-    stores form submissions keyed as `{step_id}.{param_path}`).
-
-    Returns the resolved value or None.
+    Delegates to MappingResolver so the precedence rule has one definition.
     """
-    tv_key = f"_prompt_variable:{output_field}"
-
-    # Build list of dicts to search: top-level + form_values
-    search_dicts = [instance_parameters]
-    form_vals = instance_parameters.get("form_values")
-    if isinstance(form_vals, dict):
-        search_dicts.append(form_vals)
-
-    for search_dict in search_dicts:
-        # Direct key
-        if output_field in search_dict:
-            return search_dict[output_field]
-        # _prompt_variable: prefix
-        if tv_key in search_dict:
-            return search_dict[tv_key]
-        # {step_id}.{field} suffix match
-        for ip_key, ip_value in search_dict.items():
-            if ip_key.endswith(f".{output_field}") or ip_key.endswith(f".{tv_key}"):
-                return ip_value
-
-    return None
+    return MappingResolver._resolve_instance_form_field(
+        output_field, instance_parameters
+    )
 
 
 def _set_nested_param(params: Dict[str, Any], key: str, value: Any) -> None:

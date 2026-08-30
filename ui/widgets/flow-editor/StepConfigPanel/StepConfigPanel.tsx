@@ -40,10 +40,10 @@ interface StepConfigPanelProps {
 }
 
 const MIN_WIDTH = 320; // Minimum panel width (config only)
-const MAX_WIDTH = 800; // Maximum panel width (config only)
-const DEFAULT_WIDTH = 420; // Default panel width (config only)
+const MAX_WIDTH = 1200; // Maximum panel width (config only)
+const DEFAULT_WIDTH = 800; // Default panel width (config only)
 const MIN_OUTPUTS_WIDTH = 180; // Minimum outputs panel width
-const MAX_OUTPUTS_WIDTH = 500; // Maximum outputs panel width
+const MAX_OUTPUTS_WIDTH = 700; // Maximum outputs panel width
 const DEFAULT_OUTPUTS_WIDTH = 280; // Default outputs panel width
 const MOBILE_BREAKPOINT = BREAKPOINTS.MD; // Mobile breakpoint (matches Tailwind md:)
 

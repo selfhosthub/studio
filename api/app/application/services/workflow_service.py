@@ -262,9 +262,20 @@ class WorkflowService:
             scope=scope,
         )
 
-        # Apply trigger_input_schema if provided (not supported in create, only update)
-        if command.trigger_input_schema:
-            workflow.update(trigger_input_schema=command.trigger_input_schema)
+        # Fields Workflow.create does not accept are applied through update.
+        post_create = {
+            k: v
+            for k, v in {
+                "trigger_input_schema": command.trigger_input_schema,
+                "webhook_method": command.webhook_method,
+                "webhook_auth_type": command.webhook_auth_type,
+                "webhook_auth_header_name": command.webhook_auth_header_name,
+                "webhook_config": command.webhook_config,
+            }.items()
+            if v
+        }
+        if post_create:
+            workflow.update(**post_create)
 
         events = workflow.clear_events()
 
@@ -335,6 +346,7 @@ class WorkflowService:
             webhook_method=command.webhook_method,
             webhook_auth_type=command.webhook_auth_type,
             webhook_auth_header_name=command.webhook_auth_header_name,
+            webhook_config=command.webhook_config,
         )
 
         # Header-auth value and JWT secret are secret-class: each lives in its own
@@ -356,6 +368,17 @@ class WorkflowService:
         ):
             await self._store_trigger_cred(
                 workflow, "webhook_jwt_secret", command.webhook_jwt_secret
+            )
+        # The signing secret for the signature-verifying auth types. Minted
+        # randomly by generate_webhook_token; settable here so a sender that
+        # issues its own secret can be configured.
+        if (
+            command.webhook_secret is not None
+            and command.webhook_secret != CONFIGURED_SENTINEL
+            and workflow.webhook_auth_type in ("hmac", "signed_raw_body")
+        ):
+            await self._store_trigger_cred(
+                workflow, "webhook_secret", command.webhook_secret
             )
 
         workflow = await self._persist_and_publish(workflow)
@@ -975,14 +998,18 @@ class WorkflowService:
                 workflow_name = f"{data['name']} (imported {counter})"
                 counter += 1
 
-        # Parse trigger type
-        trigger_type_str = data.get("trigger_type", "manual")
+        # Parse trigger type. An unrecognized value names the field and rejects
+        # the file rather than importing a workflow with a different trigger.
+        trigger_type_str = str(data.get("trigger_type", "manual"))
         try:
             trigger_type = WorkflowTriggerType(trigger_type_str.lower())
         except ValueError:
-            trigger_type = WorkflowTriggerType.MANUAL
+            raise BusinessRuleViolation(
+                f"Workflow export has an unsupported 'trigger_type': {trigger_type_str}"
+            )
 
-        # Create workflow
+        # Create workflow. Trigger config is non-secret shape and travels with
+        # the file; the header value, JWT secret and HMAC secret never do.
         workflow_create = WorkflowCreate(
             name=workflow_name,
             description=data.get("description"),
@@ -993,6 +1020,10 @@ class WorkflowService:
             trigger_input_schema=data.get("trigger_input_schema"),
             client_metadata=data.get("client_metadata"),
             scope=scope.value,
+            webhook_method=data.get("webhook_method"),
+            webhook_auth_type=data.get("webhook_auth_type"),
+            webhook_auth_header_name=data.get("webhook_auth_header_name"),
+            webhook_config=data.get("webhook_config"),
         )
 
         created_workflow = await self.create_workflow(workflow_create)

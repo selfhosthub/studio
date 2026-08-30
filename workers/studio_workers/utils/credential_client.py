@@ -7,7 +7,7 @@ Workers call /api/v1/internal/credentials/{id}/token to get fresh tokens
 immediately before making authenticated API calls. This ensures OAuth tokens
 are always fresh (auto-refreshed by API if expired).
 
-Security: Uses WORKER_SHARED_SECRET header for authentication.
+Security: Uses the worker's auth secret in the X-Worker-Secret header.
 """
 import logging
 import time
@@ -36,7 +36,7 @@ class CredentialClient:
         token_getter: Optional[Callable[[], Optional[str]]] = None,
     ):
         self.api_base_url = settings.API_BASE_URL
-        self.worker_secret = settings.WORKER_SHARED_SECRET
+        self.worker_secret = settings.auth_secret
         self._token_getter = token_getter
         # Token cache: credential_id -> (token, expiry_timestamp)
         self._token_cache: Dict[str, Tuple[str, float]] = {}
@@ -45,7 +45,7 @@ class CredentialClient:
 
         if not self.worker_secret:
             logger.warning(
-                "WORKER_SHARED_SECRET not set - credential fetching disabled"
+                "No worker auth secret set - credential fetching disabled"
             )
 
     def _auth_headers(self) -> Optional[Dict[str, str]]:
@@ -68,7 +68,7 @@ class CredentialClient:
     ) -> Optional[str]:
         """Fetch fresh access token, using cache when valid."""
         if not self.worker_secret:
-            logger.error("Cannot fetch token: WORKER_SHARED_SECRET not configured")
+            logger.error("Cannot fetch token: no worker auth secret configured")
             return None
 
         # Check cache first
@@ -125,7 +125,7 @@ class CredentialClient:
     async def get_credential(self, credential_id: str) -> Optional[dict]:
         """Fetch full credential data for non-token auth types."""
         if not self.worker_secret:
-            logger.error("Cannot fetch credential: WORKER_SHARED_SECRET not configured")
+            logger.error("Cannot fetch credential: no worker auth secret configured")
             return None
 
         url = f"{self.api_base_url}/api/v1/internal/credentials/{credential_id}"

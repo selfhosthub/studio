@@ -177,6 +177,7 @@ const Sidebar = ({
     >
       <div className={`flex items-center justify-end h-12 px-2 border-b ${isDarkMode ? 'border-secondary' : 'border-primary'}`}>
         <button
+          data-testid="sidebar-collapse-toggle"
           onClick={toggleSidebar}
           className={`p-1.5 rounded-md ${
             isDarkMode

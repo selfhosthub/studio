@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Optional
 from uuid import UUID
 import jinja2
+import jinja2.sandbox
 import jsonpath_ng
 import httpx
 
@@ -78,8 +79,10 @@ class GenericHTTPAdapter(BaseProviderAdapter):
         self.webhook_config = provider_config.get("webhook_config", {})
         self.auth_config = adapter_config.get("auth", {})
 
-        # JSON/API only - no HTML, no XSS risk. StrictUndefined surfaces missing vars.
-        self.jinja_env = jinja2.Environment(  # nosemgrep  # codeql[py/jinja2/autoescape-false]
+        # Sandboxed: provider-authored template source is rendered server-side, so
+        # the sandbox blocks unsafe attribute and Python-internals access.
+        # No autoescape (JSON body, not HTML); StrictUndefined surfaces missing vars.
+        self.jinja_env = jinja2.sandbox.SandboxedEnvironment(
             autoescape=False,
             undefined=jinja2.StrictUndefined,
         )
@@ -428,6 +431,8 @@ class GenericHTTPAdapter(BaseProviderAdapter):
                     str(result)
                 return result
             except jinja2.UndefinedError:
+                raise
+            except jinja2.exceptions.SecurityError:
                 raise
             except Exception:
                 return self.jinja_env.from_string(value).render(context)

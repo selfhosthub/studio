@@ -158,6 +158,7 @@ export interface ProviderCredential {
   updated_at?: string;
   has_client_credentials?: boolean;
   has_access_token?: boolean;
+  has_refresh_token?: boolean;
   is_token_type?: boolean;
 }
 

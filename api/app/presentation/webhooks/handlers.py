@@ -3,12 +3,16 @@
 """Public token-based incoming webhook endpoints (POST/GET)."""
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, cast
+from urllib.parse import parse_qsl
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from app.application.services.webhook_service import WebhookService
+from app.application.services.webhook_service import (
+    AUTH_FAILURE_CODES,
+    WebhookService,
+)
 from app.domain.common.exceptions import (
     EntityNotFoundError,
     ValidationError,
@@ -21,30 +25,63 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Webhooks"])
 
 
+def _status_for(code: Any) -> int:
+    """Rejected credentials are 401; every other rejection is a payload problem."""
+    if code in AUTH_FAILURE_CODES:
+        return status.HTTP_401_UNAUTHORIZED
+    return status.HTTP_400_BAD_REQUEST
+
+
+async def _parse_body(request: Request) -> Dict[str, Any]:
+    """Decode a POST body by content type. An unparseable body is rejected, not
+    dispatched: a malformed request must not look like an empty one."""
+    raw = await request.body()
+    if not raw:
+        return {}
+
+    content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    try:
+        if content_type == "application/x-www-form-urlencoded":
+            text = raw.decode("utf-8")
+            # parse_qsl accepts anything, so a body that is not form-encoded
+            # arrives as one garbage key. Require a field separator and reject
+            # a JSON document declared as a form.
+            if "=" not in text or text.lstrip()[:1] in ("{", "["):
+                raise ValueError("body is not form-encoded")
+            parsed: Any = dict(parse_qsl(text, keep_blank_values=True))
+        else:
+            parsed = await request.json()
+    except Exception as e:
+        logger.warning(f"Failed to parse webhook request body ({content_type}): {e}")
+        raise ValidationError(
+            message="Request body could not be parsed",
+            code="UNPARSEABLE_BODY",
+        )
+
+    if not isinstance(parsed, dict):
+        logger.warning(f"Webhook request body is {type(parsed).__name__}, not an object")
+        raise ValidationError(
+            message="Request body must be an object",
+            code="BODY_NOT_AN_OBJECT",
+        )
+    return parsed
+
+
 async def _handle_webhook(
     token: str,
     request: Request,
+    response: Response,
     service: WebhookService,
 ) -> Dict[str, Any]:
     """Shared POST/GET dispatch. Payload follows n8n convention: {body, query, method}."""
     try:
         method = request.method.upper()
 
-        if method == "POST":
-            try:
-                body = await request.body()
-                if body:
-                    body_data = await request.json()
-                else:
-                    body_data = {}
-            except Exception as e:
-                # Log so malformed webhook payloads are visible - non-JSON bodies otherwise silently become {}
-                logger.warning(f"Failed to parse webhook request body as JSON: {e}")
-                body_data = {}
-            query_data = dict(request.query_params)
-        else:
-            body_data = {}
-            query_data = dict(request.query_params)
+        # Read once: Starlette caches the body, so a signature verifier can see
+        # the exact bytes that _parse_body decoded.
+        raw_body = await request.body()
+        body_data = await _parse_body(request) if method == "POST" else {}
+        query_data = dict(request.query_params)
 
         payload = {
             "body": body_data,
@@ -64,7 +101,14 @@ async def _handle_webhook(
             token=token,
             payload=payload,
             headers=headers,
+            raw_body=raw_body,
         )
+
+        # A handshake is answered in the sender's own shape, not the trigger
+        # envelope, and with the 200 those handshakes require.
+        if result.get("status") == "handshake":
+            response.status_code = status.HTTP_200_OK
+            return cast(Dict[str, Any], result["body"])
 
         return result
 
@@ -75,12 +119,10 @@ async def _handle_webhook(
             detail=safe_error_message(e),
         )
     except ValidationError as e:
-        logger.warning(
-            f"Webhook rejected token={token[:8]}... "
-            f"code={getattr(e, 'code', None)}: {e}"
-        )
+        code = getattr(e, "code", None)
+        logger.warning(f"Webhook rejected token={token[:8]}... code={code}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=_status_for(code),
             detail=safe_error_message(e),
         )
 
@@ -94,10 +136,11 @@ async def _handle_webhook(
 async def handle_incoming_webhook_post(
     token: str,
     request: Request,
+    response: Response,
     service: WebhookService = Depends(get_webhook_service_public),
 ) -> Dict[str, Any]:
     """POST webhook trigger. Payload: {body, query, method='POST'} + body flattened on top."""
-    return await _handle_webhook(token, request, service)
+    return await _handle_webhook(token, request, response, service)
 
 
 @router.get(
@@ -109,10 +152,11 @@ async def handle_incoming_webhook_post(
 async def handle_incoming_webhook_get(
     token: str,
     request: Request,
+    response: Response,
     service: WebhookService = Depends(get_webhook_service_public),
 ) -> Dict[str, Any]:
     """GET webhook trigger. Payload: {body={}, query, method='GET'} + query flattened on top."""
-    return await _handle_webhook(token, request, service)
+    return await _handle_webhook(token, request, response, service)
 
 
 @router.post(
@@ -150,13 +194,7 @@ async def handle_api_trigger_endpoint(
             detail=safe_error_message(e),
         )
     except ValidationError as e:
-        code = getattr(e, "code", None)
-        if code in ("UNAUTHORIZED", "INVALID_API_KEY"):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=safe_error_message(e),
-            )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=_status_for(getattr(e, "code", None)),
             detail=safe_error_message(e),
         )

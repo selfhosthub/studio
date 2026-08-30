@@ -1013,11 +1013,27 @@ _worker_logger = _logging.getLogger(__name__)
 WORKER_SHARED_SECRET = settings.WORKER_SHARED_SECRET
 
 
-def verify_worker_secret(
+async def verify_worker_secret(
     x_worker_secret: str = Header(..., alias="X-Worker-Secret"),
 ) -> None:
-    """Validates X-Worker-Secret header. Workers use this instead of JWT."""
+    """Validates X-Worker-Secret header. Workers use this instead of JWT.
+
+    The header carries either the fleet shared secret or an enrollment
+    credential, told apart by the credential's prefix.
+    """
     from fastapi import HTTPException, status
+
+    from app.infrastructure.security.worker_enrollment import looks_like_credential
+    from app.infrastructure.security.worker_enrollment_store import resolve_enrollment
+
+    if looks_like_credential(x_worker_secret):
+        if await resolve_enrollment(x_worker_secret) is None:
+            _worker_logger.warning("Unknown or revoked worker credential")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid worker secret",
+            )
+        return
 
     if not WORKER_SHARED_SECRET:
         _worker_logger.error("WORKER_SHARED_SECRET not configured on API server")

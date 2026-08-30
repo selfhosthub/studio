@@ -19,6 +19,7 @@ interface CredentialListItemProps {
   refreshingCredential: string | null;
   credentialNeedsOAuth: (cred: Credential) => boolean;
   credentialHasOAuth: (cred: Credential) => boolean;
+  credentialCanRefresh: (cred: Credential) => boolean;
 
   // OAuth actions
   onOAuthAuthorize: (credentialId: string) => void;
@@ -51,6 +52,7 @@ export function CredentialListItem({
   refreshingCredential,
   credentialNeedsOAuth,
   credentialHasOAuth,
+  credentialCanRefresh,
   onOAuthAuthorize,
   onRefreshOAuthToken,
   onReauthorize,
@@ -121,8 +123,8 @@ export function CredentialListItem({
                 Re-authorize
               </ActionButton>
             )}
-            {/* Refresh button for completed OAuth credentials */}
-            {credentialHasOAuth(cred) && oauthProviderKey && (
+            {/* Refresh reaches only a provider that issued a refresh token */}
+            {credentialCanRefresh(cred) && oauthProviderKey && (
               <ActionButton
                 variant="active"
                 onClick={() => onRefreshOAuthToken(cred.id)}

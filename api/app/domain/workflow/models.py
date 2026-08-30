@@ -129,6 +129,9 @@ class Workflow(AggregateRoot):
     webhook_auth_header_name: Optional[str] = (
         None  # Header name for header auth (e.g., "X-API-Key")
     )
+    # Non-secret webhook trigger config. "auth" parameterises signature
+    # verification; "handshake" describes the sender's URL-verification echo.
+    webhook_config: Optional[Dict[str, Any]] = None
     trigger_input_schema: Optional[Dict[str, Any]] = (
         None  # Schema for expected trigger payload fields
     )
@@ -249,6 +252,7 @@ class Workflow(AggregateRoot):
         webhook_method: Optional[str] = None,
         webhook_auth_type: Optional[str] = None,
         webhook_auth_header_name: Optional[str] = None,
+        webhook_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Update workflow properties. Archived workflows accept only the status
         change that un-archives them; requires steps when activating."""
@@ -309,6 +313,8 @@ class Workflow(AggregateRoot):
             self.webhook_auth_type = webhook_auth_type
         if webhook_auth_header_name is not None:
             self.webhook_auth_header_name = webhook_auth_header_name
+        if webhook_config is not None:
+            self.webhook_config = webhook_config
 
         if status and status == WorkflowStatus.ACTIVE:
             self.version += 1

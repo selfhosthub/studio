@@ -25,6 +25,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
+import { AutomationCamera } from './AutomationCamera';
+
 import {
   EMPTY_STRING_ARRAY,
   getDefaultEdgeOptions,
@@ -65,6 +67,7 @@ export const FlowEditorWithProvider = (props: FlowEditorProps) => {
   return (
     <ErrorBoundary name="Flow Editor">
       <ReactFlowProvider>
+        <AutomationCamera />
         <FlowEditor {...props} />
       </ReactFlowProvider>
     </ErrorBoundary>

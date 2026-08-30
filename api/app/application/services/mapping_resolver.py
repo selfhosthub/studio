@@ -40,14 +40,18 @@ class MappingResolver:
     ) -> Any:
         """Resolve an __instance_form__ field from instance trigger data.
 
-        Form submissions live under form_values keyed as `{step_id}.{param_path}`.
+        Form submissions live under form_values keyed as `{step_id}.{param_path}`
+        and win over top-level keys: top-level carries the creation-time copy and
+        the raw trigger payload, either of which can be stale or unresolved, while
+        form_values is always the validated submission for this run.
         """
         tv_key = f"_prompt_variable:{output_field}"
 
-        search_dicts = [trigger_data]
+        search_dicts = []
         form_vals = trigger_data.get("form_values")
         if isinstance(form_vals, dict):
             search_dicts.append(form_vals)
+        search_dicts.append(trigger_data)
 
         for search_dict in search_dicts:
             if output_field in search_dict:

@@ -524,7 +524,13 @@ export default function BaseServiceSection({ title = 'Service' }: BaseServiceSec
     // For 'basic' or 'default' section, render without collapsible header
     if (sectionName === 'basic' || sectionName === 'default') {
       return (
-        <div key={sectionName} className="space-y-4">
+        <div
+          key={sectionName}
+          className="space-y-4"
+          data-testid={`service-section-${sectionName}`}
+          data-section-id={sectionName}
+          data-section-collapsed="false"
+        >
           {visibleParams.map(({ key, config }) => renderParamField(key, config))}
         </div>
       );
@@ -532,9 +538,16 @@ export default function BaseServiceSection({ title = 'Service' }: BaseServiceSec
 
     // For named sections, render as collapsible
     return (
-      <div key={sectionName} className="border border-primary rounded-md">
+      <div
+        key={sectionName}
+        className="border border-primary rounded-md"
+        data-testid={`service-section-${sectionName}`}
+        data-section-id={sectionName}
+        data-section-collapsed={isCollapsed ? 'true' : 'false'}
+      >
         <button
           type="button"
+          data-testid={`service-section-toggle-${sectionName}`}
           onClick={() => toggleSection(sectionName)}
           className="w-full flex items-center justify-between px-4 py-3 text-left bg-surface hover:bg-card rounded-t-md"
         >

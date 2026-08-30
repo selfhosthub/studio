@@ -120,7 +120,7 @@ class ComfyUIPackageStore:
         """Pull the package list and changed packages; returns True on success."""
         base = worker_settings.API_BASE_URL.rstrip("/")
         headers = {
-            "X-Worker-Secret": worker_settings.WORKER_SHARED_SECRET,
+            "X-Worker-Secret": worker_settings.auth_secret,
             **cf_access_headers(),
         }
         if token_getter:

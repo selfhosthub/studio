@@ -15,6 +15,7 @@ from app.domain.provider.repository import (
     ProviderRepository,
     ProviderCredentialRepository,
 )
+from app.domain.provider.credential_validity import needs_reauthorization
 from app.domain.workflow.models import ExecutionMode
 from app.domain.common.json_serialization import serialize_steps
 
@@ -117,8 +118,7 @@ class LifecycleService:
                 continue
 
             if credential.credential_type == CredentialType.OAUTH2:
-                refresh_token = credential.credentials.get("refresh_token")
-                if not refresh_token:
+                if needs_reauthorization(credential):
                     expired_oauth_providers.append(provider_name)
 
         errors = []

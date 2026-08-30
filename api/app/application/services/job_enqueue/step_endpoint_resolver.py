@@ -85,6 +85,9 @@ class ResolvedEndpoint:
     local_worker: Optional[Dict[str, Any]] = None
     parameter_mapping: Optional[Dict[str, Any]] = None
     default_headers: Optional[Dict[str, str]] = None
+    # "brackets" (metadata[key]=v) or None for repeated bare keys. Form-encoded
+    # providers disagree: Stripe reads brackets, Twilio reads repeated keys.
+    form_array_style: Optional[str] = None
     service_metadata: Optional[Dict[str, Any]] = None
     parameter_schema: Optional[Dict[str, Any]] = None
     result_schema: Optional[Dict[str, Any]] = None
@@ -348,9 +351,11 @@ class StepEndpointResolver:
 
             # Get default_headers from provider's adapter_config (e.g., Notion-Version)
             default_headers = None
+            form_array_style = None
             if provider.config:
                 adapter_config = provider.config.get("adapter_config", {})
                 default_headers = adapter_config.get("default_headers")
+                form_array_style = adapter_config.get("form_array_style")
 
             # Get local_worker config from provider (for shs-* self-hosted providers)
             local_worker = (
@@ -405,6 +410,7 @@ class StepEndpointResolver:
                 local_worker=local_worker,
                 parameter_mapping=parameter_mapping,
                 default_headers=default_headers,
+                form_array_style=form_array_style,
                 service_metadata=service.client_metadata,
                 parameter_schema=service.parameter_schema,
                 result_schema=service.result_schema,

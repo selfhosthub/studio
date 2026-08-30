@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.domain.common.value_objects import OperationalStatus
 from app.domain.prompt.models import PromptSource
 from app.domain.prompt.repository import PromptRepository
+from app.domain.provider.credential_validity import needs_reauthorization
 from app.domain.provider.models import CredentialType
 from app.domain.provider.repository import (
     ProviderCredentialRepository,
@@ -193,10 +194,8 @@ class WorkflowCredentialService:
                 action_url=f"/providers/{provider_id}/credentials",
             )
 
-        # OAuth2 refresh-token check
         if credential.credential_type == CredentialType.OAUTH2:
-            refresh_token = credential.credentials.get("refresh_token")
-            if not refresh_token:
+            if needs_reauthorization(credential):
                 return CredentialIssue(
                     step_id=step_id,
                     step_name=step_name,

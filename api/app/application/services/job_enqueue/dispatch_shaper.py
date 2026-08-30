@@ -1,6 +1,6 @@
-# api/app/application/services/job_enqueue/prompt_dispatch_shaper.py
+# api/app/application/services/job_enqueue/dispatch_shaper.py
 
-"""Prompt dispatch shaper - provider-neutral messages → per-dialect wire params.
+"""Dispatch shaper - provider-neutral step input → per-dialect wire params.
 
 Prompts assemble to a neutral ``[{role, content}]`` list (role in
 system/user/assistant) long before the step's endpoint is resolved. Each
@@ -11,10 +11,14 @@ it parses the neutral list into ``{system, turns}`` and injects ready-made
 ``_*`` parameters that the service's declarative ``request_transform.body``
 then places. Placement stays config; logic stays here.
 
-Keying rule: the shaper branches on the service-declared ``wire_dialect``
-(``openai`` | ``anthropic`` | ``gemini``), never on provider name - any
-future OpenAI-compatible provider is pure config. Gated on
-``prompt_shape == "chat"`` (explicit opt-in, no magic detection).
+Keying rule: the shaper branches on the service-declared ``dispatch_shape``
+and ``wire_dialect``, never on provider name, so any provider speaking an
+existing dialect is pure config. Each shape is an explicit opt-in; there is
+no magic detection.
+
+A driver owns validation and encoding together: header rules, escaping and
+wire encoding are format-specific, so a shared pre-pass would be either too
+weak to help or would corrupt legitimate content.
 
 Empties are omitted Python-side: when there is no system text the ``_*``
 system key is simply not set, and the transform's ``is defined`` guard maps
@@ -27,17 +31,21 @@ envelope-build failures: a malformed prompt must fail at shape time with an
 actionable message, not as a provider 400 at fire time.
 """
 
+import base64
+from email.message import EmailMessage
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.domain.common.exceptions import BusinessRuleViolation
 
-PROMPT_SHAPE_CHAT = "chat"
-_DIALECTS = ("openai", "anthropic", "gemini")
+SHAPE_CHAT = "chat"
+SHAPE_EMAIL = "email"
+_CHAT_DIALECTS = ("openai", "anthropic", "gemini")
+_EMAIL_DIALECTS = ("rfc822_base64url",)
 _NEUTRAL_ROLES = ("system", "user", "assistant")
 
 
 def _invalid(message: str) -> BusinessRuleViolation:
-    return BusinessRuleViolation(message=message, code="PROMPT_SHAPE_INVALID")
+    return BusinessRuleViolation(message=message, code="DISPATCH_SHAPE_INVALID")
 
 
 def _validate_neutral_messages(messages: Any) -> List[Dict[str, Any]]:
@@ -174,35 +182,106 @@ def _shape_gemini(parameters: Dict[str, Any]) -> Dict[str, Any]:
     return shaped
 
 
-def shape_prompt_parameters(
+_ADDRESS_FIELDS = ("to", "cc", "bcc")
+
+
+def _header_values(parameters: Dict[str, Any], key: str) -> List[str]:
+    """Normalize an address field to a list of non-empty strings."""
+    raw = parameters.get(key)
+    if raw is None:
+        return []
+    values = raw if isinstance(raw, list) else [raw]
+    out: List[str] = []
+    for v in values:
+        if not isinstance(v, str):
+            raise _invalid(f"Email '{key}' must be a string or a list of strings.")
+        if v.strip():
+            out.append(v.strip())
+    return out
+
+
+def _shape_email(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """Assemble an RFC 822 message and inject it base64url-encoded as ``_raw``.
+
+    EmailMessage rejects newlines in header values, which is what stops a
+    crafted address or subject from injecting extra headers or recipients.
+    """
+    recipients = {k: _header_values(parameters, k) for k in _ADDRESS_FIELDS}
+    if not recipients["to"]:
+        raise _invalid("Email requires at least one 'to' address.")
+
+    subject = parameters.get("subject") or ""
+    if not isinstance(subject, str):
+        raise _invalid("Email 'subject' must be a string.")
+    body = parameters.get("body") or ""
+    if not isinstance(body, str):
+        raise _invalid("Email 'body' must be a string.")
+    html = parameters.get("html")
+    if html is not None and not isinstance(html, str):
+        raise _invalid("Email 'html' must be a string.")
+
+    message = EmailMessage()
+    try:
+        for key, values in recipients.items():
+            if values:
+                message[key.capitalize() if key != "bcc" else "Bcc"] = ", ".join(values)
+        sender = parameters.get("from")
+        if isinstance(sender, str) and sender.strip():
+            message["From"] = sender.strip()
+        message["Subject"] = subject
+    except ValueError as exc:
+        raise _invalid(f"Email header rejected: {exc}") from exc
+
+    message.set_content(body)
+    if html:
+        message.add_alternative(html, subtype="html")
+
+    shaped = dict(parameters)
+    shaped["_raw"] = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+    return shaped
+
+
+def shape_dispatch_parameters(
     service_metadata: Optional[Dict[str, Any]],
     parameters: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Inject dialect-specific ``_*`` params for chat-shaped services.
+    """Inject dialect-specific ``_*`` params for shape-declaring services.
 
-    Returns ``parameters`` unchanged (same object) when the service does not
-    declare ``prompt_shape == "chat"``; otherwise returns a shallow copy with
-    the dialect's ``_*`` keys added. Never mutates the input.
+    Returns ``parameters`` unchanged (same object) when the service declares
+    no ``dispatch_shape``; otherwise returns a shallow copy with the
+    dialect's ``_*`` keys added. Never mutates the input.
 
     Raises:
-        BusinessRuleViolation: misconfigured/unknown ``wire_dialect``, or
-            neutral input that cannot be shaped (empty turns, misplaced
-            system, non-string content).
+        BusinessRuleViolation: unknown shape or dialect, or input the
+            dialect cannot encode.
     """
     meta = service_metadata or {}
-    if meta.get("prompt_shape") != PROMPT_SHAPE_CHAT:
+    shape = meta.get("dispatch_shape")
+    if shape is None:
         return parameters
 
     dialect = meta.get("wire_dialect")
-    if dialect == "anthropic":
-        shaped = _shape_anthropic(parameters)
-    elif dialect == "openai":
-        shaped = _shape_openai(parameters)
-    elif dialect == "gemini":
-        shaped = _shape_gemini(parameters)
+    if shape == SHAPE_CHAT:
+        drivers = {
+            "anthropic": _shape_anthropic,
+            "openai": _shape_openai,
+            "gemini": _shape_gemini,
+        }
+        allowed = _CHAT_DIALECTS
+    elif shape == SHAPE_EMAIL:
+        drivers = {"rfc822_base64url": _shape_email}
+        allowed = _EMAIL_DIALECTS
     else:
         raise _invalid(
-            f"Service declares prompt_shape='chat' but wire_dialect={dialect!r} "
-            f"is not one of {_DIALECTS}. Fix the service config."
+            f"Service declares dispatch_shape={shape!r}, which is not one of "
+            f"{(SHAPE_CHAT, SHAPE_EMAIL)}. Fix the service config."
         )
-    return shaped
+
+    driver = drivers.get(dialect) if isinstance(dialect, str) else None
+    if driver is None:
+        raise _invalid(
+            f"Service declares dispatch_shape={shape!r} but "
+            f"wire_dialect={dialect!r} is not one of {allowed}. "
+            "Fix the service config."
+        )
+    return driver(parameters)

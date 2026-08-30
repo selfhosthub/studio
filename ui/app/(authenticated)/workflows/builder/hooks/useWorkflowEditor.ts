@@ -7,7 +7,7 @@ import { useCallback } from 'react';
 import { type Step, type Connection } from '@/entities/workflow';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getWorkflow, createWorkflow } from '@/shared/api';
-import { createStepIdFromName, validateDependencies } from '@/shared/lib/step-utils';
+import { createStepIdFromName, topologicalSortSteps, validateDependencies } from '@/shared/lib/step-utils';
 import { useToast } from '@/features/toast';
 import { useUser } from '@/entities/user';
 
@@ -141,6 +141,41 @@ export function useWorkflowEditor() {
     };
 
     setWorkflow(prev => ({ ...prev, steps: [...prev.steps, newStep] }));
+    setSelectedStepId(newStep.id);
+  };
+
+  /** Drop a step on empty canvas already wired to the step the drag started from. */
+  const addConnectedStep = (sourceStepId: string, position: { x: number; y: number }) => {
+    if (!workflow.steps.some((step: Step) => step.id === sourceStepId)) return;
+
+    const stepName = `New Step ${workflow.steps.length + 1}`;
+    const stepId = createStepIdFromName(stepName, workflow.steps);
+
+    const newStep: Step = {
+      id: stepId,
+      name: stepName,
+      type: 'task',
+      position,
+      parameters: {},
+      outputs: {},
+      input_mappings: {},
+      depends_on: [sourceStepId],
+    };
+
+    setWorkflow(prev => ({
+      ...prev,
+      steps: topologicalSortSteps([...prev.steps, newStep]),
+      connections: [
+        ...(prev.connections || []),
+        {
+          id: `conn-${sourceStepId}-${stepId}`,
+          source: sourceStepId,
+          target: stepId,
+          source_id: sourceStepId,
+          target_id: stepId,
+        },
+      ],
+    }));
     setSelectedStepId(newStep.id);
   };
 
@@ -295,6 +330,7 @@ export function useWorkflowEditor() {
     selectedStepId,
     setSelectedStepId,
     addStep,
+    addConnectedStep,
     updateStep,
     handleStepsChange,
     removeStep,

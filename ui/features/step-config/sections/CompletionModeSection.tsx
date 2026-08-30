@@ -70,7 +70,7 @@ export default function CompletionModeSection({
     isWebhook && !tokenRouted && credentialHasWebhookKey === false;
 
   return (
-    <div className="mb-4 p-3 bg-info-subtle border border-info rounded-md">
+    <div className="mb-4 p-3 bg-info-subtle border border-info rounded-md" data-testid="step-completion-mode">
       <label htmlFor="completion-mode" className="block text-sm font-medium mb-1">
         {title}
       </label>

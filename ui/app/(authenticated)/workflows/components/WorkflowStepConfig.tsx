@@ -424,7 +424,13 @@ export function WorkflowStepConfig({
       const hasContent = visibleUngrouped.length > 0 || groups.some(g => grouped.filter(({ config }) => config.ui?.group === g && passesShowWhenConditions(config)).length > 0);
       if (!hasContent) return null;
       return (
-        <div key={sectionName} className="space-y-4">
+        <div
+          key={sectionName}
+          className="space-y-4"
+          data-testid={`service-section-${sectionName}`}
+          data-section-id={sectionName}
+          data-section-collapsed="false"
+        >
           {visibleUngrouped.map(({ key, config }) => renderParamField(key, config))}
           {groups.map(g => renderGroup(sectionName, g, grouped.filter(({ config }) => config.ui?.group === g)))}
         </div>
@@ -436,8 +442,14 @@ export function WorkflowStepConfig({
     const hasCustomValues = isCollapsed && sectionHasNonDefaultValues(potentiallyVisible);
 
     return (
-      <div key={sectionName} className="border border-primary rounded-md overflow-hidden">
-        <button type="button" onClick={() => toggleSection(sectionName)} className="w-full flex items-center justify-between px-4 py-3 text-left bg-surface hover:bg-card">
+      <div
+        key={sectionName}
+        className="border border-primary rounded-md overflow-hidden"
+        data-testid={`service-section-${sectionName}`}
+        data-section-id={sectionName}
+        data-section-collapsed={isCollapsed ? 'true' : 'false'}
+      >
+        <button type="button" data-testid={`service-section-toggle-${sectionName}`} onClick={() => toggleSection(sectionName)} className="w-full flex items-center justify-between px-4 py-3 text-left bg-surface hover:bg-card">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-secondary">{sectionConfig?.title || sectionName}</span>
             {hasCustomValues && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-info-subtle text-info" title="This section has customized values">Modified</span>}
@@ -457,7 +469,12 @@ export function WorkflowStepConfig({
 
   // ── JSX ───────────────────────────────────────────────────────
   return (
-    <div>
+    <div
+      data-testid="step-config"
+      data-step-id={step.id}
+      data-provider-id={providerId}
+      data-service-id={serviceId}
+    >
       <div className="bg-card shadow-sm rounded-lg border p-6">
         <div className="space-y-6">
           <div>
@@ -544,7 +561,7 @@ export function WorkflowStepConfig({
                         );
                       })()}
                     </div>
-                    <select id="step-provider" value={providerId} onChange={handleProviderChange} className="block w-full border border-primary rounded-md shadow-sm p-2 bg-card text-primary" disabled={!providerType || providersLoading} required={fieldRules.providerRequired}>
+                    <select id="step-provider" data-testid="step-provider-selector" value={providerId} onChange={handleProviderChange} className="block w-full border border-primary rounded-md shadow-sm p-2 bg-card text-primary" disabled={!providerType || providersLoading} required={fieldRules.providerRequired}>
                       <option value="">{providersLoading ? 'Loading providers\u2026' : 'Select Provider'}</option>
                       {providers.map((provider) => (<option key={provider.id} value={provider.id}>{provider.name}</option>))}
                     </select>
@@ -578,7 +595,7 @@ export function WorkflowStepConfig({
                 {fieldRules.showService && providerId && (
                   <div>
                     <label htmlFor="step-service" className="block text-sm font-medium text-secondary mb-1">Service {fieldRules.serviceRequired && <span className="text-danger">*</span>}</label>
-                    <select id="step-service" value={serviceId} onChange={handleServiceChange} className="block w-full border border-primary rounded-md shadow-sm p-2 bg-card text-primary" disabled={servicesLoading} required={fieldRules.serviceRequired}>
+                    <select id="step-service" data-testid="step-service-selector" value={serviceId} onChange={handleServiceChange} className="block w-full border border-primary rounded-md shadow-sm p-2 bg-card text-primary" disabled={servicesLoading} required={fieldRules.serviceRequired}>
                       <option value="">{servicesLoading ? 'Loading services\u2026' : 'Select Service'}</option>
                       {services.map((service) => (<option key={service.id} value={service.service_id}>{service.display_name}</option>))}
                     </select>

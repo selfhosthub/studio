@@ -281,6 +281,7 @@ class ComfyUIWorker(WorkerBase):
         job_start_time = time.time()
         try:
             custom_workflow = parameters.get("workflow")
+            resolved_params: Dict[str, Any] = {}
 
             # `package` selects the workflow (slug::model variant); without one
             # the service's default package serves.
@@ -309,7 +310,9 @@ class ComfyUIWorker(WorkerBase):
                     f"Using catalog package {manifest.slug}@{manifest.version}"
                     + (f" model={model}" if model else "")
                 )
-                workflow = inject_from_manifest(manifest, parameters, model=model)
+                workflow = inject_from_manifest(
+                    manifest, parameters, model=model, resolved=resolved_params
+                )
                 workflow = resolve_graph_models(
                     workflow, self.model_map or {}, manifest.model_directories
                 )
@@ -349,9 +352,9 @@ class ComfyUIWorker(WorkerBase):
             downloaded_files = []
             job_output_dir = os.path.join(self.output_dir, job_id)
 
-            base_seed = parameters.get("seed", -1)
+            base_seed = resolved_params.get("seed", parameters.get("seed", -1))
             if base_seed == -1:
-                # Randomized - recover seed from RandomNoise node.
+                # Custom workflow: no manifest merge, so read the graph.
                 base_seed = self._get_workflow_seed(workflow)
 
             for i, image_info in enumerate(output_images):
@@ -392,9 +395,7 @@ class ComfyUIWorker(WorkerBase):
                         file_info["has_thumbnail"] = True
                     downloaded_files.append(file_info)
 
-            seed_used = parameters.get("seed", -1)
-            if seed_used == -1:
-                seed_used = self._get_workflow_seed(workflow)
+            seed_used = base_seed
 
             request_data = {
                 "prompt": parameters.get("prompt", ""),

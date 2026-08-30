@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import json
 import logging
+import re
+import time
 import uuid
 from typing import (
     Any,
@@ -52,6 +54,44 @@ if TYPE_CHECKING:
 ProcessResultFn = Callable[[Dict[str, Any]], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
+
+# ValidationError codes meaning "credentials were presented and rejected". Every
+# trigger endpoint maps these to 401 and everything else to 400, so a new auth
+# type joins this set rather than editing each endpoint. Server-side
+# misconfiguration (UNSUPPORTED_AUTH_TYPE) is deliberately not here: no
+# credential the sender can present would change the outcome.
+AUTH_FAILURE_CODES = frozenset(
+    {
+        "HEADER_AUTH_FAILED",
+        "JWT_AUTH_FAILED",
+        "INVALID_SIGNATURE",
+        "UNAUTHORIZED",
+        "INVALID_API_KEY",
+    }
+)
+
+# Hash functions a signed_raw_body verifier may name. An allowlist, so a config
+# blob cannot select an arbitrary hashlib attribute.
+SIGNATURE_ALGORITHMS = {
+    "sha1": hashlib.sha1,
+    "sha256": hashlib.sha256,
+    "sha512": hashlib.sha512,
+}
+
+_SIGNED_TEMPLATE_TOKEN = re.compile(r"\{(body|timestamp)\}")
+
+
+def render_signed_template(template: str, timestamp: str, raw_body: bytes) -> bytes:
+    """Substitute {timestamp} and {body} in a single pass, so a substituted
+    value cannot introduce a token the next substitution would expand."""
+    out: List[bytes] = []
+    pos = 0
+    for match in _SIGNED_TEMPLATE_TOKEN.finditer(template):
+        out.append(template[pos : match.start()].encode("utf-8"))
+        out.append(raw_body if match.group(1) == "body" else timestamp.encode("utf-8"))
+        pos = match.end()
+    out.append(template[pos:].encode("utf-8"))
+    return b"".join(out)
 
 
 class WebhookService:
@@ -174,6 +214,125 @@ class WebhookService:
             logger.warning(f"Invalid JWT: {e}")
             return False
 
+    def _handshake_response(
+        self, workflow: Any, payload: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """The sender's URL-verification echo, described by webhook_config.handshake.
+        Returns the reply to send, or None when this request is not a handshake."""
+        config = (getattr(workflow, "webhook_config", None) or {}).get(
+            "handshake"
+        ) or {}
+        match_field = config.get("match_field")
+        echo_field = config.get("echo_field")
+        if not match_field or not echo_field:
+            return None
+
+        body = payload.get("body")
+        if not isinstance(body, dict) or body.get(match_field) != config.get(
+            "match_value"
+        ):
+            return None
+
+        echoed = body.get(echo_field)
+        if not isinstance(echoed, str):
+            logger.warning(
+                f"Handshake on workflow {workflow.id} has no {echo_field} to echo"
+            )
+            raise ValidationError(
+                message=f"Handshake request is missing its '{echo_field}' value",
+                code="INVALID_HANDSHAKE",
+            )
+        return {"status": "handshake", "body": {echo_field: echoed}}
+
+    def _verify_signed_raw_body(
+        self,
+        workflow: Any,
+        headers: Dict[str, str],
+        secret: Optional[str],
+        raw_body: Optional[bytes],
+    ) -> None:
+        """Verify a signature computed over a template rendered from the request
+        timestamp and the raw body. Every parameter is read from the workflow's
+        webhook_config; nothing about a specific sender is encoded here.
+
+        Unlike the header and jwt branches this fails closed on an incomplete
+        config: there are no live workflows carrying this auth type, so rejecting
+        cannot silently disable a working endpoint.
+        """
+        config = (getattr(workflow, "webhook_config", None) or {}).get("auth") or {}
+        signature_header = config.get("signature_header")
+        template = config.get("signed_template")
+        algorithm = SIGNATURE_ALGORITHMS.get(str(config.get("algorithm", "")))
+
+        if not signature_header or not template or algorithm is None or not secret:
+            logger.warning(
+                f"signed_raw_body auth is incompletely configured for workflow {workflow.id}"
+            )
+            raise ValidationError(
+                message="Webhook signature verification is not fully configured",
+                code="WEBHOOK_AUTH_MISCONFIGURED",
+            )
+
+        if raw_body is None:
+            logger.warning(
+                f"signed_raw_body auth has no raw body to verify for workflow {workflow.id}"
+            )
+            raise ValidationError(
+                message="Webhook signature verification requires a request body",
+                code="WEBHOOK_AUTH_MISCONFIGURED",
+            )
+
+        timestamp = ""
+        if "{timestamp}" in template:
+            timestamp_header = config.get("timestamp_header")
+            max_age = config.get("max_age_seconds")
+            if not timestamp_header or not isinstance(max_age, int):
+                logger.warning(
+                    f"signed_raw_body template needs a timestamp but none is configured for workflow {workflow.id}"
+                )
+                raise ValidationError(
+                    message="Webhook signature verification is not fully configured",
+                    code="WEBHOOK_AUTH_MISCONFIGURED",
+                )
+            timestamp = headers.get(str(timestamp_header).lower(), "")
+            try:
+                sent_at = int(timestamp)
+            except ValueError:
+                raise ValidationError(
+                    message="Missing or invalid webhook signature timestamp",
+                    code="INVALID_SIGNATURE",
+                )
+            # Checked in both directions: a far-future timestamp is as much a
+            # replay marker as a stale one.
+            if abs(int(time.time()) - sent_at) > max_age:
+                raise ValidationError(
+                    message="Webhook signature timestamp is outside the accepted window",
+                    code="INVALID_SIGNATURE",
+                )
+
+        presented = headers.get(str(signature_header).lower(), "")
+        prefix = config.get("signature_prefix") or ""
+        if prefix:
+            if not presented.startswith(str(prefix)):
+                raise ValidationError(
+                    message="Invalid webhook signature",
+                    code="INVALID_SIGNATURE",
+                )
+            presented = presented[len(str(prefix)) :]
+
+        expected = hmac.new(
+            str(secret).encode("utf-8"),
+            render_signed_template(str(template), timestamp, raw_body),
+            algorithm,
+        ).hexdigest()
+
+        if not presented or not hmac.compare_digest(expected, presented):
+            logger.warning(f"Invalid webhook signature for workflow {workflow.id}")
+            raise ValidationError(
+                message="Invalid webhook signature",
+                code="INVALID_SIGNATURE",
+            )
+
     def _verify_webhook_auth(
         self,
         workflow: Any,
@@ -222,18 +381,37 @@ class WebhookService:
             # HMAC verification requires the payload, handled separately in _handle_workflow_trigger
             pass
 
+        elif auth_type == "signed_raw_body":
+            # Signature verification requires the raw body, handled separately
+            # in _handle_workflow_trigger
+            pass
+
+        else:
+            # Unrecognized auth type rejects the request rather than falling
+            # through to an implicit accept.
+            logger.warning(
+                f"Unrecognized webhook auth type {auth_type!r} for workflow {workflow.id}"
+            )
+            raise ValidationError(
+                message="Unsupported webhook authentication type",
+                code="UNSUPPORTED_AUTH_TYPE",
+            )
+
     async def handle_incoming_webhook_by_token(
         self,
         token: str,
         payload: Dict[str, Any],
         headers: Dict[str, str],
+        raw_body: Optional[bytes] = None,
     ) -> Dict[str, Any]:
         # Try workflow token first (trigger), then step token (callback)
         workflow = await self.workflow_repository.get_by_webhook_token(token)
 
         if workflow:
             # This is a workflow trigger - create new instance
-            return await self._handle_workflow_trigger(workflow, payload, headers)
+            return await self._handle_workflow_trigger(
+                workflow, payload, headers, raw_body
+            )
 
         # Not a workflow token - try to find a step by its webhook_token (step callback)
         step_result = await self.workflow_repository.get_by_step_webhook_token(token)
@@ -644,6 +822,7 @@ class WebhookService:
         workflow: Any,  # Workflow type
         payload: Dict[str, Any],
         headers: Dict[str, str],
+        raw_body: Optional[bytes] = None,
     ) -> Dict[str, Any]:
         # Verify webhook authentication based on auth type. All secret material
         # (HMAC secret, header-auth value, JWT secret) lives in the workflow's
@@ -673,9 +852,19 @@ class WebhookService:
                 logger.warning(
                     f"HMAC auth configured but missing secret for workflow {workflow.id}"
                 )
+        elif auth_type == "signed_raw_body":
+            self._verify_signed_raw_body(
+                workflow, headers, secret_data.get("webhook_secret"), raw_body
+            )
         else:
             # Header Auth or JWT Auth
             self._verify_webhook_auth(workflow, headers, secret_data)
+
+        # Answered after verification, so an unsigned request cannot learn that a
+        # workflow exists by asking it to echo.
+        handshake = self._handshake_response(workflow, payload)
+        if handshake is not None:
+            return handshake
 
         # Active-check, concurrency guard and instance creation are shared with
         # every other trigger type via TriggerDispatcher.

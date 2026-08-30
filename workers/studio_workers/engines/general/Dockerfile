@@ -45,6 +45,7 @@ COPY LICENSE LEGAL.md /app/
 # Pull the patched kernel headers package
 RUN apt-get update && apt-get install -y --only-upgrade linux-libc-dev \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
+    libssl3t64 openssl openssl-provider-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

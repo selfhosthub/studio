@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from studio_workers.env_files import resolve_env_files
@@ -37,8 +38,12 @@ class SharedSettings(BaseSettings):
     # ── Core (required - fail-fast at import) ────────────────────────────
     API_BASE_URL: str
     PUBLIC_BASE_URL: str
-    WORKER_SHARED_SECRET: str
     WORKSPACE_ROOT: str
+
+    # One of these two authenticates the worker. WORKER_CREDENTIAL is the
+    # per-worker enrollment credential and wins when both are set.
+    WORKER_SHARED_SECRET: str = ""
+    WORKER_CREDENTIAL: str = ""
 
     # ── Core (optional) ──────────────────────────────────────────────────
     WORKER_TYPE: str = "general"
@@ -47,6 +52,20 @@ class SharedSettings(BaseSettings):
     # when the autodetect is wrong - a host that once ran the API keeps a
     # WORKSPACE_ROOT/orgs/ tree the autodetect reads as a shared mount.
     STORAGE_MODE: Literal["local", "remote"] | None = None
+
+    @model_validator(mode="after")
+    def _one_worker_secret_is_required(self) -> "SharedSettings":
+        if not self.WORKER_CREDENTIAL and not self.WORKER_SHARED_SECRET:
+            raise ValueError(
+                "Set SHS_WORKER_CREDENTIAL (from studio-workers enroll) or "
+                "SHS_WORKER_SHARED_SECRET."
+            )
+        return self
+
+    @property
+    def auth_secret(self) -> str:
+        """What the worker presents to the API; the credential wins when set."""
+        return self.WORKER_CREDENTIAL or self.WORKER_SHARED_SECRET
 
     # ── Cloudflare Access (optional service token) ───────────────────────
     CF_ACCESS_CLIENT_ID: str | None = None

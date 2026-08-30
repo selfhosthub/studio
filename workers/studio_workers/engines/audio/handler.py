@@ -122,7 +122,7 @@ def _download_audio_ref(url: str) -> str:
 
     headers = {}
     if needs_worker_auth:
-        worker_secret = settings.WORKER_SHARED_SECRET
+        worker_secret = settings.auth_secret
         if worker_secret:
             headers["X-Worker-Secret"] = worker_secret
 

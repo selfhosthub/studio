@@ -192,6 +192,10 @@ class CredentialRead(BaseModel):
         default=False,
         description="True if credential has an access_token (OAuth completed)",
     )
+    has_refresh_token: bool = Field(
+        default=False,
+        description="True if credential has a refresh_token (renewable without re-authorizing)",
+    )
     has_webhook_callback_key: bool = Field(
         default=False,
         description="True if credential holds a webhook_callback_api_key (webhook-capable)",

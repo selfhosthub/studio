@@ -13,6 +13,13 @@ from app.application.services.queue_service import QueueService
 from app.application.interfaces import EntityNotFoundError, ValidationError
 from app.domain.queue.models import WorkerStatus
 from app.config.queues import allowed_queues
+from app.infrastructure.security.worker_enrollment import looks_like_credential
+from app.infrastructure.security.worker_enrollment_store import (
+    consume_join_token,
+    create_enrollment,
+    resolve_enrollment,
+    touch_enrollment,
+)
 from app.infrastructure.auth.worker_jwt import create_worker_token
 from app.domain.queue.repository import WorkerRepository
 from app.infrastructure.persistence.database import get_db_session
@@ -23,6 +30,8 @@ from app.presentation.api.dependencies import (
 from app.presentation.api.models.worker import (
     WorkerDeregistrationRequest,
     WorkerDeregistrationResponse,
+    WorkerEnrollRequest,
+    WorkerEnrollResponse,
     WorkerHeartbeatRequest,
     WorkerHeartbeatResponse,
     WorkerRegistrationRequest,
@@ -33,6 +42,40 @@ from app.infrastructure.errors import safe_error_message
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.post(
+    "/enroll",
+    response_model=WorkerEnrollResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Exchange a join token for a worker credential",
+    description="""
+    One-time enrollment. A super admin mints a join token and hands it to the
+    worker's operator; the worker exchanges it here for a long-lived, revocable
+    credential scoped to the token's queues.
+
+    The credential is returned once and never again: only its hash is stored.
+    """,
+)
+async def enroll_worker(request: WorkerEnrollRequest) -> WorkerEnrollResponse:
+    """401 if the token is unknown, already used, or expired."""
+    scope = await consume_join_token(request.join_token)
+    if scope is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Join token is unknown, already used, or expired.",
+        )
+
+    created = await create_enrollment(
+        label=request.label or scope["label"],
+        queues=scope["queues"],
+        join_token_id=scope["id"],
+    )
+    logger.info(
+        f"Worker enrolled: {request.label or scope['label']} "
+        f"(enrollment={created['id']}, queues={sorted(scope['queues'])})"
+    )
+    return WorkerEnrollResponse(credential=created["credential"], queues=scope["queues"])
 
 
 @router.post(
@@ -51,19 +94,41 @@ async def register_worker(
     request: WorkerRegistrationRequest,
     service: QueueService = Depends(get_queue_service_bypass),
 ) -> WorkerRegistrationResponse:
-    """400 invalid secret/validation or out-of-set queue; 404 queue not found."""
+    """400 invalid secret/validation or out-of-set queue; 401 dead credential; 404 queue not found."""
+    # secret carries either the fleet shared secret or an enrollment credential,
+    # told apart by the credential's prefix. A credential narrows the allowed set
+    # to its recorded scope; it can never widen it.
+    operator_allowed = allowed_queues()
+    enrollment = None
+    if looks_like_credential(request.secret):
+        enrollment = await resolve_enrollment(request.secret)
+        if enrollment is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Worker credential is unknown or revoked.",
+            )
+        await touch_enrollment(enrollment["id"])
+        allowed = operator_allowed & frozenset(enrollment["queues"])
+    else:
+        allowed = operator_allowed
+
     # Queues actually served: the explicit field is enforced by name against
     # the allowlist (compiled defaults union SHS_ALLOWED_QUEUES; ruling
     # 2026-08-03). Legacy workers send labels only; infer served queues as
     # the labels that are allowed queues, so capability tags never refuse.
-    allowed = allowed_queues()
     if request.queues:
         refused = [q for q in request.queues if q not in allowed]
         if refused:
+            scope_note = (
+                "This credential is scoped to: "
+                f"{', '.join(sorted(enrollment['queues'])) or 'no queues'}."
+                if enrollment
+                else "The operator can widen it via SHS_ALLOWED_QUEUES."
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Queue(s) not in the allowed set: {', '.join(sorted(refused))}. "
-                "The operator can widen it via SHS_ALLOWED_QUEUES.",
+                + scope_note,
             )
         served_queues = request.queues
     else:
@@ -86,12 +151,20 @@ async def register_worker(
             gpu_percent=request.gpu_percent,
             gpu_memory_percent=request.gpu_memory_percent,
             storage_mode=request.storage_mode,
+            credential_verified=enrollment is not None,
         )
         # The token authorizes claims by label; served queues ride along so
         # the sweep is claim-authorized without conflating labels and queues.
+        # An enrolled worker keeps only the labels that are not queue names, so
+        # a self-declared queue cannot re-widen what the credential granted.
+        if enrollment is not None:
+            tags = [q for q in request.queue_labels if q not in operator_allowed]
+            jwt_labels = sorted(set(served_queues) | set(tags))
+        else:
+            jwt_labels = sorted(set(request.queue_labels) | set(served_queues))
         token = create_worker_token(
             worker_id=str(result.id),
-            queue_labels=sorted(set(request.queue_labels) | set(served_queues)),
+            queue_labels=jwt_labels,
             capabilities=request.capabilities,
         )
 

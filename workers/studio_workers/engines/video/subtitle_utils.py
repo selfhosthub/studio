@@ -179,15 +179,19 @@ def generate_ass_subtitles(
     output_path: str,
     params: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Generate ASS subtitle file with karaoke-style word highlighting.
+    """Generate an ASS subtitle file, one line per phrase.
 
-    params keys: all_caps, font_size, font_family, font_color, highlight_color,
-    outline_color, outline_width, shadow_offset, position, max_words_per_phrase,
-    edge_padding.
+    style "karaoke" emits one line per word with that word highlighted; any
+    other value emits one line per phrase with no per-word markup.
+
+    params keys: style, all_caps, font_size, font_family, font_color,
+    highlight_color, outline_color, outline_width, shadow_offset, position,
+    max_words_per_phrase, edge_padding.
     """
     params = params or {}
 
     # Subtitle settings
+    style = params.get("style", "standard")
     all_caps = params.get("all_caps", False)
     font_size = params.get("font_size", 24)
     font_family = params.get("font_family", "Luckiest Guy")
@@ -275,6 +279,10 @@ def generate_ass_subtitles(
     # Group words into phrases
     phrases = _group_words_into_phrases(all_words, max_words_per_phrase)
 
+    # generate_ass_subtitles is only reached with words, so segments is non-empty.
+    segments = transcription.get("segments") or []
+    transcript_end = segments[-1]["end"] if segments else 0.0
+
     # Write ASS file
     with open(output_path, "w") as f:
         # Script info
@@ -313,32 +321,39 @@ def generate_ass_subtitles(
                     _escape_ass_text(raw_word.upper() if all_caps else raw_word)
                 )
 
+            # A phrase runs to the next phrase's first word; the last one runs
+            # to the end of the transcription.
+            phrase_end = (
+                phrases[phrase_idx + 1][0]["start"]
+                if phrase_idx < len(phrases) - 1
+                else transcript_end
+            )
+
+            if style != "karaoke":
+                start_ts = _format_ass_timestamp(phrase[0].get("start", 0.0))
+                end_ts = _format_ass_timestamp(phrase_end)
+                f.write(
+                    f"Dialogue: 0,{start_ts},{end_ts},{style_name},,0,0,0,,{' '.join(phrase_words)}\n"
+                )
+                continue
+
             for word_idx, word in enumerate(phrase):
                 word_start = word.get("start", 0.0)
-                word_end = word.get("end", word_start)
 
-                # Determine end time for this subtitle line
                 if word_idx < len(phrase) - 1:
                     next_start = phrase[word_idx + 1]["start"]
-                elif phrase_idx < len(phrases) - 1:
-                    next_start = phrases[phrase_idx + 1][0]["start"]
                 else:
-                    # Last word - use segment end
-                    next_start = (
-                        transcription["segments"][-1]["end"]
-                        if transcription.get("segments")
-                        else word_end
-                    )
+                    next_start = phrase_end
 
-                # Highlight current word
+                # Highlight the current word by colour only: under BorderStyle 3
+                # a per-word border width resizes that word's box.
                 parts = list(phrase_words)
                 parts[word_idx] = (
-                    f"{{\\c&H{highlight_color_ass}&\\3c&H{outline_color_ass}&"
-                    f"\\bord{outline_width * 2}}}{parts[word_idx]}{{\\r}}"
+                    f"{{\\c&H{highlight_color_ass}&\\3c&H{outline_color_ass}&}}"
+                    f"{parts[word_idx]}{{\\r}}"
                 )
                 highlighted_text = " ".join(parts)
 
-                # Format timestamps
                 start_ts = _format_ass_timestamp(word_start)
                 end_ts = _format_ass_timestamp(next_start)
 

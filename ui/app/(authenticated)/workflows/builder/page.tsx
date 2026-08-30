@@ -39,6 +39,7 @@ function WorkflowBuilderContent() {
     selectedStepId,
     setSelectedStepId,
     addStep,
+    addConnectedStep,
     updateStep,
     handleStepsChange,
     removeStep,
@@ -151,6 +152,7 @@ function WorkflowBuilderContent() {
                     onFitViewRef={handleFitViewRef}
                     onAutoArrangeRef={handleAutoArrangeRef}
                     onAddStep={addStep}
+                    onCreateConnectedStep={addConnectedStep}
                     onToggleSettings={() => setShowEditorSettings(!showEditorSettings)}
                     onToggleFullscreen={() => setIsFlowEditorFullscreen(false)}
                     showSettingsActive={showEditorSettings}
@@ -189,6 +191,7 @@ function WorkflowBuilderContent() {
                   onFitViewRef={handleFitViewRef}
                   onAutoArrangeRef={handleAutoArrangeRef}
                   onAddStep={addStep}
+                  onCreateConnectedStep={addConnectedStep}
                   onToggleSettings={() => setShowEditorSettings(!showEditorSettings)}
                   onToggleFullscreen={() => setIsFlowEditorFullscreen(true)}
                   showSettingsActive={showEditorSettings}

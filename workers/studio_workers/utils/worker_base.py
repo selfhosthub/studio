@@ -74,7 +74,7 @@ class WorkerBase(ABC):
 
         # Configuration from settings
         self.api_base_url = settings.API_BASE_URL
-        self.worker_secret = settings.WORKER_SHARED_SECRET
+        self.worker_secret = settings.auth_secret
         self.worker_name = (
             settings.WORKER_NAME or f"worker-{worker_type}-{uuid.uuid4().hex[:8]}"
         )

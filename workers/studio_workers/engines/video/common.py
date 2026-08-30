@@ -83,13 +83,13 @@ def download_file(client: httpx.Client, url: str, path: str) -> None:
 
     headers = {}
     if needs_worker_auth:
-        worker_secret = settings.WORKER_SHARED_SECRET
+        worker_secret = settings.auth_secret
         if worker_secret:
             headers["X-Worker-Secret"] = worker_secret
             logger.debug("Adding worker auth header for internal file download")
         else:
             logger.warning(
-                "WORKER_SHARED_SECRET not set - internal file download may fail"
+                "No worker auth secret set - internal file download may fail"
             )
 
     max_bytes = MAX_DOWNLOAD_SIZE_MB * 1024 * 1024

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import httpx
 
+from app.domain.provider.credential_validity import serve_stored_token
 from app.domain.provider.models import CredentialType, ProviderCredential
 from app.domain.provider.repository import (
     ProviderCredentialRepository,
@@ -66,11 +67,8 @@ async def refresh_oauth_token(
     provider_repo: ProviderRepository,
     credential_repo: ProviderCredentialRepository,
 ) -> str:
-    # 5 min buffer ensures the token outlives the worker's request
-    if credential.expires_at:
-        buffer = timedelta(minutes=5)
-        if credential.expires_at > datetime.now(UTC) + buffer:
-            return credential.credentials.get("access_token")
+    if serve_stored_token(credential):
+        return credential.credentials.get("access_token")
 
     refresh_token = credential.credentials.get("refresh_token")
     if not refresh_token:

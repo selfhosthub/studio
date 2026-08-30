@@ -58,6 +58,7 @@ COPY LICENSE LEGAL.md /app/
 # Pull the patched libtiff and setuptools (vendored jaraco.context rides along)
 RUN apt-get update && apt-get install -y --only-upgrade libtiff6 linux-libc-dev libexpat1 libssh-4 \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
+    libssl3t64 openssl openssl-provider-legacy \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir "setuptools>=78.1.1"
 

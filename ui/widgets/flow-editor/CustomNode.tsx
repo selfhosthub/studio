@@ -96,6 +96,9 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
   return (
     <div
       className={`group px-4 py-2 rounded-md shadow-md border-2 relative ${getWidthClass()} ${getNodeClasses()} transition-all duration-150`}
+      data-testid={`workflow-node-${id}`}
+      data-step-id={id}
+      data-node-selected={data.isSelected ? 'true' : 'false'}
       style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}
     >
       {/* Skip mode: Dashed line through the step */}
@@ -191,6 +194,7 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
       {/* Edit/Settings button (top-center) - always visible on hover or when selected */}
       <button
         type="button"
+        data-testid={`workflow-node-edit-${id}`}
         onClick={handleEdit}
         className="absolute -top-2 left-1/2 -translate-x-1/2 bg-info text-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm hover:bg-[var(--theme-primary)] transition-colors opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100"
         data-selected={data.isSelected}
@@ -209,6 +213,7 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
       {/* Delete button (top-right) - visible on hover or when selected */}
       <button
         type="button"
+        data-testid={`workflow-node-delete-${id}`}
         onClick={handleDelete}
         className="absolute -top-2 -right-2 bg-danger text-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm hover:bg-[var(--theme-danger)] transition-colors opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100"
         data-selected={data.isSelected}
@@ -265,11 +270,11 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
         </div>
       )}
 
-      {/* Manual trigger (HIL) badge — 1/4 up from the bottom on the right edge */}
+      {/* Manual trigger (HIL) badge - 1/4 up from the bottom on the right edge */}
       {data.isManualTrigger && !isSkipped && !isStopped && (
         <div
           className="absolute right-0 bottom-1/4 translate-x-1/2 translate-y-1/2 bg-warning text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
-          title="Human-in-the-loop — pauses and waits for a manual trigger before this step."
+          title="Human-in-the-loop - pauses and waits for a manual trigger before this step."
         >
           HIL
         </div>

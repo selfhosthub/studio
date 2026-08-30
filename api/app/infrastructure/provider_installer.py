@@ -238,6 +238,8 @@ class ProviderInstaller:
             adapter_block: dict[str, Any] = {}
             if "default_headers" in data:
                 adapter_block["default_headers"] = data["default_headers"]
+            if "form_array_style" in data:
+                adapter_block["form_array_style"] = data["form_array_style"]
             if "default_queue" in data:
                 adapter_block["default_queue"] = data["default_queue"]
             if adapter_block:
@@ -330,6 +332,9 @@ class ProviderInstaller:
             "request_transform": service_data.get("request_transform"),
             "ui_hints": service_data.get("ui_hints"),
             "orchestrator_hints": service_data.get("orchestrator_hints"),
+            # Named outputs every step on this service inherits; a step's own
+            # outputs override these (OutputExtractor).
+            "outputs": service_data.get("outputs"),
             "output_view": service_data.get("output_view"),
             "iterable": service_data.get("iterable", True),
             # Service-authored notice shown in the UI when an array is mapped to a
@@ -347,10 +352,9 @@ class ProviderInstaller:
             # webhook handler reads to match an id and locate the result assets.
             "completion_modes": service_data.get("completion_modes"),
             "webhook_completion": service_data.get("webhook_completion"),
-            # Chat prompt shaping: prompt_shape="chat" opts the service into
-            # the dispatch shaper; wire_dialect (openai|anthropic|gemini) is
-            # the only key the shaper branches on - never provider name.
-            "prompt_shape": service_data.get("prompt_shape"),
+            # dispatch_shape opts the service into the dispatch shaper;
+            # shape + wire_dialect are the only keys it branches on.
+            "dispatch_shape": service_data.get("dispatch_shape"),
             "wire_dialect": service_data.get("wire_dialect"),
         }
 

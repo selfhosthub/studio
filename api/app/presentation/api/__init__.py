@@ -30,6 +30,7 @@ from app.presentation.api import (
     system_version,
     users,
     worker_credentials,
+    worker_enrollment_admin,
     worker_jobs,
     workers,
     workflows,
@@ -84,6 +85,11 @@ def register_routers(app: FastAPI, api_prefix: str = "/api/v1") -> None:
     app.include_router(org_files.router, prefix=f"{api_prefix}", tags=["Files"])
     app.include_router(
         system_health.router, prefix=f"{api_prefix}", tags=["Infrastructure"]
+    )
+    app.include_router(
+        worker_enrollment_admin.router,
+        prefix=f"{api_prefix}/infrastructure",
+        tags=["Infrastructure"],
     )
     app.include_router(system_version.router, prefix=f"{api_prefix}", tags=["System"])
     app.include_router(oauth.router, prefix=f"{api_prefix}/oauth", tags=["OAuth"])

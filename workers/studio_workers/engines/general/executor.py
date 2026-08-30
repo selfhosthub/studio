@@ -90,6 +90,48 @@ def _run_sync(coro):
     return _sync_loop.run_until_complete(coro)
 
 
+def flatten_form_body(
+    body: Dict[str, Any], array_style: Optional[str] = None
+) -> List[Tuple[str, str]]:
+    """Urlencode-ready pairs for a form body, bracketing nested containers.
+
+    httpx renders a nested dict as its Python repr, so a form-encoded provider
+    silently receives garbage. Bracket notation (metadata[order_id]=6735) is
+    what Stripe and every other PHP-convention API reads.
+
+    A list of scalars is the one shape form-encoded providers disagree on:
+    Stripe reads payment_method_types[0]=card, Twilio reads a repeated bare
+    StatusCallbackEvent. array_style="brackets" picks the first; the default
+    repeats the key, which is what the wire did before this existed.
+    """
+    pairs: List[Tuple[str, str]] = []
+
+    def scalar(value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return str(value)
+
+    def walk(name: str, value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, dict):
+            for key, inner in value.items():
+                walk(f"{name}[{key}]", inner)
+        elif isinstance(value, (list, tuple)):
+            nested = any(isinstance(item, (dict, list, tuple)) for item in value)
+            for index, item in enumerate(value):
+                if nested or array_style == "brackets":
+                    walk(f"{name}[{index}]", item)
+                elif item is not None:
+                    pairs.append((name, scalar(item)))
+        else:
+            pairs.append((name, scalar(value)))
+
+    for key, value in body.items():
+        walk(key, value)
+    return pairs
+
+
 class JobExecutor:
 
     def __init__(
@@ -798,6 +840,7 @@ class JobExecutor:
             query_params=query_params,
             credential_id=credential_id,
             auth_config=auth_config,
+            form_array_style=http_request.get("form_array_style"),
         )
 
         if webhook_completion:
@@ -962,6 +1005,7 @@ class JobExecutor:
         query_params: Dict[str, Any],
         credential_id: Optional[str],
         auth_config: Optional[Dict[str, Any]],
+        form_array_style: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Fire with retries on 408/429/5xx + network errors. 401 triggers one credential refresh.
 
@@ -989,7 +1033,9 @@ class JobExecutor:
                     request_kwargs["params"] = tuple(params_seq)
                 if method in ("POST", "PUT", "PATCH") and body is not None:
                     if use_form_encoding:
-                        request_kwargs["data"] = body
+                        request_kwargs["data"] = flatten_form_body(
+                            body, form_array_style
+                        )
                     else:
                         request_kwargs["json"] = body
 

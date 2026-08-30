@@ -73,15 +73,15 @@ def try_build_http_request(
         BusinessRuleViolation: chat-shaped service with unshapeable prompt
             input or a misconfigured wire_dialect.
     """
-    from app.application.services.job_enqueue.prompt_dispatch_shaper import (
-        shape_prompt_parameters,
+    from app.application.services.job_enqueue.dispatch_shaper import (
+        shape_dispatch_parameters,
     )
 
     # Dialect shaping runs after endpoint resolution (wire_dialect is known)
     # and before the wire build. Shapes a copy - the neutral messages stay
     # untouched in job parameters for debugging visibility.
     job_cfg = resolved_step_config.get("job") or {}
-    parameters = shape_prompt_parameters(
+    parameters = shape_dispatch_parameters(
         service_metadata=getattr(endpoint, "service_metadata", None),
         parameters=job_cfg.get("parameters") or {},
     )
@@ -126,13 +126,19 @@ def try_build_http_request(
             credentials=None,
             system_extra=system_extra,
         )
-        return {
+        envelope: Dict[str, Any] = {
             "url": built.url,
             "method": built.method,
             "headers": built.headers,
             "body": built.body,
             "query_params": built.query_params,
         }
+        # Only form-encoded providers declare this; the worker reads it when it
+        # urlencodes the body.
+        form_array_style = getattr(endpoint, "form_array_style", None)
+        if form_array_style:
+            envelope["form_array_style"] = form_array_style
+        return envelope
     except Exception as e:
         logger.warning(f"Step {step_id}: http_request dual-write skipped: {e}")
         return None

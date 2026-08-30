@@ -10,6 +10,8 @@ results and instance parameters. Preserves [*] expressions for array expansion.
 import re
 from typing import Any, Dict
 
+from app.application.services.mapping_resolver import MappingResolver
+
 
 class VariableResolver:
     """Resolves variable references in step configuration."""
@@ -106,8 +108,16 @@ class VariableResolver:
         """
         parts = path.split(".")
 
-        # __instance_form__ is a virtual step - resolve from instance parameters
+        # __instance_form__ is a virtual step. One field resolves through the
+        # same precedence the mapped path uses, so a submitted value wins here
+        # too; anything deeper falls through to a plain walk of instance params.
         if parts and parts[0] == "__instance_form__":
+            if len(parts) == 2:
+                resolved = MappingResolver._resolve_instance_form_field(
+                    parts[1], context.get("input") or {}
+                )
+                if resolved is not None:
+                    return resolved
             parts = ["input"] + parts[1:]
 
         # Shorthand: if first segment is a known step ID (not "steps" or "input"),

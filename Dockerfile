@@ -93,6 +93,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng16-16t64 \
     && apt-get install -y --only-upgrade \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
+    libssl3t64 openssl openssl-provider-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 # cloudflared from upstream binary release. Cloudflare's apt repo doesn't

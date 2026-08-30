@@ -982,6 +982,10 @@ async def _load_managed_workflow_source(
         "steps": steps,
         "trigger_type": trigger_type,
         "trigger_input_schema": trigger_schema,
+        "webhook_method": wf_row.webhook_method,
+        "webhook_auth_type": wf_row.webhook_auth_type,
+        "webhook_auth_header_name": wf_row.webhook_auth_header_name,
+        "webhook_config": wf_row.webhook_config,
         "description": wf_row.description or "",
         "client_metadata": wf_row.client_metadata or {},
     }
@@ -1132,6 +1136,10 @@ async def _org_copy_workflow(
         steps=steps,
         trigger_type=workflow_data.get("trigger_type"),
         trigger_input_schema=workflow_data.get("trigger_input_schema"),
+        webhook_method=workflow_data.get("webhook_method"),
+        webhook_auth_type=workflow_data.get("webhook_auth_type"),
+        webhook_auth_header_name=workflow_data.get("webhook_auth_header_name"),
+        webhook_config=workflow_data.get("webhook_config"),
         client_metadata=merged_metadata,
         scope="organization",
     )

@@ -39,9 +39,10 @@ ALTER TABLE prompts FORCE ROW LEVEL SECURITY;
 --   policies scope reads).
 -- No organization_id, deliberately uncovered: organizations, providers,
 --   provider_services, comfyui_workflows, package_versions, workers,
---   site_content, marketplace_catalogs, oauth_states, system_settings,
---   documentation, step_executions/iteration_executions (instance-scoped;
---   reached only through RLS-guarded instances).
+--   worker_join_tokens, worker_enrollments, site_content,
+--   marketplace_catalogs, oauth_states, system_settings, documentation,
+--   step_executions/iteration_executions (instance-scoped; reached only
+--   through RLS-guarded instances).
 
 -- ============================================================================
 -- Verification

@@ -275,6 +275,11 @@ class WorkflowModel(Base):
     webhook_auth_header_name: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True
     )
+    # Non-secret webhook trigger config: the "auth" block parameterises signature
+    # verification and the "handshake" block the sender's URL-verification echo.
+    webhook_config: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
     # The HMAC signing secret, header-auth value, and JWT secret live in the
     # referenced OrganizationSecret (trigger_secret_id), not on this row.
     # --- Schedule trigger (RRULE / RFC 5545) ---
@@ -1083,6 +1088,64 @@ class WorkerModel(Base):
         Index("ix_workers_queue_status", "queue_id", "status"),
         Index("ix_workers_heartbeat", "last_heartbeat"),
     )
+
+
+class WorkerJoinTokenModel(Base):
+    """A short-lived, single-use token a super admin mints for one worker."""
+
+    __tablename__ = "worker_join_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # SHA-256 hex of the token; the lookup key, so the plaintext is never stored.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    label: Mapped[str] = mapped_column(String(255))
+    # The queues a worker enrolling with this token may serve.
+    queues: Mapped[List[str]] = mapped_column(PG_ARRAY(String), default=list)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    used_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (Index("ix_worker_join_tokens_expires", "expires_at"),)
+
+
+class WorkerEnrollmentModel(Base):
+    """The per-worker revocable credential a join token is exchanged for."""
+
+    __tablename__ = "worker_enrollments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # SHA-256 hex of the credential; the lookup key, so the plaintext is never stored.
+    credential_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    label: Mapped[str] = mapped_column(String(255))
+    # The queues this credential may register for; bounds the worker JWT.
+    queues: Mapped[List[str]] = mapped_column(PG_ARRAY(String), default=list)
+    join_token_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("worker_join_tokens.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (Index("ix_worker_enrollments_revoked", "revoked_at"),)
 
 
 class QueuedJobModel(Base):

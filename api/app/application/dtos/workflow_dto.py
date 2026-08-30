@@ -32,6 +32,10 @@ class WorkflowCreate(WorkflowBase):
     trigger_type: Optional[WorkflowTriggerType] = None
     trigger_input_schema: Optional[Dict[str, Any]] = None
     scope: Optional[str] = None
+    webhook_method: Optional[str] = None
+    webhook_auth_type: Optional[str] = None
+    webhook_auth_header_name: Optional[str] = None
+    webhook_config: Optional[Dict[str, Any]] = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -47,6 +51,8 @@ class WorkflowUpdate(BaseModel):
     webhook_auth_header_name: Optional[str] = None
     webhook_auth_header_value: Optional[str] = None
     webhook_jwt_secret: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    webhook_config: Optional[Dict[str, Any]] = None
 
 
 class WorkflowResponse(WorkflowBase):
@@ -70,6 +76,7 @@ class WorkflowResponse(WorkflowBase):
     webhook_auth_header_name: Optional[str] = None
     webhook_auth_header_value: Optional[str] = None  # None or "[CONFIGURED]" on read
     webhook_jwt_secret: Optional[str] = None  # None or "[CONFIGURED]" on read
+    webhook_config: Optional[Dict[str, Any]] = None
     trigger_input_schema: Optional[Dict[str, Any]] = None
     # Schedule trigger (read-only view of the RRULE config).
     schedule_dtstart: Optional[datetime] = None
@@ -118,6 +125,7 @@ class WorkflowResponse(WorkflowBase):
             webhook_method=workflow.webhook_method,
             webhook_auth_type=workflow.webhook_auth_type,
             webhook_auth_header_name=workflow.webhook_auth_header_name,
+            webhook_config=workflow.webhook_config,
             trigger_input_schema=workflow.trigger_input_schema,
             schedule_dtstart=workflow.schedule_dtstart,
             schedule_rrule=workflow.schedule_rrule,
