@@ -39,6 +39,7 @@ from app.domain.audit.models import (
     ResourceType,
 )
 from app.domain.instance_step.step_execution_repository import StepExecutionRepository
+from app.presentation.api.uploads import spooled_upload
 from app.presentation.api.dependencies import (
     CurrentUser,
     get_audit_service,
@@ -1472,12 +1473,7 @@ async def upload_files_to_step(
             guessed_type, _ = mimetypes.guess_type(file.filename or "")
             mime_type = guessed_type or "application/octet-stream"
 
-        content = await file.read()
-        file_size = len(content)
-
-        from io import BytesIO
-
-        file_stream = BytesIO(content)
+        file_stream, file_size = spooled_upload(file)
 
         try:
             resource = await resource_service.upload_file_to_step(

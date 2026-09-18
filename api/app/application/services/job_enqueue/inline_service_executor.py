@@ -52,8 +52,9 @@ class InlineServiceExecutor:
         organization_id: uuid.UUID,
         service_id: str,
         resolved_step_config: Dict[str, Any],
+        park_for_webhook: bool = False,
     ) -> str:
-        """Execute a service inline and return the generated job ID for tracking."""
+        """Execute a service inline and return the generated job ID; park_for_webhook completes it as a parked step."""
         job_id = str(uuid.uuid4())
         logger.info(f"Executing service inline: {service_id} (step={step_id})")
 
@@ -100,6 +101,7 @@ class InlineServiceExecutor:
                 "error": None,
                 "input_data": parameters,
                 "published_at": datetime.now(UTC).isoformat(),
+                "webhook_pending": park_for_webhook,
             }
             await self.status_publisher.publish_status(completed_result)
             logger.info(f"Inline service {service_id} completed: {result_data}")
@@ -129,6 +131,14 @@ class InlineServiceExecutor:
             "notify": self._execute_notify,
             "webhook_trigger": self._execute_webhook_trigger,
             "webhook_response": self._execute_webhook_response,
+            "webhook_wait": self._execute_webhook_wait,
+        }
+
+    def _execute_webhook_wait(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Record what the parked step waits for; its callback supplies the result."""
+        return {
+            "wait_for": "webhook_callback",
+            "expected_fields": parameters.get("expected_fields", []),
         }
 
     def _execute_set_fields(self, parameters: Dict[str, Any]) -> Dict[str, Any]:

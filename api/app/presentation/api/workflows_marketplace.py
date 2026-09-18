@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.catalog_merge_service import merge_with_marketplace
@@ -274,11 +274,10 @@ def extract_prompt_slugs(entry_or_data: Dict[str, Any]) -> List[str]:
 
 
 async def get_installed_prompt_slugs_for_org(
-    db: AsyncSession, org_id: uuid.UUID
+    service_db: AsyncSession, org_id: uuid.UUID
 ) -> set[str]:
-    """Namespaced slugs of marketplace-sourced prompts active in the given org."""
-    await db.execute(text("SET LOCAL app.is_service_account = 'true'"))
-    rows = await db.execute(
+    """Namespaced slugs of marketplace-sourced prompts active in the given org; service_db carries service posture."""
+    rows = await service_db.execute(
         select(PromptModel.slug).where(
             PromptModel.organization_id == org_id,
             PromptModel.source == PromptSource.MARKETPLACE,
@@ -456,7 +455,7 @@ async def _org_admin_catalog_workflows(
     active = await PackageVersionService.list_active(db, PackageType.WORKFLOW)
 
     installed_ids = await get_installed_package_ids(provider_repo)
-    installed_prompt_slugs = await get_installed_prompt_slugs_for_org(db, org_id)
+    installed_prompt_slugs = await get_installed_prompt_slugs_for_org(bypass_db, org_id)
 
     workflows: List[MarketplaceWorkflow] = []
     categories_set: set[str] = set()
@@ -1071,7 +1070,9 @@ async def _org_copy_workflow(
     required_prompt_slugs = extract_prompt_slugs(workflow_data) or extract_prompt_slugs(
         catalog_entry
     )
-    installed_prompt_slugs = await get_installed_prompt_slugs_for_org(db, org_uuid)
+    installed_prompt_slugs = await get_installed_prompt_slugs_for_org(
+        bypass_db, org_uuid
+    )
     missing_prompts = [
         s for s in required_prompt_slugs if s not in installed_prompt_slugs
     ]
@@ -1083,9 +1084,7 @@ async def _org_copy_workflow(
     slug_to_uuid: Dict[str, str] = {p.slug: str(p.id) for p in db_providers}
 
     # Build slug → UUID map for prompt resolution
-    # Prompts are RLS-protected; elevate to service account for this query
-    await db.execute(text("SET LOCAL app.is_service_account = 'true'"))
-    prompt_result = await db.execute(
+    prompt_result = await bypass_db.execute(
         select(PromptModel.slug, PromptModel.id).where(
             PromptModel.organization_id == org_uuid,
             PromptModel.source != PromptSource.UNINSTALLED,

@@ -114,17 +114,17 @@ def _download_audio_ref(url: str) -> str:
         translate_url_for_docker,
         translate_to_internal_endpoint,
     )
+    from studio_workers.utils.internal_auth import internal_request_auth
     from studio_workers.utils.security import validate_url_scheme
 
     validate_url_scheme(url)
     translated = translate_url_for_docker(url)
     translated, needs_worker_auth = translate_to_internal_endpoint(translated)
 
-    headers = {}
+    headers: dict = {}
+    params: dict = {}
     if needs_worker_auth:
-        worker_secret = settings.auth_secret
-        if worker_secret:
-            headers["X-Worker-Secret"] = worker_secret
+        headers, params = internal_request_auth()
 
     ext = os.path.splitext(url.split("?")[0])[1] or ".wav"
     fd, tmp_path = tempfile.mkstemp(suffix=ext)
@@ -132,7 +132,9 @@ def _download_audio_ref(url: str) -> str:
 
     try:
         with httpx.Client(timeout=settings.HTTP_HANDLER_TIMEOUT_S) as client:
-            with client.stream("GET", translated, headers=headers) as response:
+            with client.stream(
+                "GET", translated, headers=headers, params=params
+            ) as response:
                 response.raise_for_status()
                 with open(tmp_path, "wb") as f:
                     for chunk in response.iter_bytes(

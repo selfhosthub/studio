@@ -377,6 +377,7 @@ class Worker(AggregateRoot):
 
     jobs_completed: int = 0
     is_deregistered: bool = False
+    enrollment_id: Optional[uuid.UUID] = None
 
     # Network info
     ip_address: Optional[str] = None
@@ -419,6 +420,7 @@ class Worker(AggregateRoot):
         gpu_percent: Optional[float] = None,
         gpu_memory_percent: Optional[float] = None,
         storage_mode: str = "remote",
+        enrollment_id: Optional[uuid.UUID] = None,
     ) -> "Worker":
         worker = cls(
             id=uuid.uuid4(),
@@ -438,6 +440,7 @@ class Worker(AggregateRoot):
             disk_percent=disk_percent,
             gpu_percent=gpu_percent,
             gpu_memory_percent=gpu_memory_percent,
+            enrollment_id=enrollment_id,
             last_heartbeat=datetime.now(),
             created_at=datetime.now(),
         )

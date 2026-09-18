@@ -275,34 +275,22 @@ class QueueService(QueueServiceInterface):
         gpu_memory_percent: Optional[float] = None,
         storage_mode: str = "remote",
         worker_version: Optional[str] = None,
-        credential_verified: bool = False,
+        enrollment_id: Optional[uuid.UUID] = None,
     ) -> WorkerResponse:
         """Register a new worker via shared-secret or enrollment-credential self-registration.
 
         queue_id is optional; omit for general-purpose workers not bound to a specific queue.
-        credential_verified means an enrollment credential already authenticated the
+        enrollment_id names the enrollment credential that already authenticated the
         caller, so the shared secret is not consulted.
 
         Raises:
             ValidationError: If secret is invalid or worker_version mismatches
             EntityNotFoundError: If queue_id is provided but the queue doesn't exist
         """
-        if not credential_verified and secret != settings.WORKER_SHARED_SECRET:
+        if enrollment_id is None and secret != settings.WORKER_SHARED_SECRET:
             raise ValidationError("Invalid worker secret")
 
-        if worker_version != WORKERS_VERSION:
-            if settings.ALLOW_WORKER_VERSION_MISMATCH:
-                logger.warning(
-                    f"Worker '{name}' version {worker_version or 'unknown'} != expected "
-                    f"{WORKERS_VERSION}; allowed by SHS_ALLOW_WORKER_VERSION_MISMATCH"
-                )
-            else:
-                raise ValidationError(
-                    f"Worker version {worker_version or 'unknown'} does not match this API's "
-                    f"expected studio-workers version {WORKERS_VERSION}. Install the matching "
-                    f"studio-workers release, or set SHS_ALLOW_WORKER_VERSION_MISMATCH=1 on the "
-                    f"API to override."
-                )
+        self.check_worker_version(name, worker_version)
 
         # Only validate queue exists if queue_id is provided
         if queue_id:
@@ -328,6 +316,7 @@ class QueueService(QueueServiceInterface):
             gpu_percent=gpu_percent,
             gpu_memory_percent=gpu_memory_percent,
             storage_mode=storage_mode,
+            enrollment_id=enrollment_id,
         )
 
         events = worker.clear_events()
@@ -337,6 +326,22 @@ class QueueService(QueueServiceInterface):
             await self.event_bus.publish(event)
 
         return WorkerResponse.from_domain(created)
+
+    def check_worker_version(self, name: str, worker_version: Optional[str]) -> None:
+        """Raise ValidationError unless the worker runs the expected studio-workers version or mismatches are allowed."""
+        if worker_version != WORKERS_VERSION:
+            if settings.ALLOW_WORKER_VERSION_MISMATCH:
+                logger.warning(
+                    f"Worker '{name}' version {worker_version or 'unknown'} != expected "
+                    f"{WORKERS_VERSION}; allowed by SHS_ALLOW_WORKER_VERSION_MISMATCH"
+                )
+            else:
+                raise ValidationError(
+                    f"Worker version {worker_version or 'unknown'} does not match this API's "
+                    f"expected studio-workers version {WORKERS_VERSION}. Install the matching "
+                    f"studio-workers release, or set SHS_ALLOW_WORKER_VERSION_MISMATCH=1 on the "
+                    f"API to override."
+                )
 
     async def set_busy(
         self,
@@ -446,12 +451,8 @@ class QueueService(QueueServiceInterface):
     async def deregister_worker(
         self,
         worker_id: uuid.UUID,
-        secret: str,
     ) -> bool:
-        """Deregister a worker using the shared secret. Returns True if deleted."""
-        if secret != settings.WORKER_SHARED_SECRET:
-            raise ValidationError("Invalid worker secret")
-
+        """Delete a worker that authenticated as itself. Returns True if deleted."""
         worker = await self.worker_repository.get_by_id(worker_id)
         if not worker:
             raise EntityNotFoundError(

@@ -5,7 +5,7 @@
 import uuid
 from typing import List, Optional, Tuple
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.org_file.models import (
@@ -187,6 +187,12 @@ class SQLAlchemyOrgFileRepository(OrgFileRepository):
 
         # Update fields
         model.status = resource.status
+        model.virtual_path = resource.virtual_path
+        model.file_size = resource.file_size
+        model.mime_type = resource.mime_type
+        model.file_extension = resource.file_extension
+        model.display_name = resource.display_name
+        model.source = resource.source
         model.resource_metadata = resource.metadata
         model.has_thumbnail = resource.has_thumbnail
         model.checksum = resource.checksum
@@ -208,6 +214,16 @@ class SQLAlchemyOrgFileRepository(OrgFileRepository):
             await self.session.delete(model)
             await self.session.flush()
             await self.session.commit()
+
+    async def count_referencing_path(self, path: str) -> int:
+        stmt = select(func.count()).where(
+            or_(
+                OrgFileModel.virtual_path == path,
+                OrgFileModel.resource_metadata["thumbnail_path"].as_string() == path,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
 
     async def list_by_instance_step(
         self,

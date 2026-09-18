@@ -419,6 +419,7 @@ class JobEnqueueService:
                 organization_id=organization_id,
                 service_id=service_id,
                 resolved_step_config=resolved_step_config,
+                park_for_webhook=hints.get("pause_status") == "WAITING_FOR_WEBHOOK",
             )
 
         # Merge schema defaults for missing parameters (safety net for old/programmatic workflows)

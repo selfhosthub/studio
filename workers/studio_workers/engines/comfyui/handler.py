@@ -65,6 +65,7 @@ class ComfyUIWorker(WorkerBase):
         self._file_upload_client = FileUploadClient(
             token_getter=self.get_token,
             storage_mode_getter=self._detect_storage_mode,
+            job_id_getter=self.get_current_job_id,
         )
 
         # Operator runs ComfyUI; worker connects and waits if unavailable.

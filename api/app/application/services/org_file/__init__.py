@@ -105,8 +105,14 @@ class OrgFileService:
             organization_id, skip=skip, limit=limit
         )
 
-    async def get_resource_file_path(self, resource_id: uuid.UUID) -> Tuple[Path, str]:
-        return await self._resource_service.get_resource_file_path(resource_id)
+    async def get_resource_file_path(
+        self,
+        resource_id: uuid.UUID,
+        organization_id: Optional[uuid.UUID] = None,
+    ) -> Tuple[Path, str]:
+        return await self._resource_service.get_resource_file_path(
+            resource_id, organization_id
+        )
 
     async def get_resource_thumbnail_path(
         self, resource_id: uuid.UUID

@@ -408,7 +408,7 @@ async def get_queue_repository(
 async def get_queue_repository_bypass(
     session: AsyncSession = Depends(get_db_session_service),
 ) -> AsyncGenerator[QueueRepository, None]:
-    """Without RLS. Only for worker registration/heartbeat (shared-secret auth, not JWT)."""
+    """Without RLS. Only for worker registration and heartbeat, which carry no user org context."""
     yield SQLAlchemyQueueRepository(session)
 
 
@@ -428,7 +428,7 @@ async def get_queued_job_repository(
 async def get_queued_job_repository_bypass(
     session: AsyncSession = Depends(get_db_session_service),
 ) -> AsyncGenerator[QueuedJobRepository, None]:
-    """Without RLS. Only for worker endpoints (shared-secret auth, not JWT)."""
+    """Without RLS. Only for worker endpoints, which carry no user org context."""
     yield SQLAlchemyQueuedJobRepository(session)
 
 
@@ -715,7 +715,7 @@ async def get_queue_service_bypass(
     ),
     event_bus: EventBus = Depends(get_event_bus),
 ) -> QueueService:
-    """Without RLS. Only for worker registration/heartbeat (shared-secret auth, not JWT)."""
+    """Without RLS. Only for worker registration and heartbeat, which carry no user org context."""
     return QueueService(
         queue_repository=queue_repo,
         worker_repository=worker_repo,
@@ -965,10 +965,10 @@ async def get_instance_service_for_ws(
 
 
 async def get_organization_service_for_ws(
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
     event_bus: EventBus = Depends(get_event_bus),
 ) -> OrganizationService:
-    """WebSocket variant without RLS; auth and authorization handled by the WS handler."""
+    """WebSocket variant; shares the handler's session so FastAPI dedupes to one connection per socket."""
     # Create repositories without RLS
     organization_repo = SQLAlchemyOrganizationRepository(session)
     user_repo = SQLAlchemyUserRepository(session)
@@ -996,58 +996,6 @@ async def get_prompt_service(
     repo: PromptRepository = Depends(get_prompt_repository),
 ) -> PromptService:
     return PromptService(repository=repo)
-
-
-# =============================================================================
-# Worker Authentication Dependencies
-# =============================================================================
-
-import logging as _logging
-
-from fastapi import Header
-
-from app.config.settings import settings
-
-_worker_logger = _logging.getLogger(__name__)
-
-WORKER_SHARED_SECRET = settings.WORKER_SHARED_SECRET
-
-
-async def verify_worker_secret(
-    x_worker_secret: str = Header(..., alias="X-Worker-Secret"),
-) -> None:
-    """Validates X-Worker-Secret header. Workers use this instead of JWT.
-
-    The header carries either the fleet shared secret or an enrollment
-    credential, told apart by the credential's prefix.
-    """
-    from fastapi import HTTPException, status
-
-    from app.infrastructure.security.worker_enrollment import looks_like_credential
-    from app.infrastructure.security.worker_enrollment_store import resolve_enrollment
-
-    if looks_like_credential(x_worker_secret):
-        if await resolve_enrollment(x_worker_secret) is None:
-            _worker_logger.warning("Unknown or revoked worker credential")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid worker secret",
-            )
-        return
-
-    if not WORKER_SHARED_SECRET:
-        _worker_logger.error("WORKER_SHARED_SECRET not configured on API server")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Worker authentication not configured",
-        )
-
-    if x_worker_secret != WORKER_SHARED_SECRET:
-        _worker_logger.warning("Invalid worker secret attempt")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid worker secret",
-        )
 
 
 # Role-based access control dependencies with explicit type annotations

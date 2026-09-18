@@ -12,6 +12,7 @@ CVE-2026-45804 exp:2026-10-31
 # chatterbox-tts 0.1.7 pins transformers 5.2.0; ships in studio-worker-audio.
 CVE-2026-4372 exp:2026-10-31
 CVE-2026-5241 exp:2026-10-31
+CVE-2026-9856 exp:2026-10-31
 
 # starlette 0.52.1, transitive tail of gradio (itself pinned by chatterbox-tts
 # and uninstalled from the audio image at build; starlette stays). Ships in
@@ -36,3 +37,10 @@ CVE-2026-56858 exp:2026-09-30
 CVE-2026-56859 exp:2026-09-30
 CVE-2026-56860 exp:2026-09-30
 CVE-2026-56862 exp:2026-09-30
+
+  # Same cloudflared binary, its bundled Go libraries rather than the stdlib:
+  # golang.org/x/crypto 0.53.0 and google.golang.org/grpc 1.81.1. No cloudflared
+  # release ships the fixed versions. Ships in studio-core and studio-full.
+  CVE-2026-56854 exp:2026-09-30
+  CVE-2026-84304 exp:2026-09-30
+  CVE-2026-84445 exp:2026-09-30

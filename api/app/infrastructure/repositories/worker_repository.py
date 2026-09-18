@@ -34,6 +34,7 @@ class SQLAlchemyWorkerRepository(WorkerRepository):
             current_job_id=model.current_job_id,
             jobs_completed=model.jobs_completed,
             is_deregistered=model.is_deregistered,
+            enrollment_id=model.enrollment_id,
             ip_address=model.ip_address,
             hostname=model.hostname,
             storage_mode=model.storage_mode,
@@ -60,6 +61,7 @@ class SQLAlchemyWorkerRepository(WorkerRepository):
             current_job_id=worker.current_job_id,  # type: ignore[assignment]  - domain value assigned to SA column; SA type stubs expect Column type
             jobs_completed=worker.jobs_completed,
             is_deregistered=worker.is_deregistered,
+            enrollment_id=worker.enrollment_id,
             ip_address=worker.ip_address,
             hostname=worker.hostname,
             storage_mode=worker.storage_mode,
@@ -222,6 +224,18 @@ class SQLAlchemyWorkerRepository(WorkerRepository):
         db_workers = result.scalars().all()
 
         return [self._to_domain(w) for w in db_workers]
+
+    async def delete_deregistered_before(self, cutoff: datetime) -> int:
+        from sqlalchemy import delete
+
+        stmt = (
+            delete(WorkerModel)
+            .where(WorkerModel.is_deregistered == True)  # noqa: E712 - SQLAlchemy column comparison
+            .where(WorkerModel.updated_at < cutoff)
+        )
+        result = await self.session.execute(stmt)
+        await self.session.commit()
+        return result.rowcount or 0
 
     async def mark_workers_as_deregistered(
         self,

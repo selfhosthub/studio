@@ -13,6 +13,7 @@ import httpx
 
 from studio_workers.settings import settings
 from studio_workers.engines.video.settings import settings as video_settings
+from studio_workers.utils.internal_auth import internal_request_auth
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,9 @@ def translate_url_for_docker(url: str) -> str:
 
 
 def translate_to_internal_endpoint(url: str) -> tuple:
-    """Public file URLs (JWT) -> internal endpoint (worker secret).
+    """Public file URLs (user JWT) -> internal endpoint (worker JWT).
 
-    Returns (translated_url, is_internal). is_internal=True means add the worker auth header.
+    Returns (translated_url, is_internal). is_internal=True means add the worker JWT and job_id.
     """
     import re
 
@@ -81,21 +82,17 @@ def download_file(client: httpx.Client, url: str, path: str) -> None:
     translated_url = translate_url_for_docker(url)
     translated_url, needs_worker_auth = translate_to_internal_endpoint(translated_url)
 
-    headers = {}
+    headers: dict = {}
+    params: dict = {}
     if needs_worker_auth:
-        worker_secret = settings.auth_secret
-        if worker_secret:
-            headers["X-Worker-Secret"] = worker_secret
-            logger.debug("Adding worker auth header for internal file download")
-        else:
-            logger.warning(
-                "No worker auth secret set - internal file download may fail"
-            )
+        headers, params = internal_request_auth()
 
     max_bytes = MAX_DOWNLOAD_SIZE_MB * 1024 * 1024
     downloaded = 0
 
-    with client.stream("GET", translated_url, headers=headers) as response:
+    with client.stream(
+        "GET", translated_url, headers=headers, params=params
+    ) as response:
         response.raise_for_status()
         with open(path, "wb") as f:
             for chunk in response.iter_bytes(chunk_size=settings.HTTP_CHUNK_SIZE):

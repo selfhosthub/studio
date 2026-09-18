@@ -37,6 +37,7 @@ from app.domain.audit.models import (
     ResourceType,
 )
 from app.domain.org_file.models import ResourceSource, ResourceStatus
+from app.presentation.api.uploads import spooled_upload
 from app.presentation.api.dependencies import (
     CurrentUser,
     get_audit_service,
@@ -518,14 +519,7 @@ async def upload_files(
             guessed_type, _ = mimetypes.guess_type(file.filename or "")
             mime_type = guessed_type or "application/octet-stream"
 
-        # Read file content
-        content = await file.read()
-        file_size = len(content)
-
-        # Create BytesIO wrapper for the service
-        from io import BytesIO
-
-        file_stream = BytesIO(content)
+        file_stream, file_size = spooled_upload(file)
 
         try:
             resource = await service.upload_file(
@@ -604,15 +598,7 @@ async def replace_file(
         guessed_type, _ = mimetypes.guess_type(file.filename or "")
         mime_type = guessed_type or "application/octet-stream"
 
-    # Read file to get size (we need to pass BinaryIO to service)
-    # Reset file position after reading
-    content = await file.read()
-    file_size = len(content)
-
-    # Create a BytesIO wrapper for the service
-    from io import BytesIO
-
-    file_stream = BytesIO(content)
+    file_stream, file_size = spooled_upload(file)
 
     try:
         resource = await service.replace_resource(

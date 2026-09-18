@@ -56,6 +56,8 @@ studio-workers run --type audio
 
 (`python -m studio_workers.worker` with `SHS_WORKER_TYPE` set still works; `run` is the same loop.)
 
+A worker outside the Studio deployment that starts with the shared secret waits for a super admin to approve it under Infrastructure -> Workers. Once approved it saves its own credential under `.studio-worker/` in `SHS_WORKSPACE_ROOT` and uses it from then on. To skip the wait, ask the admin for a join token and run `studio-workers enroll --join-token <token>` first, then start with `SHS_WORKER_CREDENTIAL` instead of the shared secret.
+
 The worker polls the API for jobs over HTTP; no inbound port is required. See your Studio instance's worker access documentation for the sanctioned connection paths.
 
 ## Third-party software

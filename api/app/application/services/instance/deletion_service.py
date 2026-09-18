@@ -14,10 +14,10 @@ from app.domain.instance.repository import InstanceRepository
 from app.domain.instance_step.step_execution_repository import StepExecutionRepository
 from app.domain.org_file.repository import OrgFileRepository
 from app.domain.queue.repository import QueuedJobRepository
-from app.infrastructure.storage.workspace import (
-    cleanup_resource_files,
-    get_workspace_path,
+from app.application.services.org_file.file_cleanup import (
+    cleanup_unreferenced_files,
 )
+from app.infrastructure.storage.workspace import get_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -59,24 +59,22 @@ class DeletionService:
 
         resources = await self.resource_repository.list_by_instance(instance_id)
         for resource in resources:
-            virtual_path = resource.virtual_path
+            await self.resource_repository.delete(resource.id)
+
+        # Rows go first so a file another row still stores (a library file) is kept.
+        for resource in resources:
             thumbnail_path = (
                 resource.metadata.get("thumbnail_path") if resource.metadata else None
             )
             try:
-                cleanup_resource_files(
-                    virtual_path=virtual_path,
-                    thumbnail_path=thumbnail_path,
+                files_deleted += await cleanup_unreferenced_files(
+                    self.resource_repository,
+                    resource.virtual_path,
+                    thumbnail_path,
                     workspace_path=workspace_path,
                 )
-                files_deleted += 1
-                if thumbnail_path:
-                    files_deleted += 1
             except Exception as e:
                 logger.warning(f"Failed to delete file for resource {resource.id}: {e}")
-
-        for resource in resources:
-            await self.resource_repository.delete(resource.id)
 
         queued_jobs_deleted = await self.queued_job_repository.delete_by_instance(
             instance_id

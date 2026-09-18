@@ -19,10 +19,10 @@ from app.domain.org_file.models import (
     ResourceStatus,
 )
 from app.domain.org_file.repository import OrgFileRepository
-from app.infrastructure.storage.workspace import (
-    cleanup_resource_files,
-    get_workspace_path,
+from app.application.services.org_file.file_cleanup import (
+    cleanup_unreferenced_files,
 )
+from app.infrastructure.storage.workspace import get_workspace_path
 from studio_workers.contracts.workspace_paths import (
     sanitize_step_filename,
     step_output_virtual_path,
@@ -72,8 +72,11 @@ class ResourceUploadService:
         workspace_path = get_workspace_path()
         relative_dir = (
             f"orgs/{resource.organization_id}/instances/{resource.instance_id}"
+            if resource.instance_id
+            else f"orgs/{resource.organization_id}/uploads"
         )
-        new_filename = f"{resource.id}{file_extension}"
+        # A fresh name per replacement, so rows still sharing the old file keep its bytes.
+        new_filename = f"{resource.id}-{uuid.uuid4().hex[:8]}{file_extension}"
         new_virtual_path = f"/{relative_dir}/{new_filename}"
 
         file_dir = workspace_path / relative_dir
@@ -86,6 +89,18 @@ class ResourceUploadService:
                 hasher.update(chunk)
                 f.write(chunk)
         new_checksum = hasher.hexdigest()
+
+        new_thumbnail = (
+            generate_thumbnail(file_path, file_dir, new_filename)
+            if mime_type.startswith("image/")
+            else None
+        )
+        metadata = dict(resource.metadata or {})
+        metadata.pop("thumbnail_path", None)
+        if new_thumbnail:
+            metadata["thumbnail_path"] = f"/{relative_dir}/{new_thumbnail}"
+        resource.metadata = metadata
+        resource.has_thumbnail = bool(new_thumbnail)
 
         resource.replace_file(
             file_size=file_size,
@@ -102,11 +117,9 @@ class ResourceUploadService:
         for event in events:
             await self.event_bus.publish(event)
 
-        if old_virtual_path and old_virtual_path != new_virtual_path:
-            cleanup_resource_files(
-                virtual_path=old_virtual_path,
-                thumbnail_path=old_thumbnail_path,
-            )
+        await cleanup_unreferenced_files(
+            self.resource_repository, old_virtual_path, old_thumbnail_path
+        )
 
         return resource
 
@@ -127,13 +140,8 @@ class ResourceUploadService:
         Thumbnails are generated for image files.
         """
         resource_id = uuid.uuid4()
-
-        base_name = display_name
-        if "." in base_name:
-            base_name = base_name.rsplit(".", 1)[0]
-        safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in base_name)
-        safe_name = safe_name[:100]
-        filename = f"{safe_name}{file_extension}"
+        # Named by resource id so two uploads never share a path.
+        filename = f"{resource_id}{file_extension}"
 
         workspace_path = get_workspace_path()
         relative_dir = f"orgs/{organization_id}/uploads"

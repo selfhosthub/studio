@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = Field(default="")
     STORAGE_BACKEND: str = Field(default="local")
     WORKSPACE_ROOT: Optional[str] = Field(default=None)
+    # Largest request body the API accepts, in megabytes.
+    MAX_UPLOAD_SIZE_MB: int = Field(default=1024, ge=1)
 
     # ── Logging ──────────────────────────────────────────────────────────
 

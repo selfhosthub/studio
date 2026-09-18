@@ -11,6 +11,7 @@ import secrets
 
 JOIN_TOKEN_PREFIX = "shsjoin_"
 CREDENTIAL_PREFIX = "shswrk_"
+POLL_TOKEN_PREFIX = "shspoll_"
 
 _ENTROPY_BYTES = 32
 
@@ -27,6 +28,11 @@ def mint_join_token() -> str:
 def mint_credential() -> str:
     """The long-lived, revocable secret a worker keeps after enrolling."""
     return _mint(CREDENTIAL_PREFIX)
+
+
+def mint_poll_token() -> str:
+    """The secret a pending worker polls its enrollment request with."""
+    return _mint(POLL_TOKEN_PREFIX)
 
 
 def hash_secret(secret: str) -> str:

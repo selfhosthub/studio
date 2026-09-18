@@ -257,9 +257,14 @@ export {
   getJoinTokens,
   getWorkerEnrollments,
   revokeWorkerEnrollment,
+  getEnrollmentRequests,
+  approveEnrollmentRequest,
+  rejectEnrollmentRequest,
   type JoinToken,
   type MintedJoinToken,
   type WorkerEnrollment,
+  type EnrollmentRequest,
+  type EnrollmentRequestStatus,
 } from './admin';
 
 export {

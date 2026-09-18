@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --only-upgrade libexpat1 \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
     libssl3t64 openssl openssl-provider-legacy \
+    perl-base gzip libpcre2-8-0 libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
@@ -38,9 +39,10 @@ RUN uv pip install --system --no-cache -r requirements.txt
 
 # Copy and install audio-specific requirements
 # Then remove gradio (transitive dep from chatterbox-tts - worker has no web UI)
+# and pre-commit with its virtualenv (s3tokenizer declares pre-commit as a runtime dep)
 COPY studio_workers/engines/audio/requirements.txt requirements.audio.txt
 RUN uv pip install --system --no-cache -r requirements.audio.txt && \
-    pip uninstall -y gradio gradio-client 2>/dev/null || true
+    pip uninstall -y gradio gradio-client pre-commit virtualenv 2>/dev/null || true
 
 # resemble-perth needs pkg_resources (removed in setuptools 82, deprecation-warns in 81); >=78.1.1 has
 # the trivy-flagged CVE fixes. Without pkg_resources, PerthImplicitWatermarker

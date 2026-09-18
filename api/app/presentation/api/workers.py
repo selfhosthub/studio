@@ -2,10 +2,13 @@
 
 """Worker self-registration / heartbeat / deregistration. JWT issued on register, refreshed on heartbeat."""
 
+import hmac
 import logging
+from typing import Union
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.comfyui_catalog_hash import cached_catalog_hash
@@ -13,10 +16,15 @@ from app.application.services.queue_service import QueueService
 from app.application.interfaces import EntityNotFoundError, ValidationError
 from app.domain.queue.models import WorkerStatus
 from app.config.queues import allowed_queues
+from app.config.settings import settings
+from app.infrastructure.security.worker_bootstrap import bootstrap_token_matches
 from app.infrastructure.security.worker_enrollment import looks_like_credential
 from app.infrastructure.security.worker_enrollment_store import (
     consume_join_token,
     create_enrollment,
+    create_enrollment_request,
+    enrollment_is_live,
+    poll_enrollment_request,
     resolve_enrollment,
     touch_enrollment,
 )
@@ -27,8 +35,11 @@ from app.presentation.api.dependencies import (
     get_queue_service_bypass,
     get_worker_repository,
 )
+from app.presentation.api.worker_auth import WorkerIdentity, worker_token_claims
 from app.presentation.api.models.worker import (
-    WorkerDeregistrationRequest,
+    EnrollmentRequestPollRequest,
+    EnrollmentRequestPollResponse,
+    WorkerEnrollmentPendingResponse,
     WorkerDeregistrationResponse,
     WorkerEnrollRequest,
     WorkerEnrollResponse,
@@ -79,22 +90,52 @@ async def enroll_worker(request: WorkerEnrollRequest) -> WorkerEnrollResponse:
 
 
 @router.post(
+    "/enroll/requests/{request_id}",
+    response_model=EnrollmentRequestPollResponse,
+    summary="Poll a pending enrollment request",
+    description="""
+    A worker whose registration is waiting for a super admin polls here with the
+    token it received. An approved request returns the worker's credential once.
+    """,
+)
+async def poll_enrollment(
+    request_id: UUID, request: EnrollmentRequestPollRequest
+) -> EnrollmentRequestPollResponse:
+    """404 unknown request or token; 410 credential already collected."""
+    result = await poll_enrollment_request(request_id, request.poll_token)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Enrollment request not found.",
+        )
+    if result["status"] == "claimed":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="This request's credential was already collected.",
+        )
+    return EnrollmentRequestPollResponse(**result)
+
+
+@router.post(
     "/register",
     response_model=WorkerRegistrationResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={202: {"model": WorkerEnrollmentPendingResponse}},
     summary="Register a new worker",
     description="""
-    Worker self-registration endpoint. Workers call this on startup to register
-    themselves with the system using a shared secret.
+    Worker self-registration endpoint. Workers call this on startup with the
+    shared secret or their enrollment credential.
 
-    No user authentication required - workers authenticate via shared secret.
+    A shared-secret worker that also presents the workspace bootstrap token is
+    inside the deployment and registers at once. Any other shared-secret worker
+    gets 202 and a pending enrollment request a super admin approves.
     """,
 )
 async def register_worker(
     request: WorkerRegistrationRequest,
     service: QueueService = Depends(get_queue_service_bypass),
-) -> WorkerRegistrationResponse:
-    """400 invalid secret/validation or out-of-set queue; 401 dead credential; 404 queue not found."""
+) -> Union[WorkerRegistrationResponse, JSONResponse]:
+    """400 invalid secret/validation or out-of-set queue; 401 dead credential; 404 queue not found; 429 too many pending requests."""
     # secret carries either the fleet shared secret or an enrollment credential,
     # told apart by the credential's prefix. A credential narrows the allowed set
     # to its recorded scope; it can never widen it.
@@ -133,6 +174,46 @@ async def register_worker(
         served_queues = request.queues
     else:
         served_queues = [q for q in request.queue_labels if q in allowed]
+    if enrollment is None and not bootstrap_token_matches(request.bootstrap_token):
+        if not hmac.compare_digest(request.secret, settings.WORKER_SHARED_SECRET):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid worker secret",
+            )
+        try:
+            service.check_worker_version(request.name, request.worker_version)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
+            )
+        pending = await create_enrollment_request(
+            name=request.name,
+            hostname=request.hostname,
+            ip_address=request.ip_address,
+            queues=list(served_queues),
+        )
+        if pending is None:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many enrollment requests are waiting for approval.",
+            )
+        logger.info(
+            f"Worker enrollment requested: {request.name} "
+            f"(request={pending['id']}, hostname={request.hostname})"
+        )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=WorkerEnrollmentPendingResponse(
+                request_id=pending["id"], poll_token=pending["poll_token"]
+            ).model_dump(mode="json"),
+        )
+    # An enrolled worker keeps only the labels that are not queue names, so a
+    # self-declared queue cannot re-widen what the credential granted.
+    if enrollment is not None:
+        tags = [q for q in request.queue_labels if q not in operator_allowed]
+        labels = sorted(set(served_queues) | set(tags))
+    else:
+        labels = sorted(set(request.queue_labels) | set(served_queues))
     try:
         result = await service.register_worker(
             secret=request.secret,
@@ -140,7 +221,7 @@ async def register_worker(
             worker_version=request.worker_version,
             queue_id=request.queue_id,
             capabilities={**request.capabilities, "queues": served_queues},
-            queue_labels=request.queue_labels,
+            queue_labels=labels,
             ip_address=request.ip_address,
             hostname=request.hostname,
             cpu_percent=request.cpu_percent,
@@ -151,20 +232,11 @@ async def register_worker(
             gpu_percent=request.gpu_percent,
             gpu_memory_percent=request.gpu_memory_percent,
             storage_mode=request.storage_mode,
-            credential_verified=enrollment is not None,
+            enrollment_id=enrollment["id"] if enrollment else None,
         )
-        # The token authorizes claims by label; served queues ride along so
-        # the sweep is claim-authorized without conflating labels and queues.
-        # An enrolled worker keeps only the labels that are not queue names, so
-        # a self-declared queue cannot re-widen what the credential granted.
-        if enrollment is not None:
-            tags = [q for q in request.queue_labels if q not in operator_allowed]
-            jwt_labels = sorted(set(served_queues) | set(tags))
-        else:
-            jwt_labels = sorted(set(request.queue_labels) | set(served_queues))
         token = create_worker_token(
             worker_id=str(result.id),
-            queue_labels=jwt_labels,
+            queue_labels=labels,
             capabilities=request.capabilities,
         )
 
@@ -191,17 +263,24 @@ async def register_worker(
     Workers that miss heartbeats for 3+ minutes are automatically considered offline
     and removed from the active workers list.
 
-    No user authentication required.
+    Requires the worker's own JWT. A worker whose enrollment was revoked is
+    deregistered and receives no token.
     """,
 )
 async def worker_heartbeat(
     worker_id: UUID = Path(..., description="Worker ID from registration"),
     request: WorkerHeartbeatRequest = Body(...),
+    identity: WorkerIdentity = Depends(worker_token_claims),
     service: QueueService = Depends(get_queue_service_bypass),
     session: AsyncSession = Depends(get_db_session),
     worker_repo: WorkerRepository = Depends(get_worker_repository),
 ) -> WorkerHeartbeatResponse:
-    """Updates last_heartbeat + status, returns refreshed JWT. 400 invalid status; 404 worker missing."""
+    """Updates last_heartbeat + status, returns refreshed JWT. 400 invalid status; 403 another worker's token; 404 worker missing."""
+    if identity.worker_id != worker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token does not belong to this worker",
+        )
     try:
         worker_status = WorkerStatus(request.status.lower())
 
@@ -248,6 +327,12 @@ async def worker_heartbeat(
         comfyui_catalog_hash = None
         if not is_deregistered:
             worker = await worker_repo.get_by_id(worker_id)
+            if worker and worker.enrollment_id and not await enrollment_is_live(
+                worker.enrollment_id
+            ):
+                await worker_repo.mark_workers_as_deregistered([worker.id])
+                is_deregistered = True
+                worker = None
             if worker:
                 # Refresh tokens keep the served queues claim-authorized, same
                 # union as registration.
@@ -303,25 +388,25 @@ async def worker_heartbeat(
     Worker self-deregistration endpoint. Workers call this on shutdown to cleanly
     remove themselves from the system.
 
-    Requires the same shared secret used for registration.
+    Requires the worker's own JWT.
     """,
 )
 async def deregister_worker(
     worker_id: UUID = Path(..., description="Worker ID to deregister"),
-    request: WorkerDeregistrationRequest = Body(...),
+    identity: WorkerIdentity = Depends(worker_token_claims),
     service: QueueService = Depends(get_queue_service_bypass),
 ) -> WorkerDeregistrationResponse:
-    """400 invalid secret; 404 worker not found."""
-    try:
-        await service.deregister_worker(
-            worker_id=worker_id,
-            secret=request.secret,
+    """403 another worker's token; 404 worker not found."""
+    if identity.worker_id != worker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token does not belong to this worker",
         )
+    try:
+        await service.deregister_worker(worker_id=worker_id)
         return WorkerDeregistrationResponse(
             status="ok",
             message=f"Worker {worker_id} deregistered successfully",
         )
-    except ValidationError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e))
     except EntityNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=safe_error_message(e))

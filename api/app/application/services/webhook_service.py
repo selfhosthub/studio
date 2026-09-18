@@ -7,6 +7,7 @@ import logging
 import re
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import (
     Any,
     Awaitable,
@@ -29,6 +30,7 @@ from app.domain.common.exceptions import (
     ValidationError,
 )
 from app.domain.instance.iteration_execution import IterationExecutionStatus
+from app.domain.instance_step.models import StepExecutionStatus
 from app.domain.workflow.repository import WorkflowRepository
 
 if TYPE_CHECKING:
@@ -926,18 +928,40 @@ class WebhookService:
                 code="NO_WAITING_INSTANCE",
             )
 
-        # Resume the instance with callback data
-        resumed_instance = await self.instance_service.resume_with_webhook_callback(
-            instance_id=waiting_instance.id,
-            step_id=step_id,
-            callback_payload=payload,
+        step_repo = cast("StepExecutionRepository", self.step_execution_repository)
+        waiting_step = await step_repo.get_by_instance_and_key(
+            waiting_instance.id, step_id
+        )
+        if (
+            waiting_step is None
+            or waiting_step.status != StepExecutionStatus.WAITING_FOR_WEBHOOK
+        ):
+            raise ValidationError(
+                message="No workflow instance is waiting for a callback on this step",
+                code="NO_WAITING_INSTANCE",
+            )
+
+        # The callback is the step's result; the shared processor completes the
+        # step and advances the run, as it does for a worker submission.
+        process_result = cast(ProcessResultFn, self.process_result_fn)
+        await process_result(
+            {
+                "instance_id": str(waiting_instance.id),
+                "step_id": step_id,
+                "status": "COMPLETED",
+                "result": {
+                    "callback_received": True,
+                    "callback_payload": payload,
+                    "received_at": datetime.now(UTC).isoformat(),
+                },
+            }
         )
 
         return {
             "status": "accepted",
             "webhook_type": "step_callback",
             "workflow_id": str(workflow.id),
-            "instance_id": str(resumed_instance.id),
+            "instance_id": str(waiting_instance.id),
             "step_id": step_id,
             "message": "Callback received and workflow instance resumed",
         }

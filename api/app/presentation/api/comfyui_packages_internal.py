@@ -3,9 +3,9 @@
 """Internal worker endpoints: ComfyUI package catalog sync (ST126)."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +16,8 @@ from app.application.services.comfyui_catalog_hash import (
     version_key,
 )
 from app.infrastructure.persistence.models import ComfyUIWorkflowModel
-from app.presentation.api.dependencies import (
-    get_db_session_service,
-    verify_worker_secret,
-)
-from app.presentation.api.worker_jobs import verify_worker_jwt
+from app.presentation.api.dependencies import get_db_session_service
+from app.presentation.api.worker_auth import WorkerIdentity, require_worker
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +53,10 @@ class PackageDetailResponse(BaseModel):
 
 @router.get("/comfyui/packages", response_model=PackageListResponse)
 async def list_comfyui_packages(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    _: None = Depends(verify_worker_secret),
+    _: WorkerIdentity = Depends(require_worker),
     session: AsyncSession = Depends(get_db_session_service),
 ) -> PackageListResponse:
-    """
-    List active catalog packages (highest version per slug) for worker sync.
-
-    Authentication:
-    - Requires Authorization: Bearer <token> header (JWT from registration/heartbeat)
-    - Also requires X-Worker-Secret header for transport security
-    """
-    verify_worker_jwt(authorization)
+    """List active catalog packages (highest version per slug) for worker sync."""
 
     packages = await list_active_packages(session)
     return PackageListResponse(
@@ -83,20 +72,10 @@ async def list_comfyui_packages(
 async def get_comfyui_package(
     ns: str,
     slug: str,
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    _: None = Depends(verify_worker_secret),
+    _: WorkerIdentity = Depends(require_worker),
     session: AsyncSession = Depends(get_db_session_service),
 ) -> PackageDetailResponse:
-    """
-    Full json_content of the active highest-version package for 'ns/slug'.
-
-    Authentication matches the listing endpoint (worker secret + JWT).
-
-    Returns:
-        - 200 with package content
-        - 404 if no active row exists for the slug
-    """
-    verify_worker_jwt(authorization)
+    """Full json_content of the active highest-version package for 'ns/slug'; 404 when none is active."""
 
     full_slug = f"{ns}/{slug}"
     result = await session.execute(

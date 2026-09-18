@@ -41,6 +41,7 @@ from app.infrastructure.logging.config import (
 )
 from app.infrastructure.logging.filters import SuppressASGITracebackFilter
 from app.infrastructure.logging.context_middleware import LoggingContextMiddleware
+from app.presentation.body_size_limit import BodySizeLimitMiddleware
 from app.infrastructure.persistence.database import db
 from app.presentation.api.system_health import (
     get_maintenance_status,
@@ -299,6 +300,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error seeding system_settings: {e}")
 
+        # Bundled workers read this token to register without an approval.
+        try:
+            from app.infrastructure.security.worker_bootstrap import (
+                write_bootstrap_token,
+            )
+
+            write_bootstrap_token()
+        except Exception as e:
+            logger.error(
+                f"Worker bootstrap token not written; every shared-secret worker will need approval: {e}"
+            )
+
         # Load providers from database and register adapters
         logger.info("Loading provider adapters from database...")
         try:
@@ -486,6 +499,9 @@ def create_app() -> FastAPI:
 
     # Add maintenance mode middleware (runs after CORS)
     app.add_middleware(MaintenanceMiddleware)
+
+    # Refuse oversized request bodies before any route reads them
+    app.add_middleware(BodySizeLimitMiddleware)
 
     register_error_handlers(app)
 

@@ -10,7 +10,7 @@ presentation layer no longer imports ORM models or calls session.execute().
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +59,17 @@ def format_uptime(seconds: int) -> str:
     return " ".join(parts)
 
 
+def _org_file_totals(org_dir: Path) -> Tuple[int, int]:
+    """File count and bytes under an org's workspace folder, skipping dotfiles."""
+    files = 0
+    size = 0
+    for f in org_dir.rglob("*"):
+        if f.is_file() and not f.name.startswith("."):
+            files += 1
+            size += f.stat().st_size
+    return files, size
+
+
 def get_storage_stats() -> dict:
     """Calculate storage usage statistics from the filesystem."""
     import shutil
@@ -97,12 +108,7 @@ def get_storage_stats() -> dict:
                 org_files = 0
                 org_size = 0
 
-                resources_dir = org_dir / "resources"
-                if resources_dir.exists():
-                    for f in resources_dir.rglob("*"):
-                        if f.is_file():
-                            org_files += 1
-                            org_size += f.stat().st_size
+                org_files, org_size = _org_file_totals(org_dir)
 
                 if org_files > 0:
                     by_org[org_id] = {
@@ -629,12 +635,7 @@ class SystemHealthService:
                     org_files = 0
                     org_size = 0
 
-                    resources_dir = org_dir / "resources"
-                    if resources_dir.exists():
-                        for f in resources_dir.rglob("*"):
-                            if f.is_file():
-                                org_files += 1
-                                org_size += f.stat().st_size
+                    org_files, org_size = _org_file_totals(org_dir)
 
                     storage_by_org[org_id] = {
                         "files": org_files,

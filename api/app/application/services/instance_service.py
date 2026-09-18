@@ -687,18 +687,6 @@ class InstanceService:
             get_completed_step_results_fn=self._job.get_completed_step_results,
         )
 
-    async def resume_with_webhook_callback(
-        self,
-        instance_id: uuid.UUID,
-        step_id: str,
-        callback_payload: Dict[str, Any],
-    ) -> InstanceResponse:
-        return await self._orchestration.resume_with_webhook_callback(
-            instance_id=instance_id,
-            step_id=step_id,
-            callback_payload=callback_payload,
-        )
-
     async def run_stopped_step(
         self,
         instance_id: uuid.UUID,

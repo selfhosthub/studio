@@ -34,6 +34,10 @@ class WorkerRegistrationRequest(BaseModel):
         default_factory=list,
         description="Queues this worker actually serves (claim sweep list)",
     )
+    bootstrap_token: Optional[str] = Field(
+        default=None,
+        description="The workspace bootstrap token; a shared-secret worker without it waits for approval",
+    )
     ip_address: Optional[str] = Field(default=None, description="Worker IP address")
     hostname: Optional[str] = Field(default=None, description="Worker hostname")
     cpu_percent: Optional[float] = Field(
@@ -124,10 +128,6 @@ class WorkerHeartbeatResponse(BaseModel):
         default=None,
         description="Current ComfyUI catalog hash (only for workers serving comfyui queues)",
     )
-
-
-class WorkerDeregistrationRequest(BaseModel):
-    secret: str = Field(..., description="Shared secret for authentication")
 
 
 class WorkerDeregistrationResponse(BaseModel):
@@ -230,3 +230,41 @@ class WorkerEnrollmentResponse(BaseModel):
     revoked_at: Optional[datetime] = None
     last_used_at: Optional[datetime] = None
     created_at: datetime
+
+
+class WorkerEnrollmentPendingResponse(BaseModel):
+    status: str = Field(default="pending")
+    request_id: UUID
+    poll_token: str = Field(..., description="Shown once; the worker polls its request with it")
+
+
+class EnrollmentRequestPollRequest(BaseModel):
+    poll_token: str
+
+
+class EnrollmentRequestPollResponse(BaseModel):
+    status: str = Field(..., description="pending, rejected or approved")
+    credential: Optional[str] = Field(
+        default=None, description="Present once, when the request is approved"
+    )
+    queues: List[str] = Field(default_factory=list)
+
+
+class EnrollmentRequestResponse(BaseModel):
+    id: UUID
+    name: str
+    hostname: Optional[str] = None
+    ip_address: Optional[str] = None
+    queues: List[str]
+    status: str
+    enrollment_id: Optional[UUID] = None
+    decided_by: Optional[UUID] = None
+    decided_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class EnrollmentRequestApproveRequest(BaseModel):
+    queues: Optional[List[str]] = Field(
+        default=None,
+        description="Queues to grant; defaults to the requested queues",
+    )

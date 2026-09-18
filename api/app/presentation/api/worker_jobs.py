@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,15 +20,21 @@ from app.application.services.result_processing.worker_error_codes import (
 )
 from app.domain.queue.repository import QueuedJobRepository, WorkerRepository
 from app.config.queues import allowed_queues
-from app.infrastructure.auth.worker_jwt import verify_worker_token
 from app.infrastructure.repositories.queue_job_repository import (
     SQLAlchemyQueuedJobRepository,
 )
 from app.presentation.api.dependencies import (
+    CurrentUser,
+    get_current_user,
     get_db_session_service,
     get_queued_job_repository_bypass,
     get_worker_repository,
-    verify_worker_secret,
+    require_super_admin,
+)
+from app.presentation.api.worker_auth import (
+    WorkerIdentity,
+    require_worker,
+    require_worker_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,38 +55,6 @@ class ClaimJobResponse(BaseModel):
     claimed_at: str
 
 
-# --- Dependencies ---
-
-
-def verify_worker_jwt(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-) -> Dict[str, Any]:
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header required. Use: Authorization: Bearer <token>",
-        )
-
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format. Expected: Bearer <token>",
-        )
-
-    token = parts[1]
-
-    try:
-        return verify_worker_token(token)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Worker JWT verification failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid worker token"
-        )
-
-
 get_job_repository = get_queued_job_repository_bypass
 
 
@@ -92,8 +66,7 @@ async def claim_job(
     queue_name: str = Query(
         ..., description="Queue name to claim from (e.g., 'step_jobs', 'video_jobs')"
     ),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    _: None = Depends(verify_worker_secret),
+    worker: WorkerIdentity = Depends(require_worker),
     repo: QueuedJobRepository = Depends(get_job_repository),
 ) -> Optional[ClaimJobResponse]:
     """
@@ -101,7 +74,6 @@ async def claim_job(
 
     Authentication:
     - Requires Authorization: Bearer <token> header (JWT from registration/heartbeat)
-    - Also requires X-Worker-Secret header for transport security
     - Worker's queue_labels (from JWT) must include the requested queue_name
 
     This endpoint atomically claims a pending job using PostgreSQL's
@@ -114,10 +86,8 @@ async def claim_job(
         - 401 if worker authentication fails
         - 403 if worker not authorized for requested queue
     """
-    # Validate JWT - worker_id and queue_labels come from token
-    worker_info = verify_worker_jwt(authorization)
-    worker_id = worker_info["worker_id"]
-    queue_labels = worker_info.get("queue_labels", [])
+    worker_id = str(worker.worker_id)
+    queue_labels = worker.queue_labels
     # Silenced: fires on every claim with unchanging queue_labels; not actionable.
     # logger.debug(f"JWT auth: worker_id={worker_id}, queue_labels={queue_labels}")
 
@@ -192,60 +162,12 @@ class StepResultRequest(BaseModel):
 async def publish_step_result(
     request: StepResultRequest,
     http_request: Request,
-    authorization: Optional[str] = Header(None, alias="Authorization"),
+    worker: WorkerIdentity = Depends(require_worker),
     session: AsyncSession = Depends(get_db_session_service),
 ) -> Dict[str, str]:
     """Publish step result or progress update."""
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header required",
-        )
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Expected: Authorization: Bearer <token>",
-        )
-    try:
-        token_data = verify_worker_token(parts[1])
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid worker token",
-        )
-
-    try:
-        worker_uuid = UUID(token_data["worker_id"])
-    except (KeyError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing worker_id",
-        )
-
     job_repo = SQLAlchemyQueuedJobRepository(session)
-
-    if request.job_id:
-        try:
-            job_uuid = UUID(request.job_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid job_id format",
-            )
-        job = await job_repo.get_job_for_worker_upload(job_uuid, worker_uuid)
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Job not found or not owned by this worker",
-            )
-    else:
-        job = await job_repo.get_claimed_job_by_worker(worker_uuid)
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No active job found for this worker",
-            )
+    job = await require_worker_job(worker.worker_id, request.job_id, session)
 
     client_error = client_message_for_worker_error(request.error_code)
     if request.status == "COMPLETED":
@@ -289,18 +211,13 @@ async def publish_step_result(
 @router.get("/jobs/{job_id}/status")
 async def get_job_status(
     job_id: str,
-    _: None = Depends(verify_worker_secret),
+    worker: WorkerIdentity = Depends(require_worker),
     repo: QueuedJobRepository = Depends(get_job_repository),
 ) -> Dict[str, Any]:
-    """
-    Get the current status of a job.
-
-    Useful for workers to check if a job they're working on has been
-    cancelled or if they should continue.
-    """
+    """Status of a job this worker holds, so it can stop when the job is cancelled."""
     job = await repo.get_by_id(UUID(job_id))
 
-    if not job:
+    if not job or job.worker_id != worker.worker_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
         )
@@ -317,12 +234,13 @@ async def get_job_status(
 @router.post("/workers/cleanup")
 async def cleanup_stale_workers(
     http_request: Request,
-    _: None = Depends(verify_worker_secret),
+    user: CurrentUser = Depends(get_current_user),
+    _: None = Depends(require_super_admin),
     worker_repo: WorkerRepository = Depends(get_worker_repository),
     session: AsyncSession = Depends(get_db_session_service),
 ) -> Dict[str, Any]:
     """
-    Periodic cleanup (admin/cron endpoint). Mirrors the in-process cleanup cycle.
+    Periodic cleanup (super-admin endpoint). Mirrors the in-process cleanup cycle.
 
     1. Stale workers - marks workers with heartbeats > WORKER_HEARTBEAT_TIMEOUT_MINUTES
        as deregistered so they can't claim new jobs; requeues jobs abandoned by a
@@ -330,8 +248,6 @@ async def cleanup_stale_workers(
     2. Webhook notify sweep - fires the once-per-step "still awaiting provider
        callback" notification for WFW steps idle past their notify window. Never
        fails a step on a timer (I-13).
-
-    Should be called periodically (e.g., every minute via cron).
 
     Returns:
         Combined cleanup statistics

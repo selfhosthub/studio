@@ -570,42 +570,6 @@ class OrchestrationService:
 
         return InstanceResponse.from_domain(instance)
 
-    async def resume_with_webhook_callback(
-        self,
-        instance_id: uuid.UUID,
-        step_id: str,
-        callback_payload: Dict[str, Any],
-    ) -> InstanceResponse:
-        """Resume a paused step using a webhook callback payload."""
-        instance = await self._get_instance_or_raise(instance_id)
-        logger.info(
-            f"Webhook callback received for step {step_id} on instance {instance_id}",
-            extra={"instance_id": str(instance_id), "step_id": step_id},
-        )
-
-        if not instance.output_data:
-            instance.output_data = {}
-
-        step_outputs = instance.output_data.get(step_id, {})
-        step_outputs["callback_received"] = True
-        step_outputs["callback_payload"] = callback_payload
-        step_outputs["received_at"] = datetime.now(UTC).isoformat()
-        instance.output_data[step_id] = step_outputs
-
-        # Status is owned by the step entity, not output_data.
-        step_entity = await self.step_execution_repository.get_by_instance_and_key(
-            instance_id, step_id
-        )
-        if step_entity:
-            step_entity.complete(output_data=step_outputs)
-            await self.step_execution_repository.update(step_entity)
-
-        instance.resume()
-
-        instance = await self.instance_repository.update(instance)
-
-        return InstanceResponse.from_domain(instance)
-
     async def run_stopped_step(
         self,
         instance_id: uuid.UUID,

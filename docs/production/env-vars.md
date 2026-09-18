@@ -134,6 +134,7 @@ Replica counts. Read from `.env` and used to render `docker-compose.override.yml
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SHS_WORKSPACE_ROOT` | `/workspace` | Container-side workspace path. Hardcoded to `/workspace` in Docker compose. Set to an absolute host path for native (non-Docker) workers. |
+| `SHS_MAX_UPLOAD_SIZE_MB` | `1024` | Largest request body the API accepts, in MB. Larger uploads, from users or workers, get 413. A Cloudflare tunnel caps bodies at 100 MB on its own. |
 | `SHS_WORKSPACE_HOST` | `~/.studio` | Host-side directory mounted as `/workspace` in Docker. Required. |
 | `SHS_STORAGE_BACKEND` | `local` | Storage backend. Currently only `local`. |
 | `SHS_COMFYUI_URL` | `""` | ComfyUI server URL. Required when running ComfyUI workers. |

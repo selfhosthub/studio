@@ -11,6 +11,7 @@ import {
   type MintedJoinToken,
   type WorkerEnrollment,
 } from '@/shared/api';
+import { WorkerEnrollmentRequests } from './WorkerEnrollmentRequests';
 
 const DEFAULT_TTL_SECONDS = 900;
 
@@ -23,7 +24,12 @@ function formatWhen(value: string | null): string {
   return new Date(value).toLocaleString();
 }
 
-export function WorkerEnrollmentPanel() {
+interface WorkerEnrollmentPanelProps {
+  // New identity on each page refresh; reloads the credentials and the requests below.
+  refreshSignal?: unknown;
+}
+
+export function WorkerEnrollmentPanel({ refreshSignal }: WorkerEnrollmentPanelProps) {
   const [enrollments, setEnrollments] = useState<WorkerEnrollment[]>([]);
   const [label, setLabel] = useState('');
   const [queues, setQueues] = useState('');
@@ -41,7 +47,7 @@ export function WorkerEnrollmentPanel() {
 
   useEffect(() => {
     void (async () => { await refresh(); })();
-  }, [refresh]);
+  }, [refresh, refreshSignal]);
 
   const handleMint = async () => {
     setBusy(true);
@@ -89,6 +95,8 @@ export function WorkerEnrollmentPanel() {
             {error}
           </div>
         )}
+
+        <WorkerEnrollmentRequests onDecided={refresh} refreshSignal={refreshSignal} />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <input

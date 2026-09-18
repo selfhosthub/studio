@@ -8,7 +8,7 @@ from io import BytesIO
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import httpx
@@ -22,17 +22,22 @@ from app.domain.provider.repository import (
 )
 from app.domain.queue.models import QueuedJob
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.infrastructure.auth.worker_jwt import verify_worker_token
 from app.infrastructure.persistence.database import get_db_session_service
-from app.infrastructure.repositories.queue_job_repository import SQLAlchemyQueuedJobRepository
 from app.infrastructure.repositories.step_execution_repository import SQLAlchemyStepExecutionRepository
-from app.infrastructure.repositories.worker_repository import SQLAlchemyWorkerRepository
+from app.application.services.audit_service import AuditService
+from app.presentation.api.uploads import spooled_upload
 from app.presentation.api.dependencies import (
+    get_audit_service,
     get_org_file_service_bypass,
     get_provider_credential_repository_bypass,
     get_provider_repository_bypass,
     get_provider_service_repository,
-    verify_worker_secret,
+)
+from app.presentation.api.worker_auth import (
+    WorkerIdentity,
+    require_worker,
+    require_worker_job,
+    resolve_worker_job,
 )
 from app.application.services.org_file import (
     OrgFileService,
@@ -148,26 +153,31 @@ async def refresh_oauth_token(
     return tokens.get("access_token")
 
 
-def _reject(
+async def _deny(
+    audit: AuditService,
     *,
     status_code: int,
     detail: str,
     reason: str,
-    worker_id: Any = None,
+    worker_id: UUID,
+    credential_id: str,
     job_id: Any = None,
-    credential_id: Any = None,
+    organization_id: Optional[UUID] = None,
 ) -> HTTPException:
-    """Build a token-request rejection and emit a structured audit warning.
-
-    Every denied credential-token request is logged so credential-probing by a
-    compromised-but-registered worker is visible in server logs.
-    """
+    """Log and audit a refused credential request, and return the error to raise."""
     logger.warning(
-        "Credential token request denied: reason=%s worker=%s job=%s credential=%s",
+        "Credential request denied: reason=%s worker=%s job=%s credential=%s",
         reason,
-        str(worker_id)[:8] if worker_id else None,
+        str(worker_id)[:8],
         str(job_id)[:8] if job_id else None,
-        str(credential_id)[:8] if credential_id else None,
+        str(credential_id)[:8],
+    )
+    await audit.log_worker_credential_denied(
+        worker_id=worker_id,
+        credential_id=credential_id,
+        reason=reason,
+        organization_id=organization_id,
+        job_id=str(job_id) if job_id else None,
     )
     return HTTPException(status_code=status_code, detail=detail)
 
@@ -179,6 +189,7 @@ async def _authorize_credential_for_job(
     credential_repo: ProviderCredentialRepository,
     provider_service_repo: ProviderServiceRepository,
     provider_repo: ProviderRepository,
+    audit: AuditService,
 ) -> ProviderCredential:
     """Enforce that the worker's claimed job is entitled to this credential.
 
@@ -193,45 +204,53 @@ async def _authorize_credential_for_job(
     #    (or a mismatched one) has no business fetching a token.
     job_credential_id = input_data.get("credential_id")
     if not job_credential_id or str(job_credential_id) != credential_id:
-        raise _reject(
+        raise await _deny(
+            audit,
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Credential does not belong to this worker's active job",
             reason="credential_id_mismatch",
             worker_id=worker_uuid,
             job_id=job.id,
             credential_id=credential_id,
+            organization_id=job.organization_id,
         )
 
     credential = await credential_repo.get_by_id(UUID(credential_id))
     if not credential:
-        raise _reject(
+        raise await _deny(
+            audit,
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Credential not found",
             reason="credential_not_found",
             worker_id=worker_uuid,
             job_id=job.id,
             credential_id=credential_id,
+            organization_id=job.organization_id,
         )
 
     if not credential.is_active:
-        raise _reject(
+        raise await _deny(
+            audit,
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Credential is inactive",
             reason="credential_inactive",
             worker_id=worker_uuid,
             job_id=job.id,
             credential_id=credential_id,
+            organization_id=job.organization_id,
         )
 
     # 2. Org isolation: the credential must belong to the job's organization.
     if credential.organization_id != job.organization_id:
-        raise _reject(
+        raise await _deny(
+            audit,
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Credential does not belong to this worker's active job",
             reason="org_mismatch",
             worker_id=worker_uuid,
             job_id=job.id,
             credential_id=credential_id,
+            organization_id=job.organization_id,
         )
 
     # 3. Credential <-> provider binding: the job must target the provider that
@@ -245,26 +264,30 @@ async def _authorize_credential_for_job(
         except ValueError:
             job_provider = None
     if not job_provider or job_provider.slug != credential.provider_slug:
-        raise _reject(
+        raise await _deny(
+            audit,
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Credential does not belong to this worker's active job",
             reason="provider_mismatch",
             worker_id=worker_uuid,
             job_id=job.id,
             credential_id=credential_id,
+            organization_id=job.organization_id,
         )
 
     # 4. Service <-> provider binding: the job's service_id must resolve to an
     #    active ProviderService owned by the credential's provider.
     job_service_id = input_data.get("service_id")
     if not job_service_id:
-        raise _reject(
+        raise await _deny(
+            audit,
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Credential does not belong to this worker's active job",
             reason="service_id_missing",
             worker_id=worker_uuid,
             job_id=job.id,
             credential_id=credential_id,
+            organization_id=job.organization_id,
         )
 
     service = await provider_service_repo.get_by_service_id(
@@ -279,22 +302,58 @@ async def _authorize_credential_for_job(
         or not service_provider
         or service_provider.slug != credential.provider_slug
     ):
-        raise _reject(
+        raise await _deny(
+            audit,
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Credential does not belong to this worker's active job",
             reason="service_provider_mismatch",
             worker_id=worker_uuid,
             job_id=job.id,
             credential_id=credential_id,
+            organization_id=job.organization_id,
         )
 
     return credential
 
 
+async def _worker_credential(
+    credential_id: str,
+    job_id: Optional[str],
+    worker: WorkerIdentity,
+    session: AsyncSession,
+    credential_repo: ProviderCredentialRepository,
+    provider_service_repo: ProviderServiceRepository,
+    provider_repo: ProviderRepository,
+    audit: AuditService,
+) -> ProviderCredential:
+    """The only route to a decrypted credential for a worker: its running job must name it."""
+    job = await resolve_worker_job(worker.worker_id, job_id, session)
+    if not job:
+        raise await _deny(
+            audit,
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No active job found for this worker",
+            reason="no_active_job",
+            worker_id=worker.worker_id,
+            job_id=job_id,
+            credential_id=credential_id,
+        )
+    return await _authorize_credential_for_job(
+        credential_id,
+        worker.worker_id,
+        job,
+        credential_repo,
+        provider_service_repo,
+        provider_repo,
+        audit,
+    )
+
+
 @router.get("/credentials/{credential_id}/token", response_model=TokenResponse)
 async def get_credential_token(
     credential_id: str,
-    authorization: Optional[str] = Header(None, alias="Authorization"),
+    job_id: Optional[str] = Query(None),
+    worker: WorkerIdentity = Depends(require_worker),
     provider_repo: ProviderRepository = Depends(
         get_provider_repository_bypass
     ),
@@ -305,67 +364,18 @@ async def get_credential_token(
         get_provider_service_repository
     ),
     session: AsyncSession = Depends(get_db_session_service),
+    audit: AuditService = Depends(get_audit_service),
 ) -> TokenResponse:
     """Fresh access token. OAuth tokens are auto-refreshed when expired."""
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header required",
-        )
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Expected: Authorization: Bearer <token>",
-        )
-    try:
-        token_data = verify_worker_token(parts[1])
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid worker token",
-        )
-
-    try:
-        worker_uuid = UUID(token_data["worker_id"])
-    except (KeyError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing worker_id",
-        )
-
-    # Re-check worker liveness at token time. A still-valid 5-min JWT held by a
-    # worker that has since been deregistered (stale heartbeat sweep, manual
-    # removal) must not be able to pull credentials.
-    worker_repo = SQLAlchemyWorkerRepository(session)
-    worker = await worker_repo.get_by_id(worker_uuid)
-    if not worker or worker.is_deregistered:
-        raise _reject(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Worker is not registered",
-            reason="worker_not_registered",
-            worker_id=worker_uuid,
-            credential_id=credential_id,
-        )
-
-    job_repo = SQLAlchemyQueuedJobRepository(session)
-    job = await job_repo.get_claimed_job_by_worker(worker_uuid)
-    if not job:
-        raise _reject(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No active job found for this worker",
-            reason="no_active_job",
-            worker_id=worker_uuid,
-            credential_id=credential_id,
-        )
-
-    credential = await _authorize_credential_for_job(
+    credential = await _worker_credential(
         credential_id,
-        worker_uuid,
-        job,
+        job_id,
+        worker,
+        session,
         credential_repo,
         provider_service_repo,
         provider_repo,
+        audit,
     )
 
     if credential.credential_type == CredentialType.OAUTH2:
@@ -406,26 +416,31 @@ async def get_credential_token(
 @router.get("/credentials/{credential_id}", response_model=CredentialResponse)
 async def get_credential(
     credential_id: str,
-    _: None = Depends(verify_worker_secret),
+    job_id: Optional[str] = Query(None),
+    worker: WorkerIdentity = Depends(require_worker),
+    provider_repo: ProviderRepository = Depends(
+        get_provider_repository_bypass
+    ),
     credential_repo: ProviderCredentialRepository = Depends(
         get_provider_credential_repository_bypass
     ),
+    provider_service_repo: ProviderServiceRepository = Depends(
+        get_provider_service_repository
+    ),
+    session: AsyncSession = Depends(get_db_session_service),
+    audit: AuditService = Depends(get_audit_service),
 ) -> CredentialResponse:
     """Full credential payload (use for basic auth where username/password is required)."""
-    credential = await credential_repo.get_by_id(UUID(credential_id))
-
-    if not credential:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Credential not found",
-        )
-
-    if not credential.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Credential is inactive",
-        )
-
+    credential = await _worker_credential(
+        credential_id,
+        job_id,
+        worker,
+        session,
+        credential_repo,
+        provider_service_repo,
+        provider_repo,
+        audit,
+    )
     return CredentialResponse(
         credential_type=credential.credential_type.value,
         credentials=credential.credentials,
@@ -453,73 +468,18 @@ class FileRegisterRequest(BaseModel):
     job_id: Optional[str] = None
 
 
-async def _resolve_worker_job(
-    authorization: Optional[str],
+async def _worker_job(
+    worker: WorkerIdentity,
     job_id: Optional[str],
     session: AsyncSession,
 ) -> QueuedJob:
-    """Validate the worker JWT and return the QueuedJob the worker may write to.
-
-    Shared between `/files/upload` (multipart) and `/files/register`
-    (metadata-only) - they apply the same auth + job-ownership checks.
-    """
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header required",
-        )
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Expected: Authorization: Bearer <token>",
-        )
-    try:
-        token_data = verify_worker_token(parts[1])
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid worker token",
-        )
-
-    try:
-        worker_uuid = UUID(token_data["worker_id"])
-    except (KeyError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing worker_id",
-        )
-
-    job_repo = SQLAlchemyQueuedJobRepository(session)
-
-    if job_id:
-        try:
-            job_uuid = UUID(job_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid job_id format",
-            )
-        job = await job_repo.get_job_for_worker_upload(job_uuid, worker_uuid)
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Job not found or not owned by this worker",
-            )
-    else:
-        job = await job_repo.get_claimed_job_by_worker(worker_uuid)
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No active job found for this worker",
-            )
-
+    """The job a worker may write to, which must carry an instance."""
+    job = await require_worker_job(worker.worker_id, job_id, session)
     if not job.instance_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job has no associated instance",
         )
-
     return job
 
 
@@ -530,7 +490,7 @@ async def _resolve_worker_job(
 )
 async def register_worker_local_file(
     request: FileRegisterRequest,
-    authorization: Optional[str] = Header(None, alias="Authorization"),
+    worker: WorkerIdentity = Depends(require_worker),
     service: OrgFileService = Depends(get_org_file_service_bypass),
     session: AsyncSession = Depends(get_db_session_service),
 ) -> FileUploadResponse:
@@ -549,8 +509,8 @@ async def register_worker_local_file(
     422: size or checksum mismatch → bytes on disk are not what the
     worker claims; worker may retry.
     """
-    job = await _resolve_worker_job(authorization, request.job_id, session)
-    # _resolve_worker_job rejects jobs without an instance_id (400), so it is
+    job = await _worker_job(worker, request.job_id, session)
+    # _worker_job rejects jobs without an instance_id (400), so it is
     # non-None here; assert it so the type narrows for the calls below.
     assert job.instance_id is not None
 
@@ -614,67 +574,13 @@ async def upload_file_for_worker(
     thumbnail: Optional[UploadFile] = File(None),
     filename: Optional[str] = Form(None),
     job_id: Optional[str] = Form(None),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
+    worker: WorkerIdentity = Depends(require_worker),
     service: OrgFileService = Depends(get_org_file_service_bypass),
     session: AsyncSession = Depends(get_db_session_service),
 ) -> FileUploadResponse:
     """Store a worker-uploaded file as an OrgFile."""
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header required",
-        )
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Expected: Authorization: Bearer <token>",
-        )
-    try:
-        token_data = verify_worker_token(parts[1])
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid worker token",
-        )
-
-    try:
-        worker_uuid = UUID(token_data["worker_id"])
-    except (KeyError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing worker_id",
-        )
-
-    job_repo = SQLAlchemyQueuedJobRepository(session)
-
-    if job_id:
-        try:
-            job_uuid = UUID(job_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid job_id format",
-            )
-        job = await job_repo.get_job_for_worker_upload(job_uuid, worker_uuid)
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Job not found or not owned by this worker",
-            )
-    else:
-        job = await job_repo.get_claimed_job_by_worker(worker_uuid)
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No active job found for this worker",
-            )
-
-    if not job.instance_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Job has no associated instance",
-        )
+    job = await _worker_job(worker, job_id, session)
+    assert job.instance_id is not None
 
     step_key = job.input_data.get("step_id") if job.input_data else None
     if not step_key:
@@ -704,8 +610,7 @@ async def upload_file_for_worker(
     else:
         mime_type = str(raw_content_type)
 
-    content = await file.read()
-    file_size = len(content)
+    file_stream, file_size = spooled_upload(file)
 
     thumbnail_io = None
     if thumbnail is not None:
@@ -716,7 +621,7 @@ async def upload_file_for_worker(
             instance_id=job.instance_id,
             step_key=step_key,
             organization_id=job.organization_id,
-            file_content=BytesIO(content),
+            file_content=file_stream,
             file_size=file_size,
             mime_type=mime_type,
             file_extension=file_extension,
@@ -744,12 +649,22 @@ async def upload_file_for_worker(
 @router.get("/files/{file_id}/download")
 async def download_file_for_worker(
     file_id: str,
-    _: None = Depends(verify_worker_secret),
+    job_id: Optional[str] = Query(None),
+    worker: WorkerIdentity = Depends(require_worker),
     service: OrgFileService = Depends(get_org_file_service_bypass),
+    session: AsyncSession = Depends(get_db_session_service),
 ):
-    """Worker file download (X-Worker-Secret auth instead of JWT)."""
+    """Serve a file from the organization of the worker's running job."""
+    job = await resolve_worker_job(worker.worker_id, job_id, session)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No active job found for this worker",
+        )
     try:
-        file_path, mime_type = await service.get_resource_file_path(UUID(file_id))
+        file_path, mime_type = await service.get_resource_file_path(
+            UUID(file_id), organization_id=job.organization_id
+        )
 
         if not file_path.exists():
             raise HTTPException(

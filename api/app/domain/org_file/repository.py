@@ -52,6 +52,10 @@ class OrgFileRepository(ABC):
         """Hard delete from database."""
 
     @abstractmethod
+    async def count_referencing_path(self, path: str) -> int:
+        """Rows whose file or thumbnail is stored at path."""
+
+    @abstractmethod
     async def list_by_instance_step(
         self,
         instance_step_id: uuid.UUID,

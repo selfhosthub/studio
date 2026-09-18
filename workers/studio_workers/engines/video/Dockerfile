@@ -59,6 +59,7 @@ COPY LICENSE LEGAL.md /app/
 RUN apt-get update && apt-get install -y --only-upgrade libtiff6 linux-libc-dev libexpat1 libssh-4 \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
     libssl3t64 openssl openssl-provider-legacy \
+    perl-base gzip libpcre2-8-0 libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir "setuptools>=78.1.1"
 

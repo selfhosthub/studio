@@ -271,7 +271,7 @@ function InfrastructureContent() {
               {data.activeTab === 'workers' && (
                 <>
                   <WorkersTabPanel health={data.health} onDeregister={data.handleDeregisterWorker} />
-                  <WorkerEnrollmentPanel />
+                  <WorkerEnrollmentPanel refreshSignal={data.health} />
                 </>
               )}
               {data.activeTab === 'storage' && (

@@ -119,14 +119,11 @@ class ComfyUIPackageStore:
     def sync(self, token_getter=None) -> bool:
         """Pull the package list and changed packages; returns True on success."""
         base = worker_settings.API_BASE_URL.rstrip("/")
-        headers = {
-            "X-Worker-Secret": worker_settings.auth_secret,
-            **cf_access_headers(),
-        }
-        if token_getter:
-            token = token_getter()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
+        token = token_getter() if token_getter else None
+        if not token:
+            logger.debug("Package sync skipped: worker JWT not available")
+            return False
+        headers = {"Authorization": f"Bearer {token}", **cf_access_headers()}
         try:
             with httpx.Client(
                 timeout=worker_settings.HTTP_INTERNAL_TIMEOUT_S,

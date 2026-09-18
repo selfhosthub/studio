@@ -7,7 +7,8 @@ Workers call /api/v1/internal/credentials/{id}/token to get fresh tokens
 immediately before making authenticated API calls. This ensures OAuth tokens
 are always fresh (auto-refreshed by API if expired).
 
-Security: Uses the worker's auth secret in the X-Worker-Secret header.
+Security: authenticates with the worker JWT Bearer header and scopes each fetch to
+the running job via the job_id query param.
 """
 import logging
 import time
@@ -33,65 +34,61 @@ class CredentialClient:
 
     def __init__(
         self,
-        token_getter: Optional[Callable[[], Optional[str]]] = None,
+        token_getter: Callable[[], Optional[str]],
+        job_id_getter: Optional[Callable[[], Optional[str]]] = None,
     ):
         self.api_base_url = settings.API_BASE_URL
-        self.worker_secret = settings.auth_secret
         self._token_getter = token_getter
-        # Token cache: credential_id -> (token, expiry_timestamp)
-        self._token_cache: Dict[str, Tuple[str, float]] = {}
+        self._job_id_getter = job_id_getter
+        # Token cache: (credential_id, job_id) -> (token, expiry_timestamp)
+        self._token_cache: Dict[Tuple[str, str], Tuple[str, float]] = {}
         # Reusable async client for connection pooling
         self._async_client: Optional[httpx.AsyncClient] = None
 
-        if not self.worker_secret:
-            logger.warning(
-                "No worker auth secret set - credential fetching disabled"
-            )
-
     def _auth_headers(self) -> Optional[Dict[str, str]]:
-        """Build request headers; returns None if a JWT is expected but absent."""
-        headers = {
-            "X-Worker-Secret": self.worker_secret,
+        """Build request headers; returns None when the worker JWT is absent."""
+        token = self._token_getter()
+        if not token:
+            logger.error("Cannot fetch credential: worker JWT not available")
+            return None
+        return {
+            "Authorization": f"Bearer {token}",
             "Accept": "application/json",
             **cf_access_headers(),
         }
-        if self._token_getter is not None:
-            token = self._token_getter()
-            if not token:
-                logger.error("Cannot fetch credential: worker JWT not available")
-                return None
-            headers["Authorization"] = f"Bearer {token}"
-        return headers
+
+    def _current_job_id(self) -> Optional[str]:
+        """Return the running job id from the getter, if any."""
+        return self._job_id_getter() if self._job_id_getter else None
 
     async def get_token(
         self, credential_id: str, oauth_provider: Optional[str] = None
     ) -> Optional[str]:
-        """Fetch fresh access token, using cache when valid."""
-        if not self.worker_secret:
-            logger.error("Cannot fetch token: no worker auth secret configured")
+        """Fetch fresh access token, using the per-job cache when valid."""
+        headers = self._auth_headers()
+        if headers is None:
             return None
 
-        # Check cache first
-        cached = self._token_cache.get(credential_id)
-        if cached:
-            token, expiry = cached
-            if time.monotonic() < expiry:
-                logger.debug(
-                    f"Using cached token for credential {credential_id[:8]}..."
-                )
-                return token
-            else:
-                # Evict expired entry
-                del self._token_cache[credential_id]
+        job_id = self._current_job_id()
+        cache_key = (credential_id, job_id) if job_id else None
+
+        if cache_key is not None:
+            cached = self._token_cache.get(cache_key)
+            if cached:
+                token, expiry = cached
+                if time.monotonic() < expiry:
+                    logger.debug(
+                        f"Using cached token for credential {credential_id[:8]}..."
+                    )
+                    return token
+                del self._token_cache[cache_key]
 
         url = f"{self.api_base_url}/api/v1/internal/credentials/{credential_id}/token"
         params = {}
         if oauth_provider:
             params["oauth_provider"] = oauth_provider
-
-        headers = self._auth_headers()
-        if headers is None:
-            return None
+        if job_id:
+            params["job_id"] = job_id
 
         try:
             client = self._get_async_client()
@@ -102,9 +99,9 @@ class CredentialClient:
             if response.status_code == 200:
                 data = response.json()
                 access_token = data.get("access_token")
-                if access_token:
+                if access_token and cache_key is not None:
                     self._evict_cache_if_full()
-                    self._token_cache[credential_id] = (
+                    self._token_cache[cache_key] = (
                         access_token,
                         time.monotonic() + _TOKEN_CACHE_TTL_S,
                     )
@@ -124,19 +121,21 @@ class CredentialClient:
 
     async def get_credential(self, credential_id: str) -> Optional[dict]:
         """Fetch full credential data for non-token auth types."""
-        if not self.worker_secret:
-            logger.error("Cannot fetch credential: no worker auth secret configured")
-            return None
-
         url = f"{self.api_base_url}/api/v1/internal/credentials/{credential_id}"
 
         headers = self._auth_headers()
         if headers is None:
             return None
+        params = {}
+        job_id = self._current_job_id()
+        if job_id:
+            params["job_id"] = job_id
 
         try:
             client = self._get_async_client()
-            response = await client.get(url, headers=headers, timeout=settings.HTTP_INTERNAL_TIMEOUT_S)
+            response = await client.get(
+                url, headers=headers, params=params, timeout=settings.HTTP_INTERNAL_TIMEOUT_S
+            )
 
             if response.status_code == 200:
                 data = response.json()

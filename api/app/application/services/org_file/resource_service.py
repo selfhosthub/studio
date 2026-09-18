@@ -28,8 +28,10 @@ from app.domain.instance_step.step_execution_repository import (
 )
 from app.domain.workflow.repository import WorkflowRepository
 from app.application.services.result_processing import resources_to_downloaded_files
+from app.application.services.org_file.file_cleanup import (
+    cleanup_unreferenced_files,
+)
 from app.infrastructure.storage.workspace import (
-    cleanup_resource_files,
     get_workspace_path,
     resolve_safe_path,
 )
@@ -102,10 +104,16 @@ class ResourceService:
             organization_id, skip=skip, limit=limit
         )
 
-    async def get_resource_file_path(self, resource_id: uuid.UUID) -> Tuple[Path, str]:
-        """Return (file_path, mime_type) for the resource, raising if not found."""
+    async def get_resource_file_path(
+        self,
+        resource_id: uuid.UUID,
+        organization_id: Optional[uuid.UUID] = None,
+    ) -> Tuple[Path, str]:
+        """Return (file_path, mime_type) for the resource, raising if not found or outside organization_id."""
         resource = await self.resource_repository.get_by_id(resource_id)
-        if not resource:
+        if not resource or (
+            organization_id is not None and resource.organization_id != organization_id
+        ):
             raise EntityNotFoundError(
                 entity_type="OrgFile",
                 entity_id=resource_id,
@@ -187,9 +195,8 @@ class ResourceService:
 
         await self.resource_repository.delete(resource_id)
 
-        cleanup_resource_files(
-            virtual_path=virtual_path,
-            thumbnail_path=thumbnail_path,
+        await cleanup_unreferenced_files(
+            self.resource_repository, virtual_path, thumbnail_path
         )
 
         # Keep-variants: for a step's output resource, rebuild the step's stored
@@ -411,7 +418,7 @@ class ResourceService:
 
         `display_order` is per-iteration (0..M-1 within each iteration).
         The submission may permute order *within* each iteration but cannot
-        move resources across iteration boundaries — this preserves the
+        move resources across iteration boundaries - this preserves the
         prompt/audio/images coupling for multi-file iteration steps.
 
         See docs/plans/iteration-reorder-persistence.md §5.
@@ -442,11 +449,11 @@ class ResourceService:
         # `display_order` is per-iteration: a resource's slot is assigned
         # within its OWN iteration's sequence, derived from its
         # iteration_index. A resource therefore can never move to another
-        # iteration regardless of its position in the submitted flat list —
+        # iteration regardless of its position in the submitted flat list -
         # the per-iteration counter enforces the boundary by construction.
         # We reorder only the submitted resources; any resource not in the
         # submission keeps its existing display_order (partial submissions
-        # are valid — the client may render a subset).
+        # are valid - the client may render a subset).
         def _iter_idx(r: OrgFile) -> Any:
             return (r.metadata or {}).get("iteration_index")
 

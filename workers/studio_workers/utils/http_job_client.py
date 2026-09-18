@@ -6,7 +6,7 @@ HTTP Job Client for Worker Architecture.
 Workers poll GET /internal/jobs/claim to get work.
 Results are published to POST /internal/step-results.
 
-Authentication: JWT Bearer + X-Worker-Secret header.
+Authentication: worker JWT Bearer header.
 """
 
 import logging
@@ -24,7 +24,6 @@ from studio_workers.utils.cf_access import cf_access_headers
 
 # Configuration
 API_BASE_URL: str = settings.API_BASE_URL
-WORKER_AUTH_SECRET: str = settings.auth_secret
 JOB_POLL_INTERVAL = settings.JOB_POLL_INTERVAL_S
 JOB_POLL_BACKOFF_MAX = settings.JOB_POLL_BACKOFF_MAX_S
 JOB_POLL_JITTER_FRAC = settings.JOB_POLL_JITTER_FRAC
@@ -39,7 +38,6 @@ class HTTPJobClient:
         token_getter: Optional[Callable[[], Optional[str]]] = None,
     ):
         self.api_base_url = API_BASE_URL.rstrip("/")
-        self.worker_secret = WORKER_AUTH_SECRET
         self.worker_id = worker_id or f"worker-{os.getpid()}"
         self.token_getter = token_getter
         self.poll_interval = JOB_POLL_INTERVAL
@@ -56,7 +54,6 @@ class HTTPJobClient:
         self.client = httpx.Client(
             timeout=settings.HTTP_INTERNAL_TIMEOUT_S,
             headers={
-                "X-Worker-Secret": self.worker_secret,
                 "Content-Type": "application/json",
                 **cf_access_headers(),
             },

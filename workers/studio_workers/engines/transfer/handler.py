@@ -56,7 +56,9 @@ class TransferWorker(WorkerBase):
         # Job client initialized after registration so we have real worker_id from the API.
         self.job_client = None
         self.result_publisher = ResultPublisher(token_getter=self.get_token)
-        self.credential_client = CredentialClient(token_getter=self.get_token)
+        self.credential_client = CredentialClient(
+            token_getter=self.get_token, job_id_getter=self.get_current_job_id
+        )
 
         # Persistent event loop. CredentialClient caches an httpx.AsyncClient bound to
         # this loop; creating a fresh loop per call would orphan that client on a dead

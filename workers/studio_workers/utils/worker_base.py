@@ -35,6 +35,8 @@ import httpx
 
 from studio_workers.contracts.version import WORKERS_VERSION
 from studio_workers.settings import settings
+from studio_workers.utils import enrollment_state
+from studio_workers.utils.internal_auth import set_auth_context
 from studio_workers.utils.startup_checks import StartupCheckError, run_startup_checks
 
 logger = logging.getLogger(__name__)
@@ -74,7 +76,6 @@ class WorkerBase(ABC):
 
         # Configuration from settings
         self.api_base_url = settings.API_BASE_URL
-        self.worker_secret = settings.auth_secret
         self.worker_name = (
             settings.WORKER_NAME or f"worker-{worker_type}-{uuid.uuid4().hex[:8]}"
         )
@@ -98,9 +99,11 @@ class WorkerBase(ABC):
         # Connection error tracking (to reduce log noise during restarts)
         self._consecutive_registration_errors = 0
         self._consecutive_heartbeat_errors = 0
+        self._enrollment_rejected = False
 
         # HTTP client for API calls
         self._http_client = httpx.Client(timeout=settings.HTTP_INTERNAL_TIMEOUT_S)
+        set_auth_context(self.get_token, self.get_current_job_id)
 
         # Get network info once at startup
         self._ip_address = self._get_ip_address()
@@ -207,14 +210,70 @@ class WorkerBase(ABC):
 
         return metrics
 
+    def _resolve_secret(self, root: str) -> tuple[str, bool]:
+        """Return the secret to register with and whether it is the saved credential."""
+        if settings.WORKER_CREDENTIAL:
+            return settings.WORKER_CREDENTIAL, False
+        saved = enrollment_state.load_credential(root, self.worker_type)
+        if saved:
+            return saved, True
+        return settings.WORKER_SHARED_SECRET, False
+
+    def _poll_enrollment(self, root: str, pending: Dict[str, str]) -> bool:
+        """Poll a pending enrollment request; returns True when registration should proceed."""
+        response = self._http_client.post(
+            f"{self.api_base_url}/api/v1/workers/enroll/requests/{pending['request_id']}",
+            json={"poll_token": pending["poll_token"]},
+        )
+        if response.status_code in (404, 410):
+            logger.info(
+                f"Enrollment request {pending['request_id']} is gone ({response.status_code}); registering again"
+            )
+            enrollment_state.clear_request(root, self.worker_type)
+            return True
+        if response.status_code != 200:
+            self._log_registration_error(
+                f"Enrollment request poll failed: {response.status_code}"
+            )
+            return False
+        data = response.json()
+        status = data.get("status")
+        if status == "approved":
+            credential = data.get("credential")
+            if credential:
+                enrollment_state.save_credential(root, self.worker_type, credential)
+            enrollment_state.clear_request(root, self.worker_type)
+            logger.info(f"Enrollment request {pending['request_id']} approved")
+            return True
+        if status == "rejected":
+            logger.error(
+                f"Enrollment request {pending['request_id']} was rejected by a super admin; "
+                "this worker stays unregistered until restarted"
+            )
+            enrollment_state.clear_request(root, self.worker_type)
+            self._enrollment_rejected = True
+            return False
+        logger.debug(f"Enrollment request {pending['request_id']} is still pending")
+        return False
+
     def register(self) -> bool:
         """Register this worker with the API; returns True on success."""
+        if self._enrollment_rejected:
+            return False
         try:
+            root = settings.WORKSPACE_ROOT
+            pending = enrollment_state.load_request(root, self.worker_type)
+            if pending is not None and not self._poll_enrollment(root, pending):
+                return False
+
+            secret, from_saved = self._resolve_secret(root)
+            bootstrap_token = enrollment_state.read_bootstrap_token(root)
+
             # Collect system metrics for registration
             metrics = self._get_system_metrics()
 
             payload = {
-                "secret": self.worker_secret,
+                "secret": secret,
                 "worker_version": WORKERS_VERSION,
                 "name": self.worker_name,
                 "capabilities": self.capabilities,
@@ -227,6 +286,8 @@ class WorkerBase(ABC):
                 "storage_mode": self._detect_storage_mode(),
                 **metrics,  # Include CPU, memory, disk, GPU metrics
             }
+            if bootstrap_token:
+                payload["bootstrap_token"] = bootstrap_token
 
             response = self._http_client.post(
                 f"{self.api_base_url}/api/v1/workers/register",
@@ -254,6 +315,22 @@ class WorkerBase(ABC):
                         f"Registered with API as worker {self.worker_id} (no JWT token)"
                     )
                 return True
+            elif response.status_code == 202:
+                data = response.json()
+                logger.warning(
+                    "Worker is waiting for a super admin to approve it under "
+                    f"Infrastructure > Workers (request {data.get('request_id')})"
+                )
+                enrollment_state.save_request(
+                    root, self.worker_type, str(data["request_id"]), data["poll_token"]
+                )
+                return False
+            elif response.status_code == 401 and from_saved:
+                logger.warning(
+                    "Saved worker credential was rejected; falling back to the shared secret"
+                )
+                enrollment_state.clear_credential(root, self.worker_type)
+                return False
             else:
                 body_preview = " ".join(response.text.split())[:120]
                 self._log_registration_error(
@@ -288,6 +365,9 @@ class WorkerBase(ABC):
         """Send a heartbeat to the API; returns True on success."""
         if not self.worker_id:
             return False
+        token = self.get_token()
+        if not token:
+            return False
 
         try:
             # Collect current system metrics
@@ -304,6 +384,7 @@ class WorkerBase(ABC):
             response = self._http_client.post(
                 f"{self.api_base_url}/api/v1/workers/{self.worker_id}/heartbeat",
                 json=payload,
+                headers={"Authorization": f"Bearer {token}"},
             )
 
             if response.status_code == 200:
@@ -333,10 +414,10 @@ class WorkerBase(ABC):
                             self.worker_token = new_token
                     self.on_heartbeat_response(data)
                 return True
-            elif response.status_code == 404:
-                # Worker was deleted from the system - trigger re-registration
+            elif response.status_code in (401, 403, 404):
+                # Worker unknown or token rejected - trigger re-registration
                 logger.debug(
-                    "Worker no longer registered (404) - will attempt re-registration"
+                    f"Heartbeat rejected ({response.status_code}) - will attempt re-registration"
                 )
                 self.worker_id = None  # Clear worker ID so we stop sending heartbeats
                 with self._token_lock:
@@ -398,7 +479,7 @@ class WorkerBase(ABC):
 
     def _registration_retry_loop(self):
         """Background thread that retries registration until successful."""
-        while self.running and not self.worker_id:
+        while self.running and not self.worker_id and not self._enrollment_rejected:
             time.sleep(self.registration_retry_interval)
             if not self.running:
                 break
@@ -444,6 +525,10 @@ class WorkerBase(ABC):
         self._current_status = "idle"
         self._current_job_id = None
         self._busy_since = None
+
+    def get_current_job_id(self) -> Optional[str]:
+        """Return the queued job id currently being processed, if any."""
+        return self._current_job_id
 
     def get_token(self) -> Optional[str]:
         """Thread-safe access to the current JWT token; None if not yet registered."""
@@ -524,11 +609,14 @@ class WorkerBase(ABC):
         """Deregister this worker from the API."""
         if not self.worker_id:
             return
+        token = self.get_token()
+        if not token:
+            return
         try:
             response = self._http_client.request(
                 "DELETE",
                 f"{self.api_base_url}/api/v1/workers/{self.worker_id}",
-                json={"secret": self.worker_secret},
+                headers={"Authorization": f"Bearer {token}"},
             )
             if response.status_code == 200:
                 logger.info(f"Deregistered worker {self.worker_id}")

@@ -1,7 +1,7 @@
 # api/app/application/services/worker_cleanup_service.py
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Optional
 
 from app.config.settings import settings
@@ -89,7 +89,11 @@ class WorkerCleanupService:
             raise
 
     async def delete_old_deregistered_workers(self) -> int:
-        return 0
+        """Delete workers deregistered longer than WORKER_CLEANUP_RETENTION_MINUTES ago."""
+        cutoff = datetime.now(UTC) - timedelta(
+            minutes=settings.WORKER_CLEANUP_RETENTION_MINUTES
+        )
+        return await self.worker_repository.delete_deregistered_before(cutoff)
 
     async def run_cleanup(self) -> dict[str, Any]:
         # Silenced: per-cycle narration. The cleanup runs every cycle and is

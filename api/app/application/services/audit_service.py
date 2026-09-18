@@ -312,6 +312,37 @@ class AuditService:
             metadata=metadata,
         )
 
+    async def log_worker_credential_denied(
+        self,
+        worker_id: UUID,
+        credential_id: str,
+        reason: str,
+        organization_id: Optional[UUID] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[AuditEvent]:
+        """Record a worker refused a provider credential; the worker id rides in metadata."""
+        try:
+            resource_id: Optional[UUID] = UUID(credential_id)
+        except ValueError:
+            resource_id = None
+        return await self.log_event(
+            actor_id=None,
+            actor_type=AuditActorType.SYSTEM,
+            action=AuditAction.ACCESS_DENIED,
+            resource_type=ResourceType.CREDENTIAL,
+            resource_id=resource_id,
+            organization_id=organization_id,
+            severity=AuditSeverity.WARNING,
+            category=AuditCategory.SECURITY,
+            status=AuditStatus.FAILED,
+            metadata={
+                "worker_id": str(worker_id),
+                "job_id": job_id,
+                "reason": reason,
+                "credential_id": credential_id,
+            },
+        )
+
     async def log_login(
         self,
         actor_id: Optional[UUID],

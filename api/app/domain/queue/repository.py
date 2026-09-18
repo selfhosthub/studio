@@ -191,3 +191,7 @@ class WorkerRepository(ABC):
         worker_ids: List[uuid.UUID],
     ) -> int:
         """Returns number of workers marked as deregistered."""
+
+    @abstractmethod
+    async def delete_deregistered_before(self, cutoff: datetime) -> int:
+        """Delete deregistered workers last updated before cutoff; returns the count."""

@@ -1053,6 +1053,13 @@ class WorkerModel(Base):
     )
     jobs_completed: Mapped[int] = mapped_column(Integer, default=0)
     is_deregistered: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The enrollment credential this worker registered with; revoking it deregisters the worker.
+    enrollment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("worker_enrollments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -1146,6 +1153,41 @@ class WorkerEnrollmentModel(Base):
     )
 
     __table_args__ = (Index("ix_worker_enrollments_revoked", "revoked_at"),)
+
+
+class WorkerEnrollmentRequestModel(Base):
+    """A shared-secret worker from outside the deployment, waiting for a super admin."""
+
+    __tablename__ = "worker_enrollment_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # SHA-256 hex of the token the worker polls with; the plaintext is never stored.
+    poll_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    # Requested queues while pending; the granted scope once approved.
+    queues: Mapped[List[str]] = mapped_column(PG_ARRAY(String), default=list)
+    # pending | approved | rejected | claimed
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    enrollment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("worker_enrollments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (Index("ix_worker_enrollment_requests_status", "status"),)
 
 
 class QueuedJobModel(Base):

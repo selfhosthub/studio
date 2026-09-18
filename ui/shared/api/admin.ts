@@ -453,3 +453,44 @@ export async function revokeWorkerEnrollment(enrollmentId: string): Promise<void
     method: 'DELETE',
   });
 }
+
+export type EnrollmentRequestStatus = 'pending' | 'approved' | 'rejected' | 'claimed';
+
+/** A shared-secret worker from outside the deployment waiting for a super-admin decision. */
+export interface EnrollmentRequest {
+  id: string;
+  name: string;
+  hostname: string | null;
+  ip_address: string | null;
+  queues: string[];
+  status: EnrollmentRequestStatus;
+  enrollment_id: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+}
+
+export async function getEnrollmentRequests(): Promise<EnrollmentRequest[]> {
+  return apiRequest<EnrollmentRequest[]>('/infrastructure/workers/enrollment-requests');
+}
+
+/** Omitting queues grants every queue the worker asked for. */
+export async function approveEnrollmentRequest(
+  requestId: string,
+  queues?: string[]
+): Promise<EnrollmentRequest> {
+  return apiRequest<EnrollmentRequest>(
+    `/infrastructure/workers/enrollment-requests/${requestId}/approve`,
+    {
+      method: 'POST',
+      body: JSON.stringify(queues ? { queues } : {}),
+    }
+  );
+}
+
+export async function rejectEnrollmentRequest(requestId: string): Promise<EnrollmentRequest> {
+  return apiRequest<EnrollmentRequest>(
+    `/infrastructure/workers/enrollment-requests/${requestId}/reject`,
+    { method: 'POST' }
+  );
+}

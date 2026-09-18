@@ -333,6 +333,12 @@ class ResultProcessingService:
             job.start()
             await step_execution_repo.update(job)
 
+        # A result for the step a run is parked on resumes that run.
+        resumes_parked_run = (
+            instance.status == InstanceStatus.WAITING_FOR_WEBHOOK
+            and instance_step.status == StepExecutionStatus.WAITING_FOR_WEBHOOK
+        )
+
         # 7b. Webhook mode: worker fired async + released. Record the generation
         # id on the iteration row and route to WAIT_WEBHOOK; skip completion and
         # iteration aggregation. Idempotent across the N per-iteration fire results.
@@ -557,6 +563,10 @@ class ResultProcessingService:
                 # workflow doesn't unwind on a preserved-state regeneration.
                 step_failed = False
                 error_message = None
+
+        if resumes_parked_run:
+            instance.transition_to_processing()
+            await instance_repo.update(instance)
 
         # 13. Determine next action using orchestrator
         # (approval_step lookup will be handled by caller for now)

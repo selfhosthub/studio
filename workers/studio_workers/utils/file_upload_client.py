@@ -61,9 +61,11 @@ class FileUploadClient:
         self,
         token_getter: Callable[[], Optional[str]],
         storage_mode_getter: Optional[Callable[[], str]] = None,
+        job_id_getter: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._base_url = settings.API_BASE_URL.rstrip("/")
         self._token_getter = token_getter
+        self._job_id_getter = job_id_getter
         # Default getter: "remote". Old engines that don't pass a getter
         # keep doing multipart, no behavior change.
         self._storage_mode_getter = storage_mode_getter or (lambda: "remote")
@@ -299,6 +301,8 @@ class FileUploadClient:
 
         delay = _BASE_DELAY
         last_exc: Exception = RuntimeError("download never attempted")
+        job_id = self._job_id_getter() if self._job_id_getter else None
+        params = {"job_id": job_id} if job_id else {}
 
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -306,6 +310,7 @@ class FileUploadClient:
                     "GET",
                     f"{self._base_url}/api/v1/internal/files/{resource_id}/download",
                     headers=self._auth_headers(),
+                    params=params,
                     timeout=settings.TRANSFER_TIMEOUT_S,
                 ) as response:
                     response.raise_for_status()
