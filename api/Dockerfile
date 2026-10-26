@@ -3,13 +3,14 @@
 
 # --- Stage 1: Builder (has gcc for compiling native extensions) ---
 FROM python:3.12-slim AS builder
+RUN pip install --no-cache-dir --upgrade pip==26.2.2
 
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -24,6 +25,7 @@ RUN uv sync --frozen --no-dev --no-cache
 
 # --- Stage 2: Runner (no compiler, no build tools) ---
 FROM python:3.12-slim
+RUN pip install --no-cache-dir --upgrade pip==26.2.2
 
 ARG GIT_SHA=""
 LABEL org.opencontainers.image.revision="${GIT_SHA}" \
@@ -74,6 +76,9 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 
 # Create workspace and ensure /app dir itself is writable by appuser
 RUN mkdir -p /workspace && chown appuser:appgroup /workspace /app
+# Remove pip from the runtime image
+RUN /usr/local/bin/python -m pip uninstall -y pip
+
 USER appuser
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

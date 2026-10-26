@@ -24,6 +24,7 @@ RUN npm run build
 
 # --- Stage 2: Build API + worker Python deps (shared venv) ---
 FROM python:3.12-slim AS python-builder
+RUN pip install --no-cache-dir --upgrade pip==26.2.2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -33,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 
 WORKDIR /app/api
 COPY api/pyproject.toml api/uv.lock ./
@@ -46,6 +47,7 @@ RUN uv pip install --python /app/api/.venv/bin/python --no-cache -r /tmp/worker-
 
 # --- Stage 3: Final image (no compiler) ---
 FROM python:3.12-slim
+RUN pip install --no-cache-dir --upgrade pip==26.2.2
 
 # Required at build time. No default - a missing arg fails the build.
 ARG STUDIO_CONSOLE_VERSION
@@ -115,7 +117,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 # Installed into /opt/uv-tools with the shim on /usr/local/bin so the binary
 # is on PATH for every process in the image. Always rebuilds: the ADD of the
 # GitHub release metadata changes whenever the release does, busting the cache.
-COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 ENV UV_TOOL_DIR=/opt/uv-tools \
     UV_TOOL_BIN_DIR=/usr/local/bin
 RUN test -n "${STUDIO_CONSOLE_VERSION}" || (echo "STUDIO_CONSOLE_VERSION build arg required" >&2 && exit 1)
@@ -198,6 +200,9 @@ RUN chmod +x /usr/local/bin/ui-start.sh
 RUN mkdir -p /workspace
 
 WORKDIR /app/api
+
+# Remove pip from the runtime image
+RUN /usr/local/bin/python -m pip uninstall -y pip
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 # Default CMD runs full first-boot + supervisord. Override (e.g.

@@ -13,6 +13,7 @@
 #   docker build -f studio_workers/engines/comfyui/Dockerfile .
 
 FROM python:3.12-slim
+RUN pip install --no-cache-dir --upgrade pip==26.2.2
 
 WORKDIR /app/worker
 
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
-COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 
 # Copy and install base requirements
 # Pin every dependency to the versions in workers/uv.lock
@@ -74,6 +75,9 @@ ENV SHS_COMFYUI_OUTPUT_DIR=/var/tmp/studio-workers/comfyui_output
 
 # COMFYUI_URL is REQUIRED - worker will fail to start without it
 # Example: COMFYUI_URL=http://your-comfyui-host:8188
+
+# Remove pip from the runtime image
+RUN /usr/local/bin/python -m pip uninstall -y pip
 
 USER worker
 CMD ["python", "-m", "studio_workers.worker"]

@@ -6,6 +6,7 @@
 #   docker build -f studio_workers/engines/transfer/Dockerfile .
 
 FROM python:3.12-slim
+RUN pip install --no-cache-dir --upgrade pip==26.2.2
 
 WORKDIR /app
 
@@ -17,7 +18,7 @@ RUN apt-get update && apt-get install -y --only-upgrade \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
-COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 
 # Copy and install base requirements (httpx, psutil, etc.)
 # Pin every dependency to the versions in workers/uv.lock
@@ -57,5 +58,8 @@ ENV HOME=/var/tmp/studio-workers/home
 ENV WORKSPACE_ROOT=/workspace
 
 # Run the transfer worker
+# Remove pip from the runtime image
+RUN /usr/local/bin/python -m pip uninstall -y pip
+
 USER worker
 CMD ["python", "-m", "studio_workers.worker"]
