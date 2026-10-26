@@ -162,6 +162,9 @@ class Notification(AggregateRoot):
             )
         )
 
+    def mark_unread(self) -> None:
+        self.read_at = None
+
 
 class NotificationChannel(AggregateRoot):
     """A configured communication channel for sending notifications."""

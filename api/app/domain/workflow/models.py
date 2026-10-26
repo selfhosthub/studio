@@ -14,6 +14,7 @@ from app.domain.common.base_entity import AggregateRoot
 from app.domain.common.exceptions import (
     InvalidStateTransition,
     BusinessRuleViolation,
+    PermissionDeniedError,
     ValidationError as DomainValidationError,
 )
 from app.domain.common.value_objects import (
@@ -271,7 +272,7 @@ class Workflow(AggregateRoot):
         if status == WorkflowStatus.ACTIVE:
             if not self.steps:
                 raise BusinessRuleViolation(
-                    message="Cannot activate workflow without steps",
+                    message="Cannot activate workflow without nodes",
                     code="NO_STEPS",
                     context={
                         "workflow_id": str(self.id),
@@ -279,7 +280,7 @@ class Workflow(AggregateRoot):
                 )
             if not self._validate_step_dependencies():
                 raise BusinessRuleViolation(
-                    message="Workflow has invalid step dependencies",
+                    message="Workflow has invalid node dependencies",
                     code="INVALID_DEPENDENCIES",
                     context={
                         "workflow_id": str(self.id),
@@ -339,7 +340,7 @@ class Workflow(AggregateRoot):
         """Add a step. Rejects active workflows, duplicate step IDs, missing deps, and cycles."""
         if self.status == WorkflowStatus.ACTIVE:
             raise InvalidStateTransition(
-                message="Cannot add step to active workflow",
+                message="Cannot add node to active workflow",
                 code="WORKFLOW_ACTIVE",
                 context={
                     "workflow_id": str(self.id),
@@ -349,7 +350,7 @@ class Workflow(AggregateRoot):
 
         if step_id in self.steps:
             raise DomainValidationError(
-                message=f"Step {step_id} already exists in workflow",
+                message=f"Node {step_id} already exists in workflow",
                 code="STEP_ALREADY_EXISTS",
                 context={
                     "workflow_id": str(self.id),
@@ -371,7 +372,7 @@ class Workflow(AggregateRoot):
 
         if self._would_create_cycle(step_id, step_config.depends_on):
             raise DomainValidationError(
-                message="Adding step would create a dependency cycle",
+                message="Adding node would create a dependency cycle",
                 code="CIRCULAR_DEPENDENCY",
                 context={
                     "workflow_id": str(self.id),
@@ -413,7 +414,7 @@ class Workflow(AggregateRoot):
         """Remove a step. Rejects active workflows, missing step IDs, and steps with dependents."""
         if self.status == WorkflowStatus.ACTIVE:
             raise InvalidStateTransition(
-                message="Cannot remove step from active workflow",
+                message="Cannot remove node from active workflow",
                 code="WORKFLOW_ACTIVE",
                 context={
                     "workflow_id": str(self.id),
@@ -423,7 +424,7 @@ class Workflow(AggregateRoot):
 
         if step_id not in self.steps:
             raise DomainValidationError(
-                message=f"Step {step_id} does not exist in workflow",
+                message=f"Node {step_id} does not exist in workflow",
                 code="STEP_NOT_FOUND",
                 context={
                     "workflow_id": str(self.id),
@@ -434,7 +435,7 @@ class Workflow(AggregateRoot):
         dependent_steps = self.get_dependent_steps(step_id)
         if dependent_steps:
             raise DomainValidationError(
-                message=f"Cannot remove step {step_id}: other steps depend on it",
+                message=f"Cannot remove node {step_id}: other nodes depend on it",
                 code="STEP_HAS_DEPENDENTS",
                 context={
                     "workflow_id": str(self.id),
@@ -473,7 +474,7 @@ class Workflow(AggregateRoot):
 
         if not self.steps:
             raise BusinessRuleViolation(
-                message="Cannot activate workflow without steps",
+                message="Cannot activate workflow without nodes",
                 code="NO_STEPS",
                 context={
                     "workflow_id": str(self.id),
@@ -492,7 +493,7 @@ class Workflow(AggregateRoot):
 
         if not self._validate_step_dependencies():
             raise BusinessRuleViolation(
-                message="Workflow has invalid step dependencies",
+                message="Workflow has invalid node dependencies",
                 code="INVALID_DEPENDENCIES",
                 context={
                     "workflow_id": str(self.id),
@@ -825,10 +826,17 @@ class Workflow(AggregateRoot):
         user_id: Optional[uuid.UUID] = None,
         input_data: Optional[Dict[str, Any]] = None,
         client_metadata: Optional[Dict[str, Any]] = None,
+        actor_id: Optional[uuid.UUID] = None,
     ):
-        """Factory method for instances. ACTIVE and DEBUG are allowed; all other statuses raise."""
-        # Allow ACTIVE and DEBUG workflows to create instances
-        if self.status not in (WorkflowStatus.ACTIVE, WorkflowStatus.DEBUG):
+        """Factory method for instances. ACTIVE and DEBUG are allowed, and a personal
+        DRAFT is allowed for its owner (actor_id); all other statuses raise."""
+        if self.is_personal_draft():
+            if actor_id is None or actor_id != self.created_by:
+                raise PermissionDeniedError(
+                    message="Only the owner can run a personal draft workflow",
+                    code="WORKFLOW_PERSONAL_DRAFT",
+                )
+        elif self.status not in (WorkflowStatus.ACTIVE, WorkflowStatus.DEBUG):
             raise BusinessRuleViolation(
                 message=f"Cannot create instance from {self.status.value} workflow",
                 code="WORKFLOW_NOT_ACTIVE",
@@ -847,6 +855,11 @@ class Workflow(AggregateRoot):
             input_data=input_data,
             client_metadata=client_metadata,
             is_debug_mode=(self.status == WorkflowStatus.DEBUG),
+        )
+
+    def is_personal_draft(self) -> bool:
+        return (
+            self.status == WorkflowStatus.DRAFT and self.scope == WorkflowScope.PERSONAL
         )
 
     def update_instance_count(self) -> None:

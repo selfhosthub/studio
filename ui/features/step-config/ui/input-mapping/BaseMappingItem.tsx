@@ -90,16 +90,16 @@ export default function BaseMappingItem({
       {!isCollapsed && (
         <div className="space-y-4 mt-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Source Step</label>
+            <label className="block text-sm font-medium mb-1">Source Node</label>
             <select
               value={mapping.source_step_id}
               onChange={handleSourceStepChange}
               className="w-full p-2 border rounded-md bg-card"
             >
-              <option value="">Select source step</option>
+              <option value="">Select source node</option>
               {previousSteps.map(step => (
                 <option key={step.id} value={step.id}>
-                  {step.name || `Step ${step.id}`}
+                  {step.name || `Node ${step.id}`}
                 </option>
               ))}
             </select>

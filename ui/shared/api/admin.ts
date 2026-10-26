@@ -33,6 +33,9 @@ export interface JobStats {
     step_id: string;
     enqueued_at: string | null;
   }>;
+  long_running_total: number;
+  jobs_without_worker_total: number;
+  list_cap: number;
   by_workflow: Record<string, {
     pending: number;
     running: number;
@@ -64,6 +67,7 @@ export interface StorageStats {
 }
 
 export interface WorkerStats {
+  heartbeat_timeout_minutes: number;
   total_registered: number;
   online: number;
   offline: number;
@@ -82,6 +86,14 @@ export interface PlatformStats {
   total_organizations: number;
   active_users: number;
   running_instances: number;
+  active_users_window_minutes: number;
+}
+
+export type ProbeStatus = 'healthy' | 'degraded' | 'down';
+
+export interface ProbeResult {
+  status: ProbeStatus;
+  message: string;
 }
 
 export interface SystemHealthResponse {
@@ -91,6 +103,8 @@ export interface SystemHealthResponse {
   storage: StorageStats;
   workers: WorkerStats;
   database_connected: boolean;
+  database: ProbeResult;
+  messaging: ProbeResult;
   platform?: PlatformStats;
 }
 
@@ -305,10 +319,23 @@ export async function uninstallPackage(packageName: string, force: boolean = fal
   });
 }
 
+export interface RemoveResponse {
+  success: boolean;
+  message: string;
+}
+
+// Deletes a deactivated provider so the catalog lists it as available again.
+export async function removePackage(packageName: string): Promise<RemoveResponse> {
+  return apiRequest<RemoveResponse>(`/packages/${packageName}/remove`, {
+    method: 'POST',
+  });
+}
+
 export interface AuditEvent {
   id: string;
   organization_id: string | null;
-  actor_id: string;
+  actor_id: string | null;
+  actor_name: string | null;
   actor_type: string;
   action: string;
   resource_type: string;
@@ -342,6 +369,7 @@ export interface AuditEventFilters {
   start_date?: string;
   end_date?: string;
   include_system_events?: boolean;
+  search?: string;
 }
 
 export async function getAuditEvents(filters: AuditEventFilters = {}): Promise<AuditEventListResponse> {
@@ -359,6 +387,7 @@ export async function getAuditEvents(filters: AuditEventFilters = {}): Promise<A
   if (filters.include_system_events !== undefined) {
     params.append('include_system_events', String(filters.include_system_events));
   }
+  if (filters.search) params.append('search', filters.search);
 
   const queryString = params.toString();
   const endpoint = `/audit/${queryString ? `?${queryString}` : ''}`;
@@ -366,7 +395,7 @@ export async function getAuditEvents(filters: AuditEventFilters = {}): Promise<A
 }
 
 /** Super-admin only. */
-export async function getSystemAuditEvents(filters: Omit<AuditEventFilters, 'organization_id' | 'include_system_events'> = {}): Promise<AuditEventListResponse> {
+export async function getSystemAuditEvents(filters: Omit<AuditEventFilters, 'organization_id' | 'include_system_events' | 'search'> = {}): Promise<AuditEventListResponse> {
   const params = new URLSearchParams();
   if (filters.skip !== undefined) params.append('skip', String(filters.skip));
   if (filters.limit !== undefined) params.append('limit', String(filters.limit));

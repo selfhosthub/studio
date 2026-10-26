@@ -5,43 +5,57 @@
 import {
   ActionButton,
   StatusBadge,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-  SearchInput,
-  Pagination,
   LoadingState,
-  ErrorState,
   EmptyState,
+  ResourceTable,
+  type ResourceColumnConfig,
+  type SortState,
 } from "@/shared/ui";
 import { useUser } from "@/entities/user";
 import { useToast } from "@/features/toast";
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getInstances, getInstancesByWorkflow, deleteInstance, cancelInstance, getWorkflows } from "@/shared/api";
+import { getInstances, deleteInstance, cancelInstance, getWorkflows, getInstanceFiles } from "@/shared/api";
+import type { InstanceSortField } from "@/shared/api/instances";
 import { InstanceStatus, type InstanceResponse } from "@/shared/types/api";
 import { X } from "lucide-react";
-import { PAGE_SIZE_OPTIONS, getStoredPageSize } from '@/shared/lib/pagination';
-import { listPageSizeKey } from '@/shared/lib/constants';
+import { getStoredPageSize } from '@/shared/lib/pagination';
+import { listPageSizeKey, POLLING } from '@/shared/lib/constants';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
+import { formatDate } from '@/shared/lib/dateFormatter';
+import { useListPref, oneOf } from '@/shared/hooks/useListPref';
+import { canControlRun } from '@/shared/lib/runControl';
 const PAGE_SIZE_KEY = listPageSizeKey('instances');
+
+// Column key to the field the API sorts by.
+const SORT_BY_COLUMN: Record<string, InstanceSortField> = {
+  name: 'name',
+  workflow: 'workflow_name',
+  status: 'status',
+  updated: 'updated_at',
+};
+const isSortField = oneOf<string>(['', ...Object.keys(SORT_BY_COLUMN)]);
+const isSortOrder = oneOf<'asc' | 'desc'>(['asc', 'desc']);
 
 function InstancesListContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, status: authStatus } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [instances, setInstances] = useState<InstanceResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(() => getStoredPageSize(PAGE_SIZE_KEY, 25));
+  const [pageSize, setPageSize] = useState(() => getStoredPageSize(PAGE_SIZE_KEY));
   const [totalCount, setTotalCount] = useState(0);
   const [workflowName, setWorkflowName] = useState<string | null>(null);
+  const [sortField, setSortField] = useListPref<string>('instances', 'sortField', '', isSortField);
+  const [sortOrder, setSortOrder] = useListPref<'asc' | 'desc'>('instances', 'sortDirection', 'asc', isSortOrder);
+  const sortBy = sortField ? SORT_BY_COLUMN[sortField] : undefined;
+  const [refreshTick, setRefreshTick] = useState(0);
+  const lastTickRef = useRef(0);
 
   // Redirect super_admin to dashboard - they don't have org-level instances
   useEffect(() => {
@@ -70,7 +84,18 @@ function InstancesListContent() {
 
   // Handler functions
   const handleDelete = async (instanceId: string, instanceName: string) => {
-    if (!confirm(`Are you sure you want to delete instance "${instanceName}"? This will permanently remove all files and run history. This action cannot be undone.`)) {
+    const fileCount = await getInstanceFiles(instanceId).then((f) => f.length, () => null);
+    const removes = fileCount === null
+      ? 'all of its files and its run history'
+      : fileCount === 0
+        ? 'its run history (it has no files)'
+        : `its ${fileCount} file${fileCount === 1 ? '' : 's'} and its run history`;
+    if (!(await confirm({
+      title: 'Delete instance',
+      message: `Delete instance "${instanceName}"? This permanently removes ${removes}. This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) {
       return;
     }
 
@@ -85,7 +110,13 @@ function InstancesListContent() {
   };
 
   const handleCancel = async (instanceId: string, instanceName: string) => {
-    if (!confirm(`Cancel instance "${instanceName}"? This stops the run and cancels its non-terminal steps.`)) {
+    if (!(await confirm({
+      title: 'Cancel instance',
+      message: `Cancel instance "${instanceName}"? This stops the instance and cancels its non-terminal nodes.`,
+      confirmLabel: 'Cancel instance',
+      cancelLabel: 'Keep running',
+      variant: 'danger',
+    }))) {
       return;
     }
     try {
@@ -97,8 +128,6 @@ function InstancesListContent() {
       toast({ title: 'Cancel failed', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' });
     }
   };
-
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   // Fetch workflow name when filtering by workflow
   useEffect(() => {
@@ -131,66 +160,47 @@ function InstancesListContent() {
       return;
     }
 
-    setLoading(true);
+    // A background refresh keeps the table on screen and its last good rows on error.
+    const silent = refreshTick !== lastTickRef.current;
+    lastTickRef.current = refreshTick;
+    if (!silent) setLoading(true);
     const status = activeTab === 'all' ? undefined : activeTab;
     const skip = (currentPage - 1) * pageSize;
+    let stale = false;
 
-    // Use server-side pagination for main instances endpoint
-    // Workflow filter still uses client-side filtering
-    if (workflowFilter) {
-      getInstancesByWorkflow(workflowFilter, 0, 100)
-        .then((data) => {
-          // Apply status filter client-side for workflow filtering
-          let filtered = data;
-          if (status) {
-            filtered = data.filter((instance: InstanceResponse) => instance.status === status);
-          }
-
-          // Sort by most recent first
-          filtered.sort((a: InstanceResponse, b: InstanceResponse) => {
-            const aDate = a.updated_at || a.created_at;
-            const bDate = b.updated_at || b.created_at;
-            if (!aDate) return 1;
-            if (!bDate) return -1;
-            return new Date(bDate).getTime() - new Date(aDate).getTime();
-          });
-
-          setTotalCount(filtered.length);
-          // Apply pagination client-side for workflow filter
-          const paginated = filtered.slice(skip, skip + pageSize);
-          setInstances(paginated);
-          setError(null);
-        })
-        .catch((err) => {
-          console.error('Failed to fetch instances:', err);
-          setError('Failed to load instances');
-        })
-        .finally(() => setLoading(false));
-    } else {
-      // Server-side pagination
-      getInstances(user.org_id, status, skip, pageSize)
-        .then((response) => {
-          // Sort by most recent first (server should do this, but ensure client-side)
-          const sorted = [...response.items].sort((a: InstanceResponse, b: InstanceResponse) => {
-            const aDate = a.updated_at || a.created_at;
-            const bDate = b.updated_at || b.created_at;
-            if (!aDate) return 1;
-            if (!bDate) return -1;
-            return new Date(bDate).getTime() - new Date(aDate).getTime();
-          });
-
-          setTotalCount(response.total);
-          setInstances(sorted);
-          setError(null);
-        })
-        .catch((err) => {
-          console.error('Failed to fetch instances:', err);
-          setError('Failed to load instances');
-        })
-        .finally(() => setLoading(false));
-    }
+    getInstances(user.org_id, status, skip, pageSize, workflowFilter || undefined, sortBy, sortOrder)
+      .then((response) => {
+        if (stale) return;
+        setTotalCount(response.total);
+        setInstances(response.items);
+        setError(null);
+      })
+      .catch((err) => {
+        if (stale || silent) return;
+        console.error('Failed to fetch instances:', err);
+        setError('Failed to load instances');
+      })
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+    return () => {
+      stale = true;
+    };
   // Note: searchParams.toString() ensures React sees URL changes as dependency updates
-  }, [user?.org_id, activeTab, authStatus, workflowFilter, currentPage, pageSize, searchParams]);
+  }, [user?.org_id, activeTab, authStatus, workflowFilter, currentPage, pageSize, searchParams, sortBy, sortOrder, refreshTick]);
+
+  // Refetch the current page on an interval and on return to the tab, while the tab is visible.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === 'visible') setRefreshTick((t) => t + 1);
+    };
+    const interval = setInterval(tick, POLLING.DEFAULT);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
 
   // Reset page when filters change
   useEffect(() => {
@@ -207,6 +217,92 @@ function InstancesListContent() {
       setCurrentPage(1);
     }
   }, [totalPages, currentPage]);
+  const handleSort = (next: SortState) => {
+    setSortField(next.field ?? '');
+    setSortOrder(next.direction);
+    setCurrentPage(1);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+    localStorage.setItem(PAGE_SIZE_KEY, String(size));
+  };
+
+  const columns: ResourceColumnConfig<InstanceResponse>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      sortValue: (instance) => instance.name,
+      render: (instance) => (
+        <Link
+          href={`/instances/${instance.id}`}
+          className="text-sm font-medium link hover:underline"
+        >
+          {instance.name}
+        </Link>
+      ),
+    },
+    {
+      key: 'workflow',
+      header: 'Workflow',
+      sortValue: (instance) => instance.workflow_name,
+      render: (instance) => (
+        <Link
+          href={`/instances/list?status=${activeTab}&workflow=${instance.workflow_id}`}
+          className="text-sm link hover:underline"
+        >
+          {instance.workflow_name || 'Unknown' /* defaults-ok */}
+        </Link>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortValue: (instance) => instance.status,
+      render: (instance) => <StatusBadge status={instance.status} />,
+    },
+    {
+      key: 'updated',
+      header: 'Updated',
+      sortValue: (instance) => (instance.updated_at ? new Date(instance.updated_at) : null),
+      render: (instance) => (instance.updated_at ? formatDate(instance.updated_at) : 'N/A'),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'center',
+      render: (instance) => (
+        <div className="flex justify-center gap-2 items-center max-md:flex-col max-md:items-stretch">
+          <ActionButton
+            variant="navigate"
+            onClick={() => router.push(`/instances/${instance.id}`)}
+          >
+            View
+          </ActionButton>
+
+          {canControlRun(user, instance) && ![InstanceStatus.Completed, InstanceStatus.Failed, InstanceStatus.Cancelled].includes(instance.status as InstanceStatus) && (
+            <ActionButton
+              variant="destructive"
+              onClick={() => handleCancel(instance.id, instance.name)}
+            >
+              Cancel
+            </ActionButton>
+          )}
+
+          {canControlRun(user, instance) && [InstanceStatus.Completed, InstanceStatus.Failed, InstanceStatus.Cancelled].includes(instance.status as InstanceStatus) && (
+            <ActionButton
+              variant="destructive"
+              onClick={() => handleDelete(instance.id, instance.name)}
+            >
+              Delete
+            </ActionButton>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   const handleTabChange = (tabId: string) => {
     const params = new URLSearchParams();
     params.set('status', tabId);
@@ -231,20 +327,6 @@ function InstancesListContent() {
                 View and manage workflow executions
               </p>
             </div>
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalCount={totalCount}
-              pageSize={pageSize}
-              onPageChange={setCurrentPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setCurrentPage(1);
-                localStorage.setItem(PAGE_SIZE_KEY, String(size));
-              }}
-              pageSizeOptions={PAGE_SIZE_OPTIONS}
-              position="top"
-            />
           </div>
 
           {/* Workflow filter badge */}
@@ -284,131 +366,39 @@ function InstancesListContent() {
           </div>
         </div>
 
-        {loading && (
-          <LoadingState message="Loading instances..." />
-        )}
-
-        {!loading && error && (
-          <ErrorState
-            title="Error Loading Instances"
-            message={error}
-            onRetry={() => window.location.reload()}
-            retryLabel="Try Again"
-          />
-        )}
-
-        {!loading && !error && (
-          <>
-            <TableContainer>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHeaderCell>Instance</TableHeaderCell>
-                    <TableHeaderCell>Workflow</TableHeaderCell>
-                    <TableHeaderCell>Status</TableHeaderCell>
-                    <TableHeaderCell>Last Updated</TableHeaderCell>
-                    <TableHeaderCell align="center">Actions</TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {instances.map((instance) => (
-                    <TableRow key={instance.id}>
-                      <TableCell>
-                        <Link
-                          href={`/instances/${instance.id}`}
-                          className="text-sm font-medium link hover:underline"
-                        >
-                          {instance.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/instances/list?status=${activeTab}&workflow=${instance.workflow_id}`}
-                          className="text-sm link hover:underline"
-                        >
-                          {instance.workflow_name || 'Unknown'}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge
-                          status={
-                            instance.status === InstanceStatus.Processing
-                              ? "running"
-                              : instance.status || InstanceStatus.Pending
-                          }
-                          variant={
-                            instance.status === InstanceStatus.Completed
-                              ? "success"
-                              : instance.status === InstanceStatus.Processing
-                                ? "info"
-                                : instance.status === InstanceStatus.Pending
-                                  ? "warning"
-                                  : instance.status === InstanceStatus.Failed
-                                    ? "error"
-                                    : instance.status === InstanceStatus.Cancelled
-                                      ? "default"
-                                      : "default"
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {instance.updated_at ? new Date(instance.updated_at).toLocaleString() : 'N/A'}
-                      </TableCell>
-                      <TableCell align="center">
-                        <div className="flex justify-center space-x-2">
-                          <ActionButton
-                            variant="navigate"
-                            onClick={() => router.push(`/instances/${instance.id}`)}
-                          >
-                            View
-                          </ActionButton>
-
-                          {![InstanceStatus.Completed, InstanceStatus.Failed, InstanceStatus.Cancelled].includes(instance.status as InstanceStatus) && (
-                            <ActionButton
-                              variant="destructive"
-                              onClick={() => handleCancel(instance.id, instance.name)}
-                            >
-                              Cancel
-                            </ActionButton>
-                          )}
-
-                          {[InstanceStatus.Completed, InstanceStatus.Failed, InstanceStatus.Cancelled].includes(instance.status as InstanceStatus) && (
-                            <ActionButton
-                              variant="destructive"
-                              onClick={() => handleDelete(instance.id, instance.name)}
-                            >
-                              Delete
-                            </ActionButton>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            {/* Pagination Controls - Bottom */}
-            {instances.length > 0 && (
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalCount={totalCount}
-                pageSize={pageSize}
-                onPageChange={setCurrentPage}
-                itemLabel="instance"
-                position="bottom"
-              />
-            )}
-          </>
-        )}
-
-        {instances.length === 0 && !loading && !error && (
-          <EmptyState
-            title="No instances found"
-            description="No instances found matching your criteria."
-          />
-        )}
+        <ResourceTable<InstanceResponse>
+          data={instances}
+          getItemId={(instance) => instance.id}
+          columns={columns}
+          prefPage="instances"
+          sort={{
+            field: sortField || null,
+            direction: sortOrder,
+            onChange: handleSort,
+            server: true,
+          }}
+          pagination={{
+            itemLabel: 'instance',
+            server: {
+              currentPage,
+              totalCount,
+              pageSize,
+              onPageChange: setCurrentPage,
+              onPageSizeChange: handlePageSizeChange,
+            },
+          }}
+          loading={loading}
+          loadingMessage="Loading instances..."
+          error={error}
+          errorTitle="Error Loading Instances"
+          onRetry={() => window.location.reload()}
+          emptyState={
+            <EmptyState
+              title="No instances found"
+              description="No instances found matching your criteria."
+            />
+          }
+        />
       </div>
     </>
   );

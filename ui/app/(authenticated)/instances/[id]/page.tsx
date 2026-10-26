@@ -3,6 +3,8 @@
 "use client";
 
 import { useOrgSettings } from "@/entities/organization";
+import { useUser } from "@/entities/user";
+import { canControlRun } from "@/shared/lib/runControl";
 import { useViewMode } from "@/shared/hooks/useViewMode";
 import { InstanceSimpleView, MediaViewerModal } from "@/widgets/instance-view";
 import type { WorkflowFormSchema } from "@/entities/workflow";
@@ -20,6 +22,8 @@ export default function InstanceDetailPage() {
   useOrgSettings();
 
   const { simpleMode, toggleSimpleMode } = useViewMode();
+  const { user } = useUser();
+  const canDeleteFiles = user?.role === "admin" || user?.role === "super_admin";
 
   const loader = useInstanceLoader();
   const {
@@ -59,6 +63,7 @@ export default function InstanceDetailPage() {
     instanceId,
     setInstance,
     setJobs,
+    canControlRun: canControlRun(user, instance),
   });
 
   // --- Loading / auth guard screens ---
@@ -77,7 +82,11 @@ export default function InstanceDetailPage() {
     return (
       <>
         <div className="flex items-center justify-center h-64">
-          <div className="text-muted">Instance not found</div>
+          <div className="text-muted">
+            {user?.role === "super_admin"
+              ? "This instance belongs to a customer organization. Platform admins cannot open customer instances."
+              : "Instance not found"}
+          </div>
         </div>
       </>
     );
@@ -102,7 +111,7 @@ export default function InstanceDetailPage() {
           workflowId={instance.workflow_id as string}
           wsStatus={wsStatus}
           isSimpleMode={simpleMode}
-          canCancel={!!actions.canCancel}
+          canCancel={!!actions.canCancel && canControlRun(user, instance)}
           canRunAgain={!!actions.canRunAgain}
           updating={actions.updating}
           onCancel={actions.handleCancel}
@@ -113,6 +122,7 @@ export default function InstanceDetailPage() {
         {/* Instance View */}
         <div className="bg-card rounded-lg shadow overflow-hidden" style={{ minHeight: '600px' }}>
           <InstanceSimpleView
+            canControlRun={canControlRun(user, instance)}
             instance={instance}
             jobs={jobs}
             orderedSteps={orderedSteps}
@@ -134,7 +144,7 @@ export default function InstanceDetailPage() {
             onFormSubmit={form.handleFormSubmit}
             onRegenerateResources={resources.handleRegenerateResourcesWithIds}
             onRegenerateIteration={resources.handleRegenerateIteration}
-            onDeleteResources={resources.handleDeleteResourcesWithIds}
+            onDeleteResources={canDeleteFiles ? resources.handleDeleteResourcesWithIds : undefined}
             onSelectVariant={resources.handleSelectVariant}
             onUpdateJobResult={actions.handleUpdateJobResult}
             canCancel={!!actions.canCancel}

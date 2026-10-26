@@ -3,18 +3,22 @@
 'use client';
 
 import React, { Suspense, useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
-import { Provider, ProviderService } from '@/entities/provider';
+import { useParams, useRouter } from 'next/navigation';
+import { Provider, ProviderService, isReservedSlug } from '@/entities/provider';
 import Link from 'next/link';
 import { v4 as uuidv4 } from 'uuid';
 import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
 import { LinkedText, Modal } from '@/shared/ui';
-import { getProvider, getProviderServices, createProviderService } from '@/shared/api';
+import { getProvider, getProviderServices, createProviderService, deleteProvider, uninstallPackage, reinstallPackage, removePackage } from '@/shared/api';
 import { BookOpen } from 'lucide-react';
 import { getProviderDocSlug } from '@/shared/lib/provider-docs';
 import { ProviderDocsSlideOver } from '@/features/provider-docs/ProviderDocsSlideOver';
 import { useReturnTo, withReturnTo } from '@/shared/hooks/useReturnTo';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
+import { deactivatedToast, useConfirmDeactivate } from '../components/useConfirmDeactivate';
+import { useConfirmRemove } from '../components/useConfirmRemove';
+import { providerWorkflowCount, removeBlockedReason } from '../components/providerUsage';
 
 export default function ProviderDetailsPage() {
   return (
@@ -29,14 +33,19 @@ function ProviderDetailsPageContent() {
   const params = useParams();
   const providerId = params.providerId as string;
   const { returnTo } = useReturnTo('/providers/list');
+  const router = useRouter();
   const { user } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const confirmDeactivate = useConfirmDeactivate();
+  const confirmRemove = useConfirmRemove();
   const [provider, setProvider] = useState<Provider | null>(null);
   const [services, setServices] = useState<ProviderService[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDocsOpen, setIsDocsOpen] = useState(false);
   const [isAddingService, setIsAddingService] = useState(false);
+  const [removeBlocked, setRemoveBlocked] = useState<string | null>(null);
   const [newService, setNewService] = useState<Partial<ProviderService>>({
     service_id: '',
     display_name: '',
@@ -73,6 +82,18 @@ function ProviderDetailsPageContent() {
 
     fetchProviderDetails();
   }, [providerId]);
+
+  // Loads workflow usage for a deactivated catalog provider so Remove is disabled while workflows use it
+  useEffect(() => {
+    const slug = provider?.slug;
+    if (user?.role !== 'super_admin' || provider?.status !== 'inactive' || !slug || !isReservedSlug(slug)) return;
+    let cancelled = false;
+    void (async () => {
+      const reason = removeBlockedReason(await providerWorkflowCount(slug));
+      if (!cancelled) setRemoveBlocked(reason);
+    })();
+    return () => { cancelled = true; };
+  }, [provider?.slug, provider?.status, user?.role]);
 
   // Handle creating a new service
   const handleCreateService = async () => {
@@ -111,6 +132,53 @@ function ProviderDetailsPageContent() {
     }
   };
 
+  // Deactivates a catalog provider; the marketplace can reactivate it
+  const handleDeactivate = async (name: string, slug: string) => {
+    if (!(await confirmDeactivate(name, slug))) return;
+    try {
+      await uninstallPackage(slug, true);
+      toast(deactivatedToast(name));
+      router.push(returnTo);
+    } catch (err) {
+      toast({
+        title: 'Deactivate failed',
+        description: err instanceof Error ? err.message : 'Failed to deactivate provider.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Reactivates a deactivated provider in place
+  const handleActivate = async (name: string, slug: string) => {
+    try {
+      await reinstallPackage(slug);
+      toast({ title: `"${name}" activated`, variant: 'success' });
+      setProvider(prev => (prev ? { ...prev, status: 'active' } : prev));
+    } catch (err) {
+      toast({
+        title: 'Activate failed',
+        description: err instanceof Error ? err.message : 'Failed to activate provider.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Deletes a deactivated catalog provider; the marketplace lists it as available
+  const handleRemove = async (name: string, slug: string) => {
+    if (!(await confirmRemove(name, slug))) return;
+    try {
+      await removePackage(slug);
+      toast({ title: `"${name}" removed`, variant: 'success' });
+      router.push(returnTo);
+    } catch (err) {
+      toast({
+        title: 'Remove failed',
+        description: err instanceof Error ? err.message : 'Failed to remove provider.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   if (loading) {
     return (
       <>
@@ -140,6 +208,11 @@ function ProviderDetailsPageContent() {
     );
   }
 
+  const catalogSlug = provider.slug && isReservedSlug(provider.slug) ? provider.slug : null;
+  const canAddService = user?.role === 'super_admin' && !catalogSlug;
+  const isDeactivated = provider.status === 'inactive';
+  const statusText = isDeactivated ? 'deactivated' : provider.status;
+
   return (
     <>
       <div className="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-9xl mx-auto">
@@ -156,7 +229,7 @@ function ProviderDetailsPageContent() {
               provider.status === 'inactive' ? 'bg-card text-primary' :
               'bg-warning-subtle text-warning'
             }`}>
-              {provider.status}
+              {statusText}
             </span>
           </div>
           <p className="text-muted">
@@ -168,7 +241,7 @@ function ProviderDetailsPageContent() {
               Type: {provider.provider_type}
             </div>
             <div className="px-3 py-1 bg-card text-primary text-sm rounded-md">
-              Status: {provider.status}
+              Status: {statusText}
             </div>
             {getProviderDocSlug(provider) && (
               <button
@@ -177,7 +250,7 @@ function ProviderDetailsPageContent() {
                 className="inline-flex items-center gap-1.5 text-sm text-info hover:underline"
               >
                 <BookOpen className="w-4 h-4" />
-                Documentation
+                Provider Documentation
               </button>
             )}
           </div>
@@ -187,7 +260,7 @@ function ProviderDetailsPageContent() {
         <div className="bg-card shadow rounded-lg overflow-hidden mb-6 border border-primary">
           <div className="px-6 py-4 border-b border-primary flex justify-between items-center">
             <h2 className="text-xl font-semibold text-primary">Services</h2>
-            {user?.role === 'super_admin' && (
+            {canAddService && (
               <button
                 onClick={() => setIsAddingService(true)}
                 className="btn-primary text-sm px-3 py-1"
@@ -233,7 +306,7 @@ function ProviderDetailsPageContent() {
           ) : (
             <div className="px-6 py-10 text-center">
               <p className="text-muted">No services available for this provider</p>
-              {user?.role === 'super_admin' && (
+              {canAddService && (
                 <button
                   onClick={() => setIsAddingService(true)}
                   className="btn-primary mt-2"
@@ -255,31 +328,75 @@ function ProviderDetailsPageContent() {
               >
                 Edit Provider
               </Link>
+              {isDeactivated && (
               <button
-                onClick={() => {
-                  const confirmed = confirm(
-                    `⚠️ WARNING: System-Wide Deletion\n\n` +
-                    `You are about to delete the provider "${provider.name}".\n\n` +
-                    `This action will:\n` +
-                    `• Remove this provider for ALL organizations\n` +
-                    `• Disable all services associated with this provider\n` +
-                    `• Break any workflows currently using this provider\n\n` +
-                    `This action cannot be undone.\n\n` +
-                    `Are you sure you want to proceed?`
-                  );
-                  if (confirmed) {
-                    // Delete provider logic would go here
-                    toast({ title: 'Not implemented', description: 'Delete functionality not yet implemented', variant: 'default' });
+                onClick={() => handleActivate(provider.name, provider.slug ?? '')}
+                className="btn-primary"
+              >
+                Activate
+              </button>
+              )}
+              {catalogSlug && isDeactivated && (
+              <button
+                onClick={() => handleRemove(provider.name, catalogSlug)}
+                disabled={!!removeBlocked}
+                title={removeBlocked ?? undefined}
+                className="btn-danger disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Remove
+              </button>
+              )}
+              {catalogSlug ? (
+              !isDeactivated && (
+              <button
+                onClick={() => handleDeactivate(provider.name, catalogSlug)}
+                className="btn-warning"
+              >
+                Deactivate
+              </button>
+              )
+              ) : (
+              <button
+                onClick={async () => {
+                  const confirmed = await confirm({
+                    title: 'Delete provider',
+                    message:
+                      `⚠️ WARNING: System-Wide Deletion\n\n` +
+                      `You are about to delete the provider "${provider.name}".\n\n` +
+                      `This action will:\n` +
+                      `• Remove this provider for ALL organizations\n` +
+                      `• Delete all services of this provider\n\n` +
+                      `A provider that a workflow still uses cannot be deleted.\n\n` +
+                      `This action cannot be undone.\n\n` +
+                      `Are you sure you want to proceed?`,
+                    confirmLabel: 'Delete',
+                    variant: 'danger',
+                  });
+                  if (!confirmed) return;
+                  try {
+                    await deleteProvider(providerId);
+                    toast({ title: 'Provider deleted', description: `${provider.name} was deleted.`, variant: 'success' });
+                    router.push(returnTo);
+                  } catch (err) {
+                    toast({
+                      title: 'Delete failed',
+                      description: err instanceof Error ? err.message : 'Failed to delete provider.',
+                      variant: 'destructive',
+                    });
                   }
                 }}
                 className="px-4 py-2 bg-danger text-white rounded hover:bg-danger"
               >
                 Delete Provider
               </button>
+              )}
             </>
           )}
         </div>
-        
+        {user?.role === 'super_admin' && catalogSlug && isDeactivated && removeBlocked && (
+          <p className="mt-2 text-sm text-secondary">{removeBlocked}</p>
+        )}
+
         {/* Add Service Modal */}
         <Modal
           isOpen={isAddingService}
@@ -359,7 +476,7 @@ function ProviderDetailsPageContent() {
             <div className="mt-6 flex justify-end space-x-3">
               <button
                 onClick={() => setIsAddingService(false)}
-                className="px-4 py-2 border border-primary rounded text-secondary hover:bg-surface"
+                className="btn-cancel"
               >
                 Cancel
               </button>

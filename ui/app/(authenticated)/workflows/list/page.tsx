@@ -22,17 +22,14 @@ import {
 import type { WorkflowResponse } from "@/shared/types/api";
 import { useUser } from "@/entities/user";
 import { useToast } from "@/features/toast";
-import { getStoredPageSize } from "@/shared/lib/pagination";
-import { listPageSizeKey } from "@/shared/lib/constants";
+import { useListPref, isString, oneOf } from "@/shared/hooks/useListPref";
 import { useWorkflowReadiness } from "./hooks/useWorkflowReadiness";
 import { WorkflowsMyTab } from "./components/WorkflowsMyTab";
 import { WorkflowsOrganizationTab } from "./components/WorkflowsOrganizationTab";
 import { WorkflowsMarketplaceTab } from "./components/WorkflowsMarketplaceTab";
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
-const PAGE_SIZE_KEY = listPageSizeKey('workflows');
-
-export type WorkflowSortField = "name" | "status" | "updated_at";
-export type SortDirection = "asc" | "desc";
+const STATUS_FILTERS = ["all", "pending", "published"] as const;
 
 type ActiveTab = "my-workflows" | "organization" | "custom" | "marketplace";
 
@@ -49,6 +46,7 @@ function WorkflowsListPageContent() {
   const searchParams = useSearchParams();
   const { user, status: authStatus } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const isSuperAdmin = user?.role === "super_admin";
@@ -89,16 +87,10 @@ function WorkflowsListPageContent() {
   const [workflows, setWorkflows] = useState<WorkflowResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "published">("all");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(() =>
-    getStoredPageSize(PAGE_SIZE_KEY, 25)
-  );
+  const [searchTerm, setSearchTerm] = useListPref("workflows", "search", "", isString);
+  const [statusFilter, setStatusFilter] = useListPref<typeof STATUS_FILTERS[number]>("workflows", "status", "all", oneOf(STATUS_FILTERS));
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
-  const [sortField, setSortField] = useState<WorkflowSortField>("updated_at");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   // ----------- Pending publish state -----------
   const [pendingWorkflows, setPendingWorkflows] = useState<WorkflowResponse[]>([]);
@@ -166,7 +158,7 @@ function WorkflowsListPageContent() {
     [pendingWorkflows]
   );
 
-  // ----------- Filter + paginate workflows -----------
+  // ----------- Filter workflows; rows arrive name ascending -----------
   const filteredWorkflows = useMemo(() => {
     let result = orgWorkflows;
     // Custom tab: exclude marketplace-installed workflows
@@ -186,46 +178,10 @@ function WorkflowsListPageContent() {
           w.description?.toLowerCase().includes(q)
       );
     }
-    result = [...result].sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case "name":
-          cmp = (a.name || "").localeCompare(b.name || "");
-          break;
-        case "status":
-          cmp = (a.status || "").localeCompare(b.status || "");
-          break;
-        case "updated_at":
-          cmp = (a.updated_at || "").localeCompare(b.updated_at || "");
-          break;
-      }
-      return sortDirection === "asc" ? cmp : -cmp;
-    });
-    return result;
-  }, [orgWorkflows, searchTerm, statusFilter, sortField, sortDirection, activeTab]);
+    return [...result].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [orgWorkflows, searchTerm, statusFilter, activeTab]);
 
-  const handleSort = (field: WorkflowSortField) => {
-    if (sortField === field) {
-      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortField(field);
-      setSortDirection(field === "updated_at" ? "desc" : "asc");
-    }
-  };
-
-  const totalPages = Math.ceil(filteredWorkflows.length / pageSize);
-  const paginatedWorkflows = filteredWorkflows.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
-
-  // Reset to first page when search term or active tab changes (adjust during render, not in an effect).
   const pageResetKey = `${searchTerm}|${activeTab}|${statusFilter}`;
-  const [prevPageResetKey, setPrevPageResetKey] = useState(pageResetKey);
-  if (pageResetKey !== prevPageResetKey) {
-    setPrevPageResetKey(pageResetKey);
-    setCurrentPage(1);
-  }
 
   // ----------- Handlers: Workflow actions -----------
 
@@ -238,7 +194,24 @@ function WorkflowsListPageContent() {
   };
 
   const handleDelete = async (workflow: WorkflowResponse) => {
-    if (!confirm("Are you sure you want to delete this workflow? This action cannot be undone.")) return;
+    const visible = await Promise.all([
+      getPersonalWorkflows().catch(() => []),
+      getOrganizationWorkflows().catch(() => []),
+    ]);
+    const dependentNames = Array.from(new Set(
+      visible.flat()
+        .filter((w) => w.id !== workflow.id && w.event_source_workflow_id === workflow.id)
+        .map((w) => w.name),
+    ));
+    const dependentNote = dependentNames.length
+      ? ` The event trigger on ${dependentNames.join(', ')} is removed, so ${dependentNames.length === 1 ? 'it no longer runs' : 'they no longer run'} when this workflow finishes.`
+      : '';
+    if (!(await confirm({
+      title: 'Delete workflow',
+      message: `Deletes the workflow, its versions, schedule, webhook and API key. This action cannot be undone.${dependentNote}`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) return;
     try {
       await deleteWorkflow(workflow.id);
       setWorkflows((prev) => prev.filter((w) => w.id !== workflow.id));
@@ -308,6 +281,11 @@ function WorkflowsListPageContent() {
   };
 
   const handleApprovePublish = async (workflow: WorkflowResponse) => {
+    if (!(await confirm({
+      title: 'Approve workflow',
+      message: `Approve the request to publish "${workflow.name}" to the organization? Everyone in the organization can use it.`,
+      confirmLabel: 'Approve',
+    }))) return;
     setApprovingId(workflow.id);
     try {
       await approvePublish(workflow.id);
@@ -322,6 +300,12 @@ function WorkflowsListPageContent() {
   };
 
   const handleRejectPublish = async (workflow: WorkflowResponse) => {
+    if (!(await confirm({
+      title: 'Reject workflow',
+      message: `Reject the request to publish "${workflow.name}" to the organization? It stays with its author, who can request again.`,
+      confirmLabel: 'Reject',
+      variant: 'warning',
+    }))) return;
     setRejectingId(workflow.id);
     try {
       await rejectPublish(workflow.id);
@@ -332,11 +316,6 @@ function WorkflowsListPageContent() {
     } finally {
       setRejectingId(null);
     }
-  };
-
-const handlePageSizeChange = (size: number) => {
-    setPageSize(size);
-    setCurrentPage(1);
   };
 
   // ----------- Header controls -----------
@@ -398,26 +377,18 @@ const handlePageSizeChange = (size: number) => {
 
       {activeTab === "my-workflows" && !isSuperAdmin && (
         <WorkflowsMyTab
+          currentUserId={user?.id}
           loading={loading}
           error={error}
-          filteredWorkflows={filteredWorkflows}
-          paginatedWorkflows={paginatedWorkflows}
+          workflows={filteredWorkflows}
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={handlePageSizeChange}
           onRun={handleRun}
           onDelete={handleDelete}
           onArchive={handleArchive}
           onRequestPublish={handleRequestPublish}
           publishingId={publishingId}
           onRetry={fetchWorkflows}
-          sortField={sortField}
-          sortDirection={sortDirection}
-          onSort={handleSort}
           getIssues={getIssues}
         />
       )}
@@ -426,18 +397,13 @@ const handlePageSizeChange = (size: number) => {
         <WorkflowsOrganizationTab
           loading={loading}
           error={error}
-          filteredWorkflows={filteredWorkflows}
-          paginatedWorkflows={paginatedWorkflows}
+          workflows={filteredWorkflows}
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
           statusFilter={statusFilter}
           onStatusChange={setStatusFilter}
           pendingCount={pendingCount}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={handlePageSizeChange}
+          pageResetKey={pageResetKey}
           isAdmin={isAdmin}
           isSuperAdmin={isSuperAdmin}
           onRun={handleRun}
@@ -451,9 +417,6 @@ const handlePageSizeChange = (size: number) => {
           approvingId={approvingId}
           rejectingId={rejectingId}
           onRetry={fetchWorkflows}
-          sortField={sortField}
-          sortDirection={sortDirection}
-          onSort={handleSort}
           getIssues={getIssues}
         />
       )}

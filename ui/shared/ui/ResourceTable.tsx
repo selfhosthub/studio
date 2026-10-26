@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, ReactNode } from 'react';
+import React, { useId, useState, ReactNode } from 'react';
 import {
   Table,
   TableHeader,
@@ -11,377 +11,501 @@ import {
   TableCell,
   TableHeaderCell,
   TableContainer,
-  SearchInput,
   Pagination,
   LoadingState,
   ErrorState,
-  EmptyState,
-  ActionButton,
 } from './Table';
-import { getStoredPageSize, PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import { useListPref, isPageSize, isString, oneOf } from '@/shared/hooks/useListPref';
+import type { ListPrefPage } from '@/shared/lib/constants';
+import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+
+export type SortDirection = 'asc' | 'desc';
+
+export type SortValue = string | number | boolean | Date | null | undefined;
+
+/** Primary columns render at every width; secondary columns move into the row detail below md. */
+export type ColumnPriority = 'primary' | 'secondary';
 
 export interface ColumnConfig<T> {
   key: string;
-  header: string;
+  header: ReactNode;
   align?: 'left' | 'center' | 'right';
-  sortable?: boolean;
-  sortKey?: string;
+  /** Value the column sorts by; a column without one is not sortable. */
+  sortValue?: (item: T) => SortValue;
   render: (item: T) => ReactNode;
+  /** Defaults to primary for the name and actions columns and secondary for every other column. */
+  priority?: ColumnPriority;
   visible?: boolean;
+  headerClassName?: string;
+  cellClassName?: string | ((item: T) => string);
 }
 
-export interface SearchConfig<T> {
-  placeholder?: string;
-  matchFn: (item: T, query: string) => boolean;
+export interface SortState {
+  field: string | null;
+  direction: SortDirection;
 }
 
-export interface FilterConfig<T> {
-  key: string;
-  label: string;
-  options: { value: string; label: string }[];
-  matchFn: (item: T, value: string) => boolean;
+export interface ControlledSort extends SortState {
+  onChange: (next: SortState) => void;
+  /** True when the server returns rows already sorted by the field. */
+  server?: boolean;
 }
 
-export interface SortConfig<T> {
-  defaultField: string;
-  defaultDirection?: 'asc' | 'desc';
-  compareFn: (a: T, b: T, field: string) => number;
+export interface ServerPagination {
+  currentPage: number;
+  totalCount: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
 }
 
 export interface PaginationConfig {
-  storageKey: string;
-  defaultSize?: number;
-  options?: number[];
   itemLabel?: string;
-}
-
-export interface ActionConfig<T> {
-  label: string | ((item: T) => string);
-  variant: 'active' | 'change' | 'destructive' | 'warning' | 'navigate' | 'secondary';
-  onClick: (item: T) => void;
-  visible?: (item: T) => boolean;
-  disabled?: (item: T) => boolean;
-}
-
-export interface EmptyConfig {
-  title: string;
-  description?: string | ((hasFilters: boolean) => string);
-  icon?: ReactNode;
-  action?: ReactNode;
+  /** Pages the server already sliced; the table renders the pager only. */
+  server?: ServerPagination;
 }
 
 export interface ResourceTableProps<T> {
   data: T[];
-  loading: boolean;
-  error?: string | null;
-  onRetry?: () => void;
   getItemId: (item: T) => string;
-
   columns: ColumnConfig<T>[];
-  search?: SearchConfig<T>;
-  filters?: FilterConfig<T>[];
-  sort?: SortConfig<T>;
-  pagination?: PaginationConfig;
-  actions?: ActionConfig<T>[];
+  /** Key of the column holding the row's label; defaults to the first visible column. */
+  nameColumn?: string;
 
-  emptyState?: EmptyConfig;
+  /** Persists sort and page size under shs:list:<prefPage>:<field>. */
+  prefPage?: ListPrefPage;
+  pagination?: boolean | PaginationConfig;
+  /** The table returns to page 1 when this value changes. */
+  pageResetKey?: string;
+  sort?: ControlledSort;
+  /** Column key or accessor that orders rows with equal sort values, ascending; defaults to the name or display_name column. */
+  tieBreaker?: string | ((item: T) => SortValue);
+
+  toolbar?: ReactNode;
+  loading?: boolean;
   loadingMessage?: string;
+  error?: string | null;
   errorTitle?: string;
-  headerContent?: ReactNode;
+  onRetry?: () => void;
+  /** Rendered in place of the table when there are no rows. */
+  emptyState?: ReactNode;
+  /** Rendered as a single row inside the table when there are no rows. */
+  emptyMessage?: ReactNode;
+
+  onRowClick?: (item: T) => void;
+  rowClassName?: (item: T) => string;
+  ariaLabel?: string;
   className?: string;
+  containerClassName?: string;
+}
+
+const SORT_DIRECTIONS = ['asc', 'desc'] as const;
+const ALIGN_CLASS = { left: 'text-left', center: 'text-center', right: 'text-right' } as const;
+
+/** Pins the first column while the rest of the table scrolls sideways below the md breakpoint. */
+export const PINNED_COLUMN_CLASS =
+  'max-md:sticky max-md:-left-px max-md:z-[1] max-md:shadow-[inset_-1px_0_0_var(--theme-border-primary)]';
+
+/** Narrows cell padding below the md breakpoint. */
+const COMPACT_CELL_CLASS = 'max-md:px-2!';
+
+/** Hides a secondary column below the md breakpoint. */
+const SECONDARY_COLUMN_CLASS = 'max-md:hidden';
+
+/** Wraps the name cell at spaces, hyphens and slashes, breaking a single overlong word only when it cannot fit. */
+const NAME_CELL_CLASS = 'whitespace-normal wrap-anywhere';
+
+const ACTIONS_KEY = 'actions';
+
+/** Key of the name column: the given key when it names a column, otherwise the first column. */
+export function nameColumnKey<T>(columns: ColumnConfig<T>[], nameColumn?: string): string | undefined {
+  return columns.find((c) => c.key === nameColumn)?.key ?? columns[0]?.key;
+}
+
+/** A column's priority: an explicit priority wins, otherwise the name and actions columns are primary. */
+export function columnPriority<T>(column: ColumnConfig<T>, nameKey: string | undefined): ColumnPriority {
+  if (column.priority) return column.priority;
+  return column.key === nameKey || column.key === ACTIONS_KEY ? 'primary' : 'secondary';
+}
+
+/** Columns that move into the row detail below md. */
+export function secondaryColumns<T>(columns: ColumnConfig<T>[], nameColumn?: string): ColumnConfig<T>[] {
+  const nameKey = nameColumnKey(columns, nameColumn);
+  return columns.filter((c) => columnPriority(c, nameKey) === 'secondary');
+}
+
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
+function normalize(value: SortValue): string | number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return value;
+}
+
+/** Compares two sort values; empty values order after every other value. */
+export function compareSortValues(a: SortValue, b: SortValue): number {
+  const x = normalize(a);
+  const y = normalize(b);
+  if (x === null && y === null) return 0;
+  if (x === null) return 1;
+  if (y === null) return -1;
+  if (typeof x === 'number' && typeof y === 'number') return x - y;
+  return collator.compare(String(x), String(y));
+}
+
+/** Sorts rows by a column, then by the tie-breaker ascending, then by id; empty values go last. */
+export function sortRows<T>(
+  rows: T[],
+  sortValue: (item: T) => SortValue,
+  direction: SortDirection,
+  getItemId: (item: T) => string,
+  tieBreak?: (item: T) => SortValue,
+): T[] {
+  const sign = direction === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = sortValue(a);
+    const vb = sortValue(b);
+    const emptyA = normalize(va) === null;
+    const emptyB = normalize(vb) === null;
+    if (emptyA !== emptyB) return emptyA ? 1 : -1;
+    const cmp = compareSortValues(va, vb) * sign;
+    if (cmp !== 0) return cmp;
+    const tie = tieBreak ? compareSortValues(tieBreak(a), tieBreak(b)) : 0;
+    if (tie !== 0) return tie;
+    const ia = getItemId(a);
+    const ib = getItemId(b);
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
+  });
+}
+
+/** Next sort after a header click: a new column starts ascending, the active column flips. */
+export function nextSort(current: SortState, field: string): SortState {
+  if (current.field !== field) return { field, direction: 'asc' };
+  return { field, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+}
+
+const DEFAULT_TIE_BREAK_KEYS = ['name', 'display_name'];
+
+/** Resolves the tie-breaker accessor from a column key, an accessor, or the default name column. */
+export function resolveTieBreak<T>(
+  columns: ColumnConfig<T>[],
+  tieBreaker?: string | ((item: T) => SortValue),
+): ((item: T) => SortValue) | undefined {
+  if (typeof tieBreaker === 'function') return tieBreaker;
+  const keys = tieBreaker ? [tieBreaker] : DEFAULT_TIE_BREAK_KEYS;
+  for (const key of keys) {
+    const column = columns.find((c) => c.key === key && c.sortValue);
+    if (column) return column.sortValue;
+  }
+  return undefined;
 }
 
 export function ResourceTable<T>({
   data,
-  loading,
-  error,
-  onRetry,
   getItemId,
   columns,
-  search,
-  filters,
-  sort,
+  nameColumn,
+  prefPage,
   pagination,
-  actions,
-  emptyState,
+  pageResetKey,
+  sort,
+  tieBreaker,
+  toolbar,
+  loading = false,
   loadingMessage = 'Loading...',
+  error,
   errorTitle = 'Error',
-  headerContent,
+  onRetry,
+  emptyState,
+  emptyMessage,
+  onRowClick,
+  rowClassName,
+  ariaLabel,
   className = '',
+  containerClassName = '',
 }: ResourceTableProps<T>) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
-    const defaults: Record<string, string> = {};
-    filters?.forEach((f) => { defaults[f.key] = 'all'; });
-    return defaults;
-  });
-  const [sortField, setSortField] = useState(sort?.defaultField ?? '');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(sort?.defaultDirection ?? 'asc');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(() =>
-    pagination ? getStoredPageSize(pagination.storageKey, pagination.defaultSize ?? 20) : 20
+  const [storedField, setStoredField] = useListPref(prefPage, 'sortField', '', isString);
+  const [storedDirection, setStoredDirection] = useListPref<SortDirection>(
+    prefPage, 'sortDirection', 'asc', oneOf(SORT_DIRECTIONS),
   );
+  const [storedPageSize, setStoredPageSize] = useListPref(prefPage, 'pageSize', DEFAULT_PAGE_SIZE, isPageSize);
+  const [page, setPage] = useState(1);
+  const tableId = useId();
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const [prevResetKey, setPrevResetKey] = useState(pageResetKey);
+  if (pageResetKey !== prevResetKey) {
+    setPrevResetKey(pageResetKey);
+    setPage(1);
+  }
 
-  const filterKeys = filters?.map(f => f.key).join(',');
-  useEffect(() => {
-    if (filters) {
-      const defaults: Record<string, string> = {};
-      filters.forEach((f) => { defaults[f.key] = 'all'; });
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFilterValues(defaults);
-    }
-  }, [filterKeys, filters]);
+  const visibleColumns = columns.filter((c) => c.visible !== false);
+  const nameKey = nameColumnKey(visibleColumns, nameColumn);
+  const detailColumns = secondaryColumns(visibleColumns, nameColumn);
+  const hasDetail = detailColumns.length > 0;
+  const primaryCount = visibleColumns.length - detailColumns.length;
+  const isSecondary = (col: ColumnConfig<T>) => columnPriority(col, nameKey) === 'secondary';
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCurrentPage(1);
-  }, [searchTerm, filterValues]);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortableColumns = visibleColumns.filter((c) => c.sortValue);
+  const hasHiddenSortable = sortableColumns.some(isSecondary);
 
-  const paginationStorageKey = pagination?.storageKey;
-  useEffect(() => {
-    if (paginationStorageKey) {
-      localStorage.setItem(paginationStorageKey, String(pageSize));
-    }
-  }, [pageSize, paginationStorageKey]);
-
-  const visibleColumns = useMemo(
-    () => columns.filter((c) => c.visible !== false),
-    [columns]
-  );
-
-  const filtered = useMemo(() => {
-    let result = data;
-
-    if (search && searchTerm) {
-      const q = searchTerm.toLowerCase();
-      result = result.filter((item) => search.matchFn(item, q));
-    }
-
-    if (filters) {
-      for (const f of filters) {
-        const val = filterValues[f.key];
-        if (val && val !== 'all') {
-          result = result.filter((item) => f.matchFn(item, val));
-        }
-      }
-    }
-
-    return result;
-  }, [data, searchTerm, filterValues, search, filters]);
-
-  const sorted = useMemo(() => {
-    if (!sort || !sortField) return filtered;
-
-    const result = [...filtered];
-    result.sort((a, b) => {
-      const cmp = sort.compareFn(a, b, sortField);
-      return sortDirection === 'asc' ? cmp : -cmp;
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
     });
-    return result;
-  }, [filtered, sort, sortField, sortDirection]);
+  };
 
-  const totalCount = sorted.length;
-  const totalPages = pagination ? Math.ceil(totalCount / pageSize) || 1 : 1;
+  const sortField = sort ? sort.field : storedField || null;
+  const sortDirection = sort ? sort.direction : storedDirection;
+  const activeColumn = visibleColumns.find((c) => c.key === sortField && c.sortValue);
 
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCurrentPage(1);
-    }
-  }, [totalPages, currentPage]);
+  const pagerConfig = pagination ? (typeof pagination === 'object' ? pagination : {}) : null;
+  const server = pagerConfig?.server;
 
-  const paginated = useMemo(() => {
-    if (!pagination) return sorted;
-    return sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  }, [sorted, pagination, currentPage, pageSize]);
-
-  const handleSort = (key: string) => {
-    if (sortField === key) {
-      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+  const handleSort = (field: string) => {
+    const next = nextSort({ field: activeColumn ? activeColumn.key : null, direction: sortDirection }, field);
+    if (sort) {
+      sort.onChange(next);
     } else {
-      setSortField(key);
-      setSortDirection('asc');
+      setStoredField(next.field ?? '');
+      setStoredDirection(next.direction);
+    }
+    if (!server) setPage(1);
+  };
+
+  const sorted = activeColumn?.sortValue && !sort?.server
+    ? sortRows(data, activeColumn.sortValue, sortDirection, getItemId, resolveTieBreak(columns, tieBreaker))
+    : data;
+
+  const itemLabel = pagerConfig?.itemLabel;
+  const pageSize = server ? server.pageSize : storedPageSize;
+  const totalCount = server ? server.totalCount : sorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const currentPage = server ? server.currentPage : Math.min(page, totalPages);
+
+  const rows = pagerConfig && !server
+    ? sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    : sorted;
+
+  const onPageChange = server ? server.onPageChange : setPage;
+  const onPageSizeChange = (size: number) => {
+    if (server) {
+      server.onPageSizeChange(size);
+    } else {
+      setStoredPageSize(size);
+      setPage(1);
     }
   };
 
-  const hasActiveFilters = searchTerm !== '' || Object.values(filterValues).some((v) => v !== 'all');
+  const pinClass = (index: number, extra = '') => (index === 0 ? `${PINNED_COLUMN_CLASS} ${extra}` : '');
+  const hideClass = (col: ColumnConfig<T>) => (isSecondary(col) ? SECONDARY_COLUMN_CLASS : '');
 
-  if (loading) {
-    return <LoadingState message={loadingMessage} />;
-  }
-
-  if (error) {
+  const renderHeader = (col: ColumnConfig<T>, index: number) => {
+    const align = col.align ?? 'left'; // defaults-ok
+    const headerClassName = `${COMPACT_CELL_CLASS} ${pinClass(index)} ${hideClass(col)} ${col.headerClassName ?? ''}`.trim();
+    if (!col.sortValue) {
+      return (
+        <TableHeaderCell key={col.key} align={align} className={headerClassName}>
+          {col.header}
+        </TableHeaderCell>
+      );
+    }
+    const isActive = activeColumn?.key === col.key;
+    const ariaSort = isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none';
     return (
-      <ErrorState
-        title={errorTitle}
-        message={error}
-        onRetry={onRetry}
-        retryLabel="Refresh Page"
-      />
+      <th
+        key={col.key}
+        scope="col"
+        aria-sort={ariaSort}
+        className={`table-header-cell ${ALIGN_CLASS[align]} ${headerClassName}`}
+      >
+        <button
+          type="button"
+          onClick={() => handleSort(col.key)}
+          className="inline-flex items-center gap-1 uppercase tracking-wider font-semibold cursor-pointer hover:underline focus-visible:underline max-md:flex-wrap max-md:tracking-normal"
+        >
+          {col.header}
+          {isActive ? (
+            sortDirection === 'asc'
+              ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
+              : <ChevronDown className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <ChevronsUpDown className="w-3 h-3 opacity-40 max-md:hidden" aria-hidden="true" />
+          )}
+        </button>
+      </th>
+    );
+  };
+
+  const pagerProps = { currentPage, totalPages, totalCount, pageSize, onPageChange, itemLabel };
+
+  let body: ReactNode;
+  if (loading) {
+    body = <LoadingState message={loadingMessage} />;
+  } else if (error) {
+    body = <ErrorState title={errorTitle} message={error} onRetry={onRetry} />;
+  } else if (rows.length === 0 && emptyState) {
+    body = emptyState;
+  } else {
+    body = (
+      <>
+        {hasHiddenSortable && (
+          <div className="md:hidden mb-2" data-testid="resource-table-sort-menu">
+            <button
+              type="button"
+              className="btn-secondary inline-flex items-center gap-1 text-sm px-2! py-1!"
+              aria-expanded={sortMenuOpen}
+              aria-controls={`${tableId}-sort-menu`}
+              onClick={() => setSortMenuOpen((open) => !open)}
+            >
+              <ChevronsUpDown className="w-4 h-4" aria-hidden="true" />
+              Sort
+            </button>
+            {sortMenuOpen && (
+              <div id={`${tableId}-sort-menu`} role="group" aria-label="Sort by" className="flex flex-wrap gap-2 mt-2">
+                {sortableColumns.map((col) => {
+                  const isActive = activeColumn?.key === col.key;
+                  return (
+                    <button
+                      key={col.key}
+                      type="button"
+                      aria-pressed={isActive}
+                      className={`${isActive ? 'btn-primary' : 'btn-secondary'} inline-flex items-center gap-1 text-sm px-2! py-1!`}
+                      onClick={() => {
+                        handleSort(col.key);
+                        setSortMenuOpen(false);
+                      }}
+                    >
+                      {col.header}
+                      {isActive && (sortDirection === 'asc'
+                        ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
+                        : <ChevronDown className="w-4 h-4" aria-hidden="true" />)}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        <TableContainer className={containerClassName}>
+          <Table>
+            {ariaLabel && <caption className="sr-only">{ariaLabel}</caption>}
+            <TableHeader>
+              <tr>
+                {visibleColumns.map(renderHeader)}
+                {hasDetail && (
+                  <TableHeaderCell className="md:hidden w-px max-md:px-1!">
+                    <span className="sr-only">Row details</span>
+                  </TableHeaderCell>
+                )}
+              </tr>
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 && emptyMessage ? (
+                <tr>
+                  <TableCell colSpan={visibleColumns.length} align="center" className="text-muted">
+                    {emptyMessage}
+                  </TableCell>
+                </tr>
+              ) : (
+                rows.map((item) => {
+                  const id = getItemId(item);
+                  const open = hasDetail && expanded.has(id);
+                  const detailId = `${tableId}-detail-${id}`;
+                  return (
+                    <React.Fragment key={id}>
+                      <TableRow
+                        className={rowClassName ? rowClassName(item) : ''}
+                        onClick={onRowClick ? () => onRowClick(item) : undefined}
+                      >
+                        {visibleColumns.map((col, index) => (
+                          <TableCell
+                            key={col.key}
+                            align={col.align}
+                            data-name-cell={col.key === nameKey ? '' : undefined}
+                            data-actions-cell={col.key === ACTIONS_KEY ? '' : undefined}
+                            className={`${COMPACT_CELL_CLASS} ${pinClass(index, 'max-md:bg-inherit')} ${col.key === nameKey ? NAME_CELL_CLASS : ''} ${hideClass(col)} ${
+                              (typeof col.cellClassName === 'function' ? col.cellClassName(item) : col.cellClassName) ?? ''
+                            }`.trim()}
+                          >
+                            {col.render(item)}
+                          </TableCell>
+                        ))}
+                        {hasDetail && (
+                          <TableCell align="center" className="md:hidden w-px max-md:px-1!">
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              aria-controls={open ? detailId : undefined}
+                              aria-label="Row details"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleExpanded(id);
+                              }}
+                              className="p-1 rounded-sm text-secondary hover:text-primary focus-visible:outline-2 focus-visible:outline-blue-500"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                className={`w-4 h-4 transition-transform ${open ? '' : '-rotate-90'}`}
+                                aria-hidden="true"
+                              >
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                      {open && (
+                        <tr id={detailId} className="md:hidden" data-row-detail>
+                          <TableCell colSpan={primaryCount + 1} className="max-md:px-3!">
+                            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+                              {detailColumns.map((col) => (
+                                <React.Fragment key={col.key}>
+                                  <dt className="text-xs font-semibold uppercase tracking-wider text-secondary self-center">
+                                    {col.header}
+                                  </dt>
+                                  <dd className="min-w-0 wrap-break-word">{col.render(item)}</dd>
+                                </React.Fragment>
+                              ))}
+                            </dl>
+                          </TableCell>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        {pagerConfig && totalCount > 0 && <Pagination {...pagerProps} position="bottom" />}
+      </>
     );
   }
 
-  const pageSizeOptions = pagination?.options ?? PAGE_SIZE_OPTIONS;
-  const itemLabel = pagination?.itemLabel ?? 'item';
-
   return (
     <div className={className}>
-      {(search || (filters && filters.length > 0)) && (
-        <div className="mb-6 flex flex-col sm:flex-row gap-3">
-          {search && (
-            <div className="flex-1">
-              <SearchInput
-                value={searchTerm}
-                onChange={setSearchTerm}
-                placeholder={search.placeholder}
-              />
-            </div>
-          )}
-          {filters?.map((f) => (
-            <select
-              key={f.key}
-              value={filterValues[f.key]}
-              onChange={(e) =>
-                setFilterValues((prev) => ({ ...prev, [f.key]: e.target.value }))
-              }
-              className="form-select text-sm"
-            >
-              <option value="all">All {f.label}</option>
-              {f.options.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          ))}
-        </div>
-      )}
-
-      {headerContent}
-
-      {totalCount === 0 && emptyState && (
-        <EmptyState
-          icon={emptyState.icon}
-          title={emptyState.title}
-          description={
-            typeof emptyState.description === 'function'
-              ? emptyState.description(hasActiveFilters)
-              : emptyState.description
-          }
-          action={emptyState.action}
-        />
-      )}
-
-      {totalCount > 0 && (
-        <>
-          {pagination && (
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-sm text-secondary">
-                {totalCount} {itemLabel}{totalCount === 1 ? '' : 's'}
-              </div>
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalCount={totalCount}
-                pageSize={pageSize}
-                onPageChange={setCurrentPage}
-                onPageSizeChange={(size) => {
-                  setPageSize(size);
-                  setCurrentPage(1);
-                }}
-                pageSizeOptions={pageSizeOptions}
-                position="top"
-                itemLabel={itemLabel}
-              />
-            </div>
-          )}
-
-          <TableContainer>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {visibleColumns.map((col) => {
-                    const isSortable = sort && col.sortable;
-                    const sortKey = col.sortKey ?? col.key;
-                    const isActive = sortField === sortKey;
-
-                    if (isSortable) {
-                      return (
-                        <th
-                          key={col.key}
-                          scope="col"
-                          className={`table-header-cell ${
-                            col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'
-                          } cursor-pointer hover:bg-input`}
-                          onClick={() => handleSort(sortKey)}
-                        >
-                          {col.header}
-                          {isActive && (
-                            sortDirection === 'asc'
-                              ? <ChevronUp className="inline w-4 h-4 ml-1" />
-                              : <ChevronDown className="inline w-4 h-4 ml-1" />
-                          )}
-                        </th>
-                      );
-                    }
-
-                    return (
-                      <TableHeaderCell key={col.key} align={col.align}>
-                        {col.header}
-                      </TableHeaderCell>
-                    );
-                  })}
-                  {actions && actions.length > 0 && (
-                    <TableHeaderCell align="center">Actions</TableHeaderCell>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginated.map((item) => (
-                  <TableRow key={getItemId(item)}>
-                    {visibleColumns.map((col) => (
-                      <TableCell key={col.key} align={col.align}>
-                        {col.render(item)}
-                      </TableCell>
-                    ))}
-                    {actions && actions.length > 0 && (
-                      <TableCell align="center">
-                        <div className="flex justify-center space-x-2">
-                          {actions
-                            .filter((a) => !a.visible || a.visible(item))
-                            .map((a, i) => (
-                              <ActionButton
-                                key={i}
-                                variant={a.variant}
-                                onClick={() => a.onClick(item)}
-                                disabled={a.disabled ? a.disabled(item) : false}
-                              >
-                                {typeof a.label === 'function' ? a.label(item) : a.label}
-                              </ActionButton>
-                            ))}
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          {pagination && (
+      {(toolbar || pagerConfig) && (
+        <div className="mb-6 flex flex-wrap gap-3 items-center">
+          {toolbar}
+          {pagerConfig && (
             <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalCount={totalCount}
-              pageSize={pageSize}
-              onPageChange={setCurrentPage}
-              itemLabel={itemLabel}
-              position="bottom"
+              {...pagerProps}
+              onPageSizeChange={onPageSizeChange}
+              pageSizeOptions={PAGE_SIZE_OPTIONS}
+              position="top"
             />
           )}
-        </>
+        </div>
       )}
+      {body}
     </div>
   );
 }

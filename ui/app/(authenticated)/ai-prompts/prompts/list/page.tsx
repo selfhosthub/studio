@@ -13,6 +13,7 @@ import {
   getPersonalPrompts,
   getPendingPublishPrompts,
   deletePrompt,
+  getPromptUsage,
   copyPrompt,
   requestPublishPrompt,
   approvePublishPrompt,
@@ -20,15 +21,18 @@ import {
   setPromptVisibility,
 } from "@/shared/api";
 import type { Prompt } from "@/shared/types/prompt";
-import { getStoredPageSize } from "@/shared/lib/pagination";
+import { useListPref, isString, oneOf } from "@/shared/hooks/useListPref";
 import { withReturnTo } from "@/shared/hooks/useReturnTo";
 import { Plus, Upload } from "lucide-react";
 import { PromptsOrganizationTab } from "./components/PromptsOrganizationTab";
 import { PromptsMarketplaceTab } from "./components/PromptsMarketplaceTab";
 import { PromptsMyTab } from "./components/PromptsMyTab";
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
-const ORG_PAGE_SIZE_KEY = "prompt-templates-pageSize";
-const MY_PAGE_SIZE_KEY = "my-prompts-pageSize";
+const STATUS_FILTERS = ["all", "pending", "published"] as const;
+
+// Orders prompts by name, case-insensitive.
+const byName = (a: Prompt, b: Prompt) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 
 type ActiveTab = "my-prompts" | "organization" | "custom" | "marketplace";
 
@@ -44,6 +48,7 @@ function PromptsListPageContent() {
   const searchParams = useSearchParams();
   const { user, status: authStatus } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const isSuperAdmin = user?.role === "super_admin";
@@ -84,19 +89,15 @@ function PromptsListPageContent() {
   const [orgPrompts, setOrgPrompts] = useState<Prompt[]>([]);
   const [orgLoading, setOrgLoading] = useState(true);
   const [orgError, setOrgError] = useState<string | null>(null);
-  const [orgSearchTerm, setOrgSearchTerm] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "published">("all");
-  const [orgCurrentPage, setOrgCurrentPage] = useState(1);
-  const [orgPageSize, setOrgPageSize] = useState(() => getStoredPageSize(ORG_PAGE_SIZE_KEY, 20));
+  const [orgSearchTerm, setOrgSearchTerm] = useListPref("prompts", "search", "", isString);
+  const [categoryFilter, setCategoryFilter] = useListPref("prompts", "category", "", isString);
+  const [statusFilter, setStatusFilter] = useListPref<typeof STATUS_FILTERS[number]>("prompts", "status", "all", oneOf(STATUS_FILTERS));
 
   // ----------- My prompts state -----------
   const [myPrompts, setMyPrompts] = useState<Prompt[]>([]);
   const [myLoading, setMyLoading] = useState(true);
   const [myError, setMyError] = useState<string | null>(null);
-  const [mySearchTerm, setMySearchTerm] = useState("");
-  const [myCurrentPage, setMyCurrentPage] = useState(1);
-  const [myPageSize, setMyPageSize] = useState(() => getStoredPageSize(MY_PAGE_SIZE_KEY, 20));
+  const [mySearchTerm, setMySearchTerm] = useListPref("prompts-my", "search", "", isString);
 
   // ----------- Shared action state -----------
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -146,7 +147,7 @@ function PromptsListPageContent() {
     [orgPrompts]
   );
 
-  // ----------- Filter + paginate org prompts -----------
+  // ----------- Filter org prompts -----------
   const filteredOrgPrompts = useMemo(() => {
     return orgPrompts.filter((t) => {
       if (isSuperAdmin && t.source !== "custom" && t.source !== "super_admin") return false;
@@ -161,48 +162,35 @@ function PromptsListPageContent() {
         );
       }
       return true;
-    });
+    }).sort(byName);
   }, [orgPrompts, orgSearchTerm, categoryFilter, statusFilter, isSuperAdmin]);
 
-  const orgTotalPages = Math.ceil(filteredOrgPrompts.length / orgPageSize);
-  const paginatedOrgPrompts = filteredOrgPrompts.slice(
-    (orgCurrentPage - 1) * orgPageSize,
-    orgCurrentPage * orgPageSize
-  );
-
-  // ----------- Filter + paginate my prompts -----------
+  // ----------- Filter my prompts -----------
   const filteredMyPrompts = useMemo(() => {
-    if (!mySearchTerm) return myPrompts;
+    if (!mySearchTerm) return [...myPrompts].sort(byName);
     const q = mySearchTerm.toLowerCase();
-    return myPrompts.filter(
-      (t) => t.name.toLowerCase().includes(q) || (t.description || "").toLowerCase().includes(q)
-    );
+    return myPrompts
+      .filter((t) => t.name.toLowerCase().includes(q) || (t.description || "").toLowerCase().includes(q))
+      .sort(byName);
   }, [myPrompts, mySearchTerm]);
-
-  const myTotalPages = Math.ceil(filteredMyPrompts.length / myPageSize);
-  const paginatedMyPrompts = filteredMyPrompts.slice(
-    (myCurrentPage - 1) * myPageSize,
-    myCurrentPage * myPageSize
-  );
-
-  // Reset org page when filters change (adjust during render, not in an effect).
-  const orgFilterKey = `${orgSearchTerm}|${categoryFilter}|${statusFilter}`;
-  const [prevOrgFilterKey, setPrevOrgFilterKey] = useState(orgFilterKey);
-  if (orgFilterKey !== prevOrgFilterKey) {
-    setPrevOrgFilterKey(orgFilterKey);
-    setOrgCurrentPage(1);
-  }
-
-  // Reset my-prompts page when search changes (adjust during render, not in an effect).
-  const [prevMySearchTerm, setPrevMySearchTerm] = useState(mySearchTerm);
-  if (mySearchTerm !== prevMySearchTerm) {
-    setPrevMySearchTerm(mySearchTerm);
-    setMyCurrentPage(1);
-  }
 
   // ----------- Handlers -----------
   const handleDelete = async (prompt: Prompt) => {
-    if (!window.confirm(`Delete "${prompt.name}"? This cannot be undone.`)) return;
+    let usageLine = 'Workflows that use it will fail until they get another prompt.';
+    try {
+      const { workflow_count: count } = await getPromptUsage(prompt.id);
+      usageLine = count > 0
+        ? `Used by ${count} ${count === 1 ? 'workflow' : 'workflows'}. They will fail until they get another prompt.`
+        : '';
+    } catch {
+      // Keep the general warning when the count is unavailable
+    }
+    if (!(await confirm({
+      title: 'Delete prompt',
+      message: `Delete "${prompt.name}"? This cannot be undone.` + (usageLine ? `\n\n${usageLine}` : ''),
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) return;
     setDeletingId(prompt.id);
     try {
       await deletePrompt(prompt.id);
@@ -221,7 +209,7 @@ function PromptsListPageContent() {
     try {
       const copied = await copyPrompt(prompt.id);
       setMyPrompts((prev) => [...prev, copied]);
-      toast({ title: `"${copied.name}" added to My Prompts`, variant: "success" });
+      toast({ title: `"${copied.name}" copied to My Prompts`, variant: "success" });
     } catch (err: unknown) {
       toast({ title: "Failed to copy prompt", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
     } finally {
@@ -243,6 +231,11 @@ function PromptsListPageContent() {
   };
 
   const handleApprovePublish = async (prompt: Prompt) => {
+    if (!(await confirm({
+      title: 'Approve prompt',
+      message: `Approve the request to publish "${prompt.name}" to the organization? Everyone in the organization can use it.`,
+      confirmLabel: 'Approve',
+    }))) return;
     setPublishingId(prompt.id);
     try {
       const updated = await approvePublishPrompt(prompt.id);
@@ -260,6 +253,12 @@ function PromptsListPageContent() {
   };
 
   const handleRejectPublish = async (prompt: Prompt) => {
+    if (!(await confirm({
+      title: 'Reject prompt',
+      message: `Reject the request to publish "${prompt.name}" to the organization? It stays with its author, who can request again.`,
+      confirmLabel: 'Reject',
+      variant: 'warning',
+    }))) return;
     setPublishingId(prompt.id);
     try {
       const updated = await rejectPublishPrompt(prompt.id);
@@ -292,7 +291,7 @@ function PromptsListPageContent() {
     activeTab === "custom" ? (
       <div className="flex items-center gap-2">
         <Link
-          href="/ai-prompts/prompts/upload"
+          href={withReturnTo("/ai-prompts/prompts/upload", `/ai-prompts/prompts/list?tab=${activeTab}`)}
           className="btn-primary inline-flex items-center justify-center gap-2"
         >
           <Upload size={16} />
@@ -350,14 +349,8 @@ function PromptsListPageContent() {
           loading={myLoading}
           error={myError}
           filteredPrompts={filteredMyPrompts}
-          paginatedPrompts={paginatedMyPrompts}
           searchTerm={mySearchTerm}
           onSearchChange={setMySearchTerm}
-          currentPage={myCurrentPage}
-          totalPages={myTotalPages}
-          pageSize={myPageSize}
-          onPageChange={setMyCurrentPage}
-          onPageSizeChange={(size) => { setMyPageSize(size); setMyCurrentPage(1); }}
           onDelete={handleDelete}
           deletingId={deletingId}
           onRequestPublish={handleRequestPublish}
@@ -370,8 +363,8 @@ function PromptsListPageContent() {
         <PromptsOrganizationTab
           loading={orgLoading}
           error={orgError}
+          currentUserId={user?.id}
           filteredPrompts={filteredOrgPrompts}
-          paginatedPrompts={paginatedOrgPrompts}
           searchTerm={orgSearchTerm}
           onSearchChange={setOrgSearchTerm}
           categoryFilter={categoryFilter}
@@ -379,11 +372,6 @@ function PromptsListPageContent() {
           statusFilter={statusFilter}
           onStatusChange={setStatusFilter}
           pendingCount={pendingCount}
-          currentPage={orgCurrentPage}
-          totalPages={orgTotalPages}
-          pageSize={orgPageSize}
-          onPageChange={setOrgCurrentPage}
-          onPageSizeChange={(size) => { setOrgPageSize(size); setOrgCurrentPage(1); }}
           isAdmin={isAdmin}
           isSuperAdmin={isSuperAdmin}
           onDelete={handleDelete}

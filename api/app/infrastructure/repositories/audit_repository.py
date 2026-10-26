@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import String, and_, cast, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -43,6 +43,51 @@ def _is_audit_org_fk_violation(exc: IntegrityError) -> bool:
         return "organization_id" in constraint_name
     message = str(orig) if orig is not None else str(exc)
     return "organization_id" in message and "audit_events" in message
+
+
+def _filter_conditions(
+    organization_id: Optional[UUID] = None,
+    resource_type: Optional[str] = None,
+    action: Optional[str] = None,
+    severity: Optional[str] = None,
+    category: Optional[str] = None,
+    actor_id: Optional[UUID] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    include_system_events: bool = True,
+    search: Optional[str] = None,
+) -> List[Any]:
+    """WHERE conditions shared by the audit list and count queries."""
+    conditions: List[Any] = []
+    if organization_id:
+        conditions.append(AuditEventModel.organization_id == organization_id)
+    elif not include_system_events:
+        conditions.append(AuditEventModel.organization_id.isnot(None))
+    if resource_type:
+        conditions.append(AuditEventModel.resource_type == resource_type)
+    if action:
+        conditions.append(AuditEventModel.action == action)
+    if severity:
+        conditions.append(AuditEventModel.severity == severity)
+    if category:
+        conditions.append(AuditEventModel.category == category)
+    if actor_id:
+        conditions.append(AuditEventModel.actor_id == actor_id)
+    if start_date:
+        conditions.append(AuditEventModel.created_at >= start_date)
+    if end_date:
+        conditions.append(AuditEventModel.created_at <= end_date)
+    if search:
+        pattern = f"%{search}%"
+        conditions.append(
+            or_(
+                AuditEventModel.resource_name.ilike(pattern),
+                AuditEventModel.error_message.ilike(pattern),
+                cast(AuditEventModel.action, String).ilike(pattern),
+                cast(AuditEventModel.resource_type, String).ilike(pattern),
+            )
+        )
+    return conditions
 
 
 class SessionPerCallAuditEventRepository(AuditEventRepositoryABC):
@@ -179,23 +224,19 @@ class AuditEventRepository(AuditEventRepositoryABC):
         actor_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
     ) -> List[AuditEvent]:
-        conditions = [AuditEventModel.organization_id == organization_id]
-
-        if resource_type:
-            conditions.append(AuditEventModel.resource_type == resource_type)
-        if action:
-            conditions.append(AuditEventModel.action == action)
-        if severity:
-            conditions.append(AuditEventModel.severity == severity)
-        if category:
-            conditions.append(AuditEventModel.category == category)
-        if actor_id:
-            conditions.append(AuditEventModel.actor_id == actor_id)
-        if start_date:
-            conditions.append(AuditEventModel.created_at >= start_date)
-        if end_date:
-            conditions.append(AuditEventModel.created_at <= end_date)
+        conditions = _filter_conditions(
+            organization_id=organization_id,
+            resource_type=resource_type,
+            action=action,
+            severity=severity,
+            category=category,
+            actor_id=actor_id,
+            start_date=start_date,
+            end_date=end_date,
+            search=search,
+        )
 
         stmt = (
             select(AuditEventModel)
@@ -263,28 +304,20 @@ class AuditEventRepository(AuditEventRepositoryABC):
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         include_system_events: bool = True,
+        search: Optional[str] = None,
     ) -> List[AuditEvent]:
-        conditions = []
-
-        if organization_id:
-            conditions.append(AuditEventModel.organization_id == organization_id)
-        elif not include_system_events:
-            conditions.append(AuditEventModel.organization_id.isnot(None))
-
-        if resource_type:
-            conditions.append(AuditEventModel.resource_type == resource_type)
-        if action:
-            conditions.append(AuditEventModel.action == action)
-        if severity:
-            conditions.append(AuditEventModel.severity == severity)
-        if category:
-            conditions.append(AuditEventModel.category == category)
-        if actor_id:
-            conditions.append(AuditEventModel.actor_id == actor_id)
-        if start_date:
-            conditions.append(AuditEventModel.created_at >= start_date)
-        if end_date:
-            conditions.append(AuditEventModel.created_at <= end_date)
+        conditions = _filter_conditions(
+            organization_id=organization_id,
+            resource_type=resource_type,
+            action=action,
+            severity=severity,
+            category=category,
+            actor_id=actor_id,
+            start_date=start_date,
+            end_date=end_date,
+            include_system_events=include_system_events,
+            search=search,
+        )
 
         stmt = select(AuditEventModel).order_by(desc(AuditEventModel.created_at))
 
@@ -381,25 +414,27 @@ class AuditEventRepository(AuditEventRepositoryABC):
         self,
         organization_id: Optional[UUID] = None,
         resource_type: Optional[str] = None,
+        action: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
+        actor_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        include_system_events: bool = True,
+        search: Optional[str] = None,
     ) -> int:
-        conditions = []
-
-        if organization_id:
-            conditions.append(AuditEventModel.organization_id == organization_id)
-        if resource_type:
-            conditions.append(AuditEventModel.resource_type == resource_type)
-        if severity:
-            conditions.append(AuditEventModel.severity == severity)
-        if category:
-            conditions.append(AuditEventModel.category == category)
-        if start_date:
-            conditions.append(AuditEventModel.created_at >= start_date)
-        if end_date:
-            conditions.append(AuditEventModel.created_at <= end_date)
+        conditions = _filter_conditions(
+            organization_id=organization_id,
+            resource_type=resource_type,
+            action=action,
+            severity=severity,
+            category=category,
+            actor_id=actor_id,
+            start_date=start_date,
+            end_date=end_date,
+            include_system_events=include_system_events,
+            search=search,
+        )
 
         stmt = select(func.count()).select_from(AuditEventModel)
 

@@ -277,7 +277,7 @@ const InputMappingsSection: React.FC<InputMappingsSectionProps> = ({
         <div className="p-4 bg-card">
           <div className="flex justify-between items-center mb-4">
             <p className="text-sm text-secondary">
-              Map inputs from previous step outputs or set static values
+              Map inputs from previous node outputs or set static values
             </p>
             <button
               type="button"
@@ -346,7 +346,7 @@ const InputMappingsSection: React.FC<InputMappingsSectionProps> = ({
                       {/* Source step selection */}
                       <div>
                         <label htmlFor={`step-${paramPath}`} className="block text-sm font-medium text-secondary mb-1">
-                          Source Step
+                          Source Node
                         </label>
                         <select
                           id={`step-${paramPath}`}
@@ -354,7 +354,7 @@ const InputMappingsSection: React.FC<InputMappingsSectionProps> = ({
                           onChange={(e) => handleInputMappingChange(paramPath, 'stepId', e.target.value)}
                           className="form-input p-2 text-sm"
                         >
-                          <option value="">Select a step</option>
+                          <option value="">Select a node</option>
                           {previousSteps.map((step) => (
                             <option key={step.id} value={step.id}>
                               {step.name}
@@ -400,7 +400,7 @@ const InputMappingsSection: React.FC<InputMappingsSectionProps> = ({
                 No input mappings defined yet.
               </p>
               <p className="text-sm text-secondary mt-1">
-                Add a mapping to connect this step with previous steps.
+                Add a mapping to connect this node with previous nodes.
               </p>
             </div>
           )}

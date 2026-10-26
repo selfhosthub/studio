@@ -182,4 +182,8 @@ export interface MappableParameterFieldProps {
   currentStepId?: string;
   /** Service-authored message shown when an array is mapped but the service is not iterable. */
   arrayMappingNotice?: string;
+  /** A stored secret the viewer cannot read: shown as configured and read-only. */
+  secretConfigured?: boolean;
+  /** Paths, relative to this parameter, of stored secrets inside it the viewer cannot read. */
+  configuredSecretPaths?: Array<Array<string | number>>;
 }

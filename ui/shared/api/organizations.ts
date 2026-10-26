@@ -34,7 +34,6 @@ export interface OrganizationStats {
   member_count: number;
   workflow_count: number;
   storage: OrganizationStorageStats;
-  plan_name?: string | null;
 }
 
 export interface OrganizationStatsListResponse {
@@ -79,6 +78,7 @@ export async function getOrganizationStats(
   if (params.filter) searchParams.append('filter', params.filter);
   if (params.sort_by) searchParams.append('sort_by', params.sort_by);
   if (params.sort_order) searchParams.append('sort_order', params.sort_order);
+  if (params.search) searchParams.append('search', params.search);
 
   const queryString = searchParams.toString();
   const url = queryString ? `/organizations/stats?${queryString}` : '/organizations/stats';
@@ -95,7 +95,6 @@ export async function getOrganizationMembers(orgId: string): Promise<UserProfile
 
 export async function createOrganization(data: {
   name: string;
-  slug: string;
   description?: string | null;
   settings?: Record<string, any> | null;
 }): Promise<Organization> {
@@ -129,6 +128,14 @@ export async function getNotifications(userId: string): Promise<NotificationResp
 
 export async function markNotificationAsRead(notificationId: string): Promise<void> {
   await apiRequest(`/notifications/notifications/${notificationId}/read`, { method: 'PATCH' });
+}
+
+export async function markNotificationAsUnread(notificationId: string): Promise<void> {
+  await apiRequest(`/notifications/notifications/${notificationId}/unread`, { method: 'PATCH' });
+}
+
+export async function deleteNotification(notificationId: string): Promise<void> {
+  await apiRequest(`/notifications/notifications/${notificationId}`, { method: 'DELETE' });
 }
 
 export async function markAllNotificationsAsRead(userId: string): Promise<{ count: number }> {

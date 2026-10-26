@@ -95,13 +95,13 @@ export function ServiceBasedWorkflowStepConfig({
     <div className="bg-card border border-primary rounded-lg shadow-sm p-6 animate-slideIn">
       {/* Header with controls */}
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">Configure Step</h3>
+        <h3 className="text-lg font-medium">Configure Node</h3>
         <div className="flex space-x-2">
           {onDuplicate && (
             <button
               onClick={onDuplicate}
               className="text-secondary hover:text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-              aria-label="Duplicate step"
+              aria-label="Duplicate node"
             >
               <Copy size={20} />
             </button>
@@ -109,7 +109,7 @@ export function ServiceBasedWorkflowStepConfig({
           <button
             onClick={onRemove}
             className="text-secondary hover:text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-            aria-label="Remove step"
+            aria-label="Remove node"
           >
             <XCircle size={20} />
           </button>
@@ -119,7 +119,7 @@ export function ServiceBasedWorkflowStepConfig({
       {/* Step name */}
       <div className="mb-4">
         <label htmlFor="step-name" className="block text-sm font-medium text-secondary mb-1">
-          Step Name
+          Node Name
         </label>
         <input
           id="step-name"
@@ -127,7 +127,7 @@ export function ServiceBasedWorkflowStepConfig({
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="block w-full border border-primary rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-          placeholder="Enter a descriptive name for this step"
+          placeholder="Enter a descriptive name for this node"
         />
       </div>
       
@@ -150,7 +150,7 @@ export function ServiceBasedWorkflowStepConfig({
             <div className="ml-3">
               <h3 className="text-sm font-medium text-info">Service Type Required</h3>
               <div className="mt-2 text-sm text-info">
-                <p>This step requires a {jobConfig.service_type} service.</p>
+                <p>This node requires a {jobConfig.service_type} service.</p>
               </div>
             </div>
           </div>

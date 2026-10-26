@@ -10,6 +10,21 @@ from app.domain.site_content.repository import SiteContentRepository
 
 logger = logging.getLogger(__name__)
 
+# Pages shown only when switched on and given content
+_CONTENT_GATED_PAGES = ("privacy", "terms")
+
+
+def _published_disclosures(settings_page: Any) -> List[Dict[str, Any]]:
+    """Enabled disclosures with non-blank content from the 'settings' page."""
+    disclosures = ((settings_page.content or {}) if settings_page else {}).get(
+        "disclosures", []
+    )
+    return [
+        {"key": d["key"], "title": d["title"], "content": d["content"]}
+        for d in disclosures
+        if d.get("enabled", False) and (d.get("content") or "").strip()
+    ]
+
 
 class PublicContentService:
     """Service for public (unauthenticated) content queries."""
@@ -107,22 +122,28 @@ class PublicContentService:
             "terms": True,
         }
         if not content or "page_visibility" not in (content.content or {}):
-            return defaults
+            result = dict(defaults)
+        else:
+            visibility = content.content.get("page_visibility", {})
+            result = {k: visibility.get(k, v) for k, v in defaults.items()}
 
-        visibility = content.content.get("page_visibility", {})
-        return {k: visibility.get(k, v) for k, v in defaults.items()}
+        for page_id in _CONTENT_GATED_PAGES:
+            if result[page_id]:
+                result[page_id] = await self._has_body(page_id)
+        if result["compliance"]:
+            result["compliance"] = bool(_published_disclosures(content))
+        return result
+
+    async def _has_body(self, page_id: str) -> bool:
+        """True when a markdown page has non-blank content."""
+        page = await self._site_content_repo.get_by_page_id(page_id)
+        body = (page.content or {}).get("content") if page else None
+        return bool(body and body.strip())
 
     async def get_disclosures(self) -> List[Dict[str, Any]]:
-        """Return enabled compliance disclosures for the public page."""
+        """Return enabled compliance disclosures with content for the public page."""
         content = await self._site_content_repo.get_by_page_id("settings")
-        if not content or "disclosures" not in (content.content or {}):
-            return []
-        disclosures = content.content.get("disclosures", [])
-        return [
-            {"key": d["key"], "title": d["title"], "content": d["content"]}
-            for d in disclosures
-            if d.get("enabled", False)
-        ]
+        return _published_disclosures(content)
 
     async def get_compliance_settings(self) -> Dict[str, Any]:
         """Return ROSCA/compliance settings from the 'settings' page."""

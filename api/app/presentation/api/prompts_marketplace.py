@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
+from app.application.services.prompt_usage import count_workflows_using_marketplace_prompt
 from app.application.services.catalog_merge_service import (
     merge_prompts_with_marketplace,
 )
@@ -862,6 +863,22 @@ async def _org_copy_prompt(
         prompt_name=saved.name,
         message="Prompt copied to organization",
     )
+
+
+class MarketplacePromptUsageResponse(BaseModel):
+    workflow_count: int
+
+
+@router.get("/usage/{namespace}/{slug}", response_model=MarketplacePromptUsageResponse)
+async def get_marketplace_prompt_usage(
+    namespace: str,
+    slug: str,
+    _current_user: CurrentUser = Depends(require_super_admin),
+    bypass_db: AsyncSession = Depends(get_db_session_service),
+) -> MarketplacePromptUsageResponse:
+    """How many workflows across all orgs map a copy of this marketplace prompt, for the Remove confirm."""
+    count = await count_workflows_using_marketplace_prompt(bypass_db, f"{namespace}/{slug}")
+    return MarketplacePromptUsageResponse(workflow_count=count)
 
 
 @router.post("/uninstall/{namespace}/{slug}", status_code=status.HTTP_200_OK)

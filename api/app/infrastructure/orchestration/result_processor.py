@@ -205,6 +205,21 @@ class ResultProcessor:
                     + (f" context={context}" if context else ""),
                 )
 
+    async def process_result_in_session(
+        self, session: AsyncSession, payload: Dict[str, Any]
+    ) -> None:
+        """Process an inline result on the session that enqueued it, so it sees that session's uncommitted writes."""
+        if _inline_session.get(None) is not None:
+            await self.process_result(payload)
+            return
+        token = _inline_session.set(session)
+        try:
+            await self.process_result(payload)
+        except Exception as e:
+            logger.error(f"Error processing inline step result: {e}")
+        finally:
+            _inline_session.reset(token)
+
     async def _process_with_session(
         self,
         session: AsyncSession,
@@ -393,10 +408,12 @@ class ResultProcessor:
                 op_type_enum = OperationType(op_type_str)
             except ValueError:
                 op_type_enum = None
+            # A step parked for approval has not succeeded; the run keeps waiting.
             isolated_success = (
                 op_type_enum is not None
                 and op_type_enum.is_isolated
                 and outcome.error is None
+                and action.action != OrchestrationAction.WAIT_APPROVAL
             )
             # Active op was discovered via get_active_op_for_step, so the lookup is safe.
             step_for_op = outcome.instance.step_entities[outcome.step_id]

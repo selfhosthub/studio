@@ -103,7 +103,9 @@ class JSONFormatter(logging.Formatter):
                 pass
 
         if record.exc_info:
-            log_entry["exception"] = self.formatException(record.exc_info)
+            log_entry["exception"] = record.exc_text or self.formatException(
+                record.exc_info
+            )
 
         extra = getattr(record, "extra", None)
         if extra is not None:

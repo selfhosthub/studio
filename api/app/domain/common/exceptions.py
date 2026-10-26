@@ -106,7 +106,7 @@ class DuplicateEntityError(DomainException):
             self.entity_type = entity_type
             self.field = field
             self.value = value
-            generated_message = f"{entity_type} with {field}='{value}' already exists"
+            generated_message = f'{entity_type} with {field} "{value}" already exists'
             context = {"entity_type": entity_type, "field": field, "value": value}
             super().__init__(
                 message=message_or_entity_type or generated_message,
@@ -121,7 +121,7 @@ class DuplicateEntityError(DomainException):
             self.entity_type = message_or_entity_type
             self.field = code_or_field
             self.value = context_or_value
-            message = f"{message_or_entity_type} with {code_or_field}='{context_or_value}' already exists"
+            message = f'{message_or_entity_type} with {code_or_field} "{context_or_value}" already exists'
             context = {
                 "entity_type": message_or_entity_type,
                 "field": code_or_field,

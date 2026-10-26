@@ -359,7 +359,7 @@ async def get_catalog(
     # 3. Add/update with installed packages from database (in case they're not in catalog)
     for provider in db_providers:
         pkg_id = provider.slug
-        # tier/category: prefer catalog (refreshable) over client_metadata (install-time snapshot)
+        # tier/category/services: prefer catalog (refreshable) over client_metadata (install-time snapshot)
         metadata = provider.client_metadata or {}
         catalog_pkg = all_packages.get(pkg_id)
         pkg_tier = (catalog_pkg.tier if catalog_pkg else None) or metadata.get(
@@ -381,7 +381,8 @@ async def get_catalog(
             tier=pkg_tier,
             category=pkg_category,
             description=provider.description or "",
-            services_preview=metadata.get("services_preview", []),
+            services_preview=(catalog_pkg.services_preview if catalog_pkg else None)
+            or metadata.get("services_preview", []),
             requires=metadata.get("requires", []),
             credential_provider=metadata.get("credential_provider"),
             status="installed",
@@ -511,7 +512,7 @@ async def get_package(
                     catalog_pkg = pkg
                     break
 
-        # tier/category: prefer catalog (refreshable) over client_metadata (install-time snapshot)
+        # tier/category/services: prefer catalog (refreshable) over client_metadata (install-time snapshot)
         metadata = provider.client_metadata or {}
         installed_ver = metadata.get("package_version", "1.0.0")
         return MarketplacePackage(
@@ -523,7 +524,8 @@ async def get_package(
             category=(catalog_pkg.category if catalog_pkg else None)
             or metadata.get("category", "custom"),
             description=provider.description or "",
-            services_preview=metadata.get("services_preview", []),
+            services_preview=(catalog_pkg.services_preview if catalog_pkg else None)
+            or metadata.get("services_preview", []),
             requires=metadata.get("requires", []),
             credential_provider=metadata.get("credential_provider"),
             status="installed",

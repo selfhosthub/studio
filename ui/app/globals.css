@@ -73,6 +73,7 @@
    --theme-primary: Your main brand color (buttons, links, focus rings)
    --theme-btn-primary-bg: Primary button background
    --theme-btn-primary-hover: Primary button hover state
+   --theme-btn-warning-*: Reversible state changes (Deactivate, Reject)
    --theme-hero-gradient-start/end: Hero section gradients
 
    ACCENT COLORS:
@@ -146,6 +147,16 @@
     --theme-btn-danger-hover: #dc2626;
     --theme-btn-danger-border: transparent;
 
+    --theme-btn-cancel-bg: #ea580c;
+    --theme-btn-cancel-text: #ffffff;
+    --theme-btn-cancel-hover: #c2410c;
+    --theme-btn-cancel-border: transparent;
+
+    --theme-btn-warning-bg: #f59e0b;
+    --theme-btn-warning-text: #1f2937;
+    --theme-btn-warning-hover: #d97706;
+    --theme-btn-warning-border: transparent;
+
     --theme-hero-gradient-start: #2563eb;
     --theme-hero-gradient-end: #4f46e5;
     --theme-header-bg: #ffffff;
@@ -198,6 +209,16 @@
     --theme-btn-danger-text: #ffffff;
     --theme-btn-danger-hover: #dc2626;
     --theme-btn-danger-border: transparent;
+
+    --theme-btn-cancel-bg: #ea580c;
+    --theme-btn-cancel-text: #ffffff;
+    --theme-btn-cancel-hover: #c2410c;
+    --theme-btn-cancel-border: transparent;
+
+    --theme-btn-warning-bg: #f59e0b;
+    --theme-btn-warning-text: #1f2937;
+    --theme-btn-warning-hover: #d97706;
+    --theme-btn-warning-border: transparent;
 
     --theme-hero-gradient-start: #1e40af;
     --theme-hero-gradient-end: #3730a3;
@@ -399,6 +420,36 @@
   }
   .btn-danger:hover {
     filter: brightness(0.9);
+  }
+
+  .btn-warning {
+    @apply px-4 py-2 rounded-md font-medium;
+    background-color: var(--theme-btn-warning-bg);
+    color: var(--theme-btn-warning-text);
+    border: 1px solid var(--theme-btn-warning-border);
+    @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+    --tw-ring-color: var(--theme-btn-warning-bg);
+  }
+  .btn-warning:hover {
+    background-color: var(--theme-btn-warning-hover);
+  }
+  .btn-warning:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .btn-cancel {
+    @apply px-4 py-2 rounded-md font-medium;
+    background-color: var(--theme-btn-cancel-bg);
+    color: var(--theme-btn-cancel-text);
+    border: 1px solid var(--theme-btn-cancel-border);
+    @apply focus:outline-hidden focus:ring-2 focus:ring-offset-2;
+    --tw-ring-color: var(--theme-btn-cancel-bg);
+  }
+  .btn-cancel:hover {
+    background-color: var(--theme-btn-cancel-hover);
+  }
+  .btn-cancel:disabled {
+    @apply opacity-50 cursor-not-allowed;
   }
 
   /* ==============================================
@@ -728,6 +779,11 @@ div:has(> img[style*="position:absolute"]) {
 }
 :is(.dark) .react-flow__controls-button svg {
   fill: var(--theme-text-primary);
+}
+
+/* Flow editor node action buttons keep their on-screen size when the canvas zooms out */
+.flow-node-action {
+  scale: var(--node-action-scale, 1);
 }
 
 /* Flow editor node backgrounds - semantic classes for dark mode visibility */
@@ -1214,6 +1270,21 @@ div:has(> img[style*="position:absolute"]) {
   --tw-ring-color: var(--theme-primary);
 }
 
+/* Mirror behind a textarea that paints highlight marks under its text */
+.form-textarea.form-textarea-backdrop {
+  color: transparent;
+  overflow-y: scroll;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Textarea over a highlight mirror: see-through so the marks show */
+.form-textarea.form-textarea-overlay {
+  background-color: transparent;
+  overflow-y: scroll;
+}
+
 .form-checkbox {
   @apply h-4 w-4 rounded-sm;
   border-color: var(--theme-border-primary);
@@ -1404,8 +1475,12 @@ div:has(> img[style*="position:absolute"]) {
 
 .action-btn-warning {
   @apply px-2 py-1 text-xs font-medium rounded-sm shadow-xs border;
-  @apply bg-amber-500 text-white border-amber-600;
-  @apply hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500 dark:border-amber-500;
+  background-color: var(--theme-btn-warning-bg);
+  color: var(--theme-btn-warning-text);
+  border-color: var(--theme-btn-warning-hover);
+}
+.action-btn-warning:hover {
+  background-color: var(--theme-btn-warning-hover);
 }
 
 .action-btn-change {

@@ -3,21 +3,114 @@
 """SQLAlchemy implementation of OrgFileRepository."""
 
 import uuid
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import String, and_, case, cast, func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.domain.org_file.models import (
     OrgFile,
     ResourceSource,
     ResourceStatus,
 )
-from app.domain.org_file.repository import OrgFileRepository
+from app.domain.org_file.repository import (
+    OrgFileKind,
+    OrgFileQuery,
+    OrgFileRepository,
+    OrgFileSort,
+)
 from app.infrastructure.persistence.models import (
     OrgFileModel,
     StepExecutionModel,
 )
+
+_KIND_EXTENSIONS = {
+    OrgFileKind.VIDEO: ("mp4", "webm", "mov", "avi", "mkv", "flv", "wmv"),
+    OrgFileKind.AUDIO: ("mp3", "wav", "ogg", "flac", "m4a", "aac", "wma"),
+    OrgFileKind.IMAGE: ("jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"),
+}
+
+
+def _is_media(kind: OrgFileKind) -> ColumnElement[bool]:
+    """Mime family match, or extension match for octet-stream."""
+    extension = func.lower(func.ltrim(OrgFileModel.file_extension, "."))
+    return or_(
+        OrgFileModel.mime_type.like(f"{kind.value}/%"),
+        and_(
+            OrgFileModel.mime_type == "application/octet-stream",
+            extension.in_(_KIND_EXTENSIONS[kind]),
+        ),
+    )
+
+
+def _is_kind(kind: OrgFileKind) -> ColumnElement[bool]:
+    """Condition for one file type family."""
+    if kind in _KIND_EXTENSIONS:
+        return _is_media(kind)
+    not_media = not_(or_(*(_is_media(k) for k in _KIND_EXTENSIONS)))
+    is_document = or_(
+        OrgFileModel.mime_type.like("text/%"),
+        OrgFileModel.mime_type.like("application/%"),
+    )
+    if kind == OrgFileKind.DOCUMENT:
+        return and_(not_media, is_document)
+    return and_(not_media, not_(is_document))
+
+
+def _escape_like(term: str) -> str:
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _is_live() -> ColumnElement[bool]:
+    """Condition for a file the library still shows."""
+    return OrgFileModel.status != ResourceStatus.DELETED
+
+
+def _organization_conditions(
+    organization_id: uuid.UUID, query: OrgFileQuery
+) -> List[ColumnElement[bool]]:
+    """WHERE clauses shared by the organization list and its count."""
+    conditions: List[ColumnElement[bool]] = [
+        OrgFileModel.organization_id == organization_id,
+        _is_live(),
+    ]
+    if query.search:
+        pattern = f"%{_escape_like(query.search)}%"
+        conditions.append(
+            or_(
+                OrgFileModel.display_name.ilike(pattern, escape="\\"),
+                OrgFileModel.virtual_path.ilike(pattern, escape="\\"),
+            )
+        )
+    if query.kind:
+        conditions.append(_is_kind(query.kind))
+    if query.source:
+        conditions.append(OrgFileModel.source == query.source)
+    return conditions
+
+
+def _sort_column(sort: OrgFileSort) -> ColumnElement[Any] | InstrumentedAttribute[Any]:
+    """Column the organization list orders by."""
+    match sort:
+        case OrgFileSort.NAME:
+            return func.lower(OrgFileModel.display_name)
+        case OrgFileSort.SIZE:
+            return OrgFileModel.file_size
+        case OrgFileSort.TYPE:
+            return OrgFileModel.mime_type
+        case OrgFileSort.SOURCE:
+            return cast(OrgFileModel.source, String)
+        case OrgFileSort.STATUS:
+            return cast(OrgFileModel.status, String)
+        case OrgFileSort.THUMB:
+            image = _is_media(OrgFileKind.IMAGE)
+            return case(
+                (and_(image, OrgFileModel.has_thumbnail), 0), (image, 1), else_=2
+            )
+        case _:
+            return OrgFileModel.created_at
 
 
 class SQLAlchemyOrgFileRepository(OrgFileRepository):
@@ -164,12 +257,15 @@ class SQLAlchemyOrgFileRepository(OrgFileRepository):
         organization_id: uuid.UUID,
         skip: int = 0,
         limit: int = 100,
+        query: Optional[OrgFileQuery] = None,
     ) -> List[OrgFile]:
+        query = query or OrgFileQuery()
+        column = _sort_column(query.sort)
+        order = column.desc() if query.descending else column.asc()
         stmt = (
             select(OrgFileModel)
-            .where(OrgFileModel.organization_id == organization_id)
-            .where(OrgFileModel.status != ResourceStatus.DELETED)
-            .order_by(OrgFileModel.created_at.desc())
+            .where(*_organization_conditions(organization_id, query))
+            .order_by(order, OrgFileModel.created_at.desc(), OrgFileModel.id)
             .offset(skip)
             .limit(limit)
         )
@@ -177,6 +273,26 @@ class SQLAlchemyOrgFileRepository(OrgFileRepository):
         result = await self.session.execute(stmt)
         models = result.scalars().all()
         return [self._to_domain(model) for model in models]
+
+    async def count_by_organization(
+        self, organization_id: uuid.UUID, query: Optional[OrgFileQuery] = None
+    ) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(OrgFileModel)
+            .where(*_organization_conditions(organization_id, query or OrgFileQuery()))
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def count_live_by_organization(self) -> Dict[uuid.UUID, int]:
+        stmt = (
+            select(OrgFileModel.organization_id, func.count())
+            .where(_is_live())
+            .group_by(OrgFileModel.organization_id)
+        )
+        result = await self.session.execute(stmt)
+        return {org_id: int(count) for org_id, count in result.all()}
 
     async def update(self, resource: OrgFile) -> OrgFile:
         stmt = select(OrgFileModel).where(

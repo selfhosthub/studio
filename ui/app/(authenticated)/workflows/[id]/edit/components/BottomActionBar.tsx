@@ -34,7 +34,7 @@ export function BottomActionBar({
     <div className="mt-6 flex justify-end space-x-4">
       <Link
         href={backHref}
-        className="btn-orange text-sm inline-flex items-center"
+        className="btn-cancel text-sm inline-flex items-center"
       >
         Cancel
       </Link>

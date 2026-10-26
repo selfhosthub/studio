@@ -19,7 +19,6 @@ export { default as CredentialSelector } from './components/CredentialSelector';
 export {
   OAuthCredentialFields,
   buildOAuthSecretData,
-  oauthFieldsFromSecretData,
   EMPTY_OAUTH_FIELDS,
 } from './components/OAuthCredentialFields';
 export type { OAuthFieldValues } from './components/OAuthCredentialFields';
@@ -29,6 +28,7 @@ export { CreateCredentialModal } from './components/CreateCredentialModal';
 export { useCredentialForm } from './hooks/useCredentialForm';
 export {
   INITIAL_FORM_VALUES,
+  schemaCredentialType,
 } from './credential-types';
 export type {
   CredentialFormValues,

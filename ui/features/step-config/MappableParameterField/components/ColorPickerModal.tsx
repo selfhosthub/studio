@@ -309,7 +309,7 @@ export function ColorPickerModal({ value, onChange, placeholderColor }: ColorPic
             <button
               type="button"
               onClick={cancelModal}
-              className="flex-1 px-4 py-2 border rounded text-secondary hover:bg-card"
+              className="btn-cancel flex-1"
             >
               Cancel
             </button>

@@ -66,7 +66,7 @@ export function InstanceHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         {/* Simple / Technical mode toggle - always available. In technical
             mode the button shows Simple and vice versa. Toggling flips the
             `?mode=simple` query param on the current URL without unmounting
@@ -78,8 +78,7 @@ export function InstanceHeader({
           title={isSimpleMode ? "Switch to technical view" : "Switch to simple view"}
         >
           {isSimpleMode ? <Settings2 className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-          <span className="hidden sm:inline">{isSimpleMode ? "Technical" : "Simple"}</span>
-          <span className="sm:hidden">{isSimpleMode ? "Tech" : "Simple"}</span>
+          <span>{isSimpleMode ? "Technical" : "Simple"}</span>
         </button>
 
 
@@ -88,7 +87,7 @@ export function InstanceHeader({
           <button
             onClick={onCancel}
             disabled={updating}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-critical text-white rounded-md hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
+            className="btn-danger flex items-center gap-2 px-3 sm:px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
           >
             <XCircle className="w-4 h-4" />
             <span className="hidden sm:inline">{updating ? 'Cancelling...' : 'Cancel'}</span>

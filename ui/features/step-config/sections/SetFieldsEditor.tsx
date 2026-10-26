@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, GripVertical, Copy } from 'lucide-react';
+import { ConfiguredSecretsNote, secretPathsUnder, type SecretPath } from '@/features/step-config/ConfiguredSecretsNote';
 
 // Field type config matching n8n style
 const FIELD_TYPES = {
@@ -83,13 +84,30 @@ interface SetFieldsEditorProps {
   parameters: Record<string, any>;
   onParametersChange: (parameters: Record<string, any>) => void;
   onOutputFieldsChange: (outputs: Record<string, any>) => void;
+  /** Sealed parameter paths the viewer cannot read; fields[i].value entries show as configured. */
+  configuredSecrets?: SecretPath[];
 }
 
 export default function SetFieldsEditor({
   parameters,
   onParametersChange,
   onOutputFieldsChange,
+  configuredSecrets = [],
 }: SetFieldsEditorProps) {
+  // Stored secrets under each field, keyed by the field name they were saved under, relative to its value
+  const [configuredByName] = useState<Map<string, SecretPath[]>>(() => {
+    const byName = new Map<string, SecretPath[]>();
+    const fields = Array.isArray(parameters?.fields) ? parameters.fields : [];
+    for (const path of secretPathsUnder(configuredSecrets, 'fields')) {
+      const [index, field, ...rest] = path;
+      const name = typeof index === 'number' ? fields[index]?.name : undefined;
+      if (field !== 'value' || typeof name !== 'string' || !name) continue;
+      byName.set(name, [...(byName.get(name) ?? []), rest]);
+    }
+    return byName;
+  });
+  const configuredPaths = (field: FieldDefinition): SecretPath[] => configuredByName.get(field.name) ?? [];
+  const isValueConfigured = (field: FieldDefinition) => configuredPaths(field).some((p) => p.length === 0);
   // Initialize config from parameters
   const [config, setConfig] = useState<SetFieldsConfig>(() => ({
     mode: parameters?.mode || 'manual',
@@ -246,6 +264,22 @@ export default function SetFieldsEditor({
   const renderValueInput = (field: FieldDefinition, index: number) => {
     const baseClass = 'w-full bg-transparent border-0 focus:outline-none focus:ring-0 focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)] text-sm text-primary placeholder-muted';
 
+    if (isValueConfigured(field)) {
+      return (
+        <div className="bg-card rounded px-3 py-2" data-testid={`set-field-configured-${field.name}`}>
+          <input
+            type="password"
+            value="configured"
+            readOnly
+            disabled
+            aria-label={`${field.name} (configured)`}
+            className={`${baseClass} opacity-60`}
+          />
+          <p className="mt-1 text-xs text-secondary">Configured. Ask an admin to change it.</p>
+        </div>
+      );
+    }
+
     if (field.is_expression) {
       return (
         <div className="flex items-center gap-2 bg-card rounded px-3 py-2">
@@ -300,7 +334,7 @@ export default function SetFieldsEditor({
       case 'array':
       case 'object': {
         const textValue = typeof field.value === 'string' ? field.value : JSON.stringify(field.value, null, 2);
-        // Flag only objects that don't parse — arrays also accept loose "5, 5" input, coerced on blur.
+        // Flag only objects that don't parse - arrays also accept loose "5, 5" input, coerced on blur.
         const isInvalid = field.type === 'object' && typeof field.value === 'string' && field.value.trim() !== '' && (() => {
           try { const p = JSON.parse(field.value); return !(p && typeof p === 'object' && !Array.isArray(p)); }
           catch { return true; }
@@ -323,7 +357,7 @@ export default function SetFieldsEditor({
               className={`${baseClass} font-mono text-xs resize-y`}
             />
             {isInvalid && (
-              <p className="mt-1 text-xs text-danger">Invalid JSON object — formats on blur once valid.</p>
+              <p className="mt-1 text-xs text-danger">Invalid JSON object - formats on blur once valid.</p>
             )}
           </div>
         );
@@ -387,13 +421,14 @@ export default function SetFieldsEditor({
                   ref={(el) => { nameInputRefs.current[index] = el; }}
                   type="text"
                   value={field.name}
+                  readOnly={isValueConfigured(field)}
                   onChange={(e) => updateField(index, { name: e.target.value })}
                   placeholder="name"
                   aria-invalid={!field.name.trim()}
                   className={`w-full bg-transparent border-0 focus:outline-none focus:ring-0 focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)] text-sm text-primary placeholder-gray-400 dark:placeholder-gray-500 ${!field.name.trim() ? 'ring-2 ring-danger rounded' : ''}`} // css-check-ignore: validation ring
                 />
                 {!field.name.trim() && (
-                  <p className="mt-1 text-xs text-danger">Field name required — this field produces no output until named.</p>
+                  <p className="mt-1 text-xs text-danger">Field name required - this field produces no output until named.</p>
                 )}
               </div>
 
@@ -416,6 +451,7 @@ export default function SetFieldsEditor({
               <select
                 value={field.type}
                 onChange={(e) => handleTypeChange(index, e.target.value as FieldDefinition['type'])}
+                disabled={isValueConfigured(field)}
                 className="bg-transparent border-0 focus:outline-none focus:ring-0 focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)] text-sm text-secondary cursor-pointer"
               >
                 {Object.entries(FIELD_TYPES).map(([type, config]) => (
@@ -428,6 +464,9 @@ export default function SetFieldsEditor({
 
             {/* Value input row */}
             <div className="px-3 py-2">
+              {!isValueConfigured(field) && (
+                <ConfiguredSecretsNote value={field.value} paths={configuredPaths(field)} testId={`set-field-secrets-note-${field.name}`} />
+              )}
               {renderValueInput(field, index)}
             </div>
 

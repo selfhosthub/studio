@@ -5,26 +5,29 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useUser } from '@/entities/user';
-import { getOrganizationSecret, updateOrganizationSecret, deleteOrganizationSecret, getOrganizationSecretUsage } from '@/shared/api';
-import { regenerateTriggerSecretKey } from '@/shared/api';
+import {
+  getOrganizationSecret,
+  revealOrganizationSecret,
+  updateOrganizationSecret,
+  deleteOrganizationSecret,
+  getOrganizationSecretUsage,
+  regenerateTriggerSecretKey,
+  type OrganizationSecretDetail,
+  type OrganizationSecretUsage,
+} from '@/shared/api';
 import { useToast } from '@/features/toast';
 import { ArrowLeft, Trash2, Lock, Eye, EyeOff, Copy, Check, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { LinkedText } from '@/shared/ui';
 import { TIMEOUTS } from '@/shared/lib/constants';
 import { useReturnTo } from '@/shared/hooks/useReturnTo';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
+import { getBrowserTimezone, utcIsoToZonedInput, zonedInputToUtcIso } from '@/shared/lib/schedule-utils';
+import { secretTypeLabel } from '@/shared/lib/secret-labels';
 
-interface SecretData {
-  id: string;
-  name: string;
-  secret_type: string;
-  description?: string;
-  secret_data?: Record<string, unknown>;
-  is_active: boolean;
-  is_protected?: boolean;
-  expires_at?: string | null;
-  created_at?: string;
-  updated_at?: string;
+/** One field shows its value; several show the JSON. */
+function displayValue(data: Record<string, unknown>, fields: string[]): string {
+  return fields.length === 1 ? String(data[fields[0]] ?? '') : JSON.stringify(data, null, 2);
 }
 
 export default function EditSecretPage() {
@@ -32,6 +35,7 @@ export default function EditSecretPage() {
   const router = useRouter();
   const { user, status: authStatus } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { returnTo, goBack } = useReturnTo('/secrets');
   const secretId = params.id as string;
 
@@ -42,7 +46,8 @@ export default function EditSecretPage() {
   }, [authStatus, canManageSecrets, router]);
 
   const [loading, setLoading] = useState(true);
-  const [secret, setSecret] = useState<SecretData | null>(null);
+  const [secret, setSecret] = useState<OrganizationSecretDetail | null>(null);
+  const [usage, setUsage] = useState<OrganizationSecretUsage | null>(null);
   const [secretType, setSecretType] = useState<string>('');
   const [isActive, setIsActive] = useState(true);
   const [expiresAt, setExpiresAt] = useState('');
@@ -53,13 +58,15 @@ export default function EditSecretPage() {
   const [simpleValue, setSimpleValue] = useState('');
   const [secretData, setSecretData] = useState('{}');
 
-  // Track if the secret has a value and if user is editing it
-  const [hasExistingValue, setHasExistingValue] = useState(false);
   const [isEditingValue, setIsEditingValue] = useState(false);
-  // Track reveal state and actual secret value
+  // Decrypted value, fetched from the reveal endpoint only on an explicit reveal
+  const [revealed, setRevealed] = useState<Record<string, unknown> | null>(null);
   const [showSecretValue, setShowSecretValue] = useState(false);
-  const [actualSecretValue, setActualSecretValue] = useState<string | null>(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
+
+  const fields = secret?.fields ?? [];
+  const hasExistingValue = fields.length > 0;
+  const multiField = fields.length > 1;
 
   useEffect(() => {
     const fetchSecret = async () => {
@@ -69,22 +76,8 @@ export default function EditSecretPage() {
         setSecret(data);
         setSecretType(data.secret_type);
         setIsActive(data.is_active);
-        setExpiresAt(data.expires_at ? data.expires_at.slice(0, 16) : '');
-
-        // Set secret data based on structure
-        const secretDataObj = data.secret_data || {};
-        setSecretData(JSON.stringify(secretDataObj, null, 2));
-
-        // Check if there's an existing value (non-empty)
-        const existingValue = String(secretDataObj.api_key || secretDataObj.token || secretDataObj.value || '');
-        setHasExistingValue(!!existingValue);
-        // Store the actual secret value for reveal
-        setActualSecretValue(existingValue);
-
-        // Don't populate the value - keep it masked
-        // User must explicitly click "Change" to edit
-        setSimpleValue('');
-        // Default to simple mode (useJsonMode is already false)
+        setExpiresAt(utcIsoToZonedInput(data.expires_at ?? null, getBrowserTimezone()));
+        getOrganizationSecretUsage(secretId).then(setUsage, () => setUsage(null));
       } catch (err: unknown) {
         console.error('Failed to fetch secret:', err);
         toast({ title: 'Failed to load secret', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
@@ -98,17 +91,59 @@ export default function EditSecretPage() {
     }
   }, [secretId, toast]);
 
+  // Fetches the decrypted value once per page load; each fetch writes a reveal audit row
+  const ensureRevealed = async (): Promise<Record<string, unknown> | null> => {
+    if (revealed) return revealed;
+    try {
+      const { secret_data } = await revealOrganizationSecret(secretId);
+      setRevealed(secret_data);
+      return secret_data;
+    } catch (err: unknown) {
+      toast({ title: 'Failed to reveal secret', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+      return null;
+    }
+  };
+
+  const toggleShowSecret = async () => {
+    if (showSecretValue) {
+      setShowSecretValue(false);
+      return;
+    }
+    if (await ensureRevealed()) setShowSecretValue(true);
+  };
+
+  const copySecret = async () => {
+    const data = await ensureRevealed();
+    if (!data) return;
+    navigator.clipboard.writeText(displayValue(data, fields));
+    setCopiedSecret(true);
+    setTimeout(() => setCopiedSecret(false), TIMEOUTS.COPY_FEEDBACK);
+  };
+
+  const openJsonMode = async () => {
+    if (hasExistingValue) {
+      const data = await ensureRevealed();
+      if (!data) return;
+      setSecretData(JSON.stringify(data, null, 2));
+    }
+    setUseJsonMode(true);
+  };
+
+  const startEditingValue = async () => {
+    setIsActive(true);
+    if (multiField) await openJsonMode();
+    setIsEditingValue(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     try {
       setSubmitting(true);
 
-      // Build update payload
-      // Auto-activate if user is setting/changing the secret value
-      const updatePayload: any = {
-        is_active: isEditingValue ? true : isActive,
-        expires_at: expiresAt || null,
+      const updatePayload: { is_active: boolean; expires_at: string | null; secret_data?: Record<string, unknown> } = {
+        is_active: isActive,
+        expires_at: expiresAt ? zonedInputToUtcIso(expiresAt, getBrowserTimezone()) : null,
       };
 
       // Only include secret_data if user is editing the value
@@ -121,6 +156,8 @@ export default function EditSecretPage() {
         try {
           if (useJsonMode) {
             parsedSecretData = JSON.parse(secretData);
+          } else if (fields.length === 1) {
+            parsedSecretData = { [fields[0]]: simpleValue };
           } else {
             if (secretType === 'api_key') {
               parsedSecretData = { api_key: simpleValue };
@@ -151,15 +188,20 @@ export default function EditSecretPage() {
   // this secret immediately uses the new key. Lives here (not in the workflow
   // editor) so the blast radius is explicit.
   const handleRegenerateKey = async () => {
-    if (!confirm('Regenerate the API key for this trigger secret? Every workflow sharing it will immediately use the new key and the old key stops working.')) {
+    if (!(await confirm({
+      title: 'Regenerate API key',
+      message: 'Regenerate the API key for this trigger secret? Every workflow sharing it will immediately use the new key and the old key stops working.',
+      confirmLabel: 'Regenerate',
+      variant: 'danger',
+    }))) {
       return;
     }
     setRegenerating(true);
     try {
       const result = await regenerateTriggerSecretKey(secretId);
-      setActualSecretValue(result.api_key);
-      setHasExistingValue(true);
-      setShowSecretValue(true);
+      // Caches the new key for Show and Copy unless other fields still need a reveal
+      setRevealed((prev) => (prev || !multiField ? { ...(prev ?? {}), api_key: result.api_key } : null));
+      setShowSecretValue(false);
       toast({
         title: 'API key regenerated',
         description: `${result.shared_by_count} workflow(s) now use the new key.`,
@@ -175,28 +217,29 @@ export default function EditSecretPage() {
   const handleDelete = async () => {
     // Warn if workflows trigger off this secret - confirming resets them to manual.
     let prompt = 'Are you sure you want to delete this secret? This action cannot be undone.';
-    try {
-      const usage = await getOrganizationSecretUsage(secretId);
-      if (usage.count > 0) {
-        const names = usage.workflow_names.length
-          ? `\n\n${usage.workflow_names.map((n) => `• ${n}`).join('\n')}`
-          : '';
-        const extra = usage.count - usage.workflow_names.length;
-        const more = extra > 0 ? `\n…and ${extra} more` : '';
-        prompt =
-          `This secret is used by ${usage.count} workflow(s).${names}${more}\n\n` +
-          'Deleting it will reset those workflows to a manual trigger. Continue?';
-      }
-    } catch (err: unknown) {
-      console.error('Failed to check secret usage:', err);
+    if (usage && usage.count > 0) {
+      const names = usage.workflow_names.length
+        ? `\n\n${usage.workflow_names.map((n) => `• ${n}`).join('\n')}`
+        : '';
+      const extra = usage.count - usage.workflow_names.length;
+      const more = extra > 0 ? `\n…and ${extra} more` : '';
+      prompt =
+        `This secret is used by ${usage.count} workflow(s).${names}${more}\n\n` +
+        'Deleting it will reset those workflows to a manual trigger. Continue?';
     }
-    if (!confirm(prompt)) {
+    if (!(await confirm({
+      title: 'Delete secret',
+      message: prompt,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) {
       return;
     }
 
     try {
       setDeleting(true);
       await deleteOrganizationSecret(secretId);
+      toast({ title: 'Secret deleted', variant: 'success' });
       goBack();
     } catch (err: unknown) {
       console.error('Failed to delete secret:', err);
@@ -243,11 +286,11 @@ export default function EditSecretPage() {
           </Link>
         </div>
 
-        <div className="bg-card shadow rounded-lg border border-primary">
-          <div className="px-6 py-4 border-b border-primary flex justify-between items-start">
+        <div className="infra-card">
+          <div className="infra-card-header flex justify-between items-start">
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold text-primary">
+                <h1 className="section-title text-2xl">
                   Edit Secret
                 </h1>
                 {secret.is_protected && (
@@ -256,7 +299,7 @@ export default function EditSecretPage() {
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-sm text-secondary">
+              <p className="section-subtitle mt-1">
                 Update the secret value and settings
               </p>
               {secret.description && (
@@ -266,7 +309,7 @@ export default function EditSecretPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {secret.secret_type === 'workflow_trigger' && (
+              {secret.secret_type === 'api_key' && (usage?.count ?? 0) > 0 && (
                 <button
                   onClick={handleRegenerateKey}
                   disabled={regenerating}
@@ -281,7 +324,7 @@ export default function EditSecretPage() {
                 <button
                   onClick={handleDelete}
                   disabled={deleting}
-                  className="inline-flex items-center px-3 py-1.5 border border-danger rounded-md text-sm font-medium text-danger bg-card hover:bg-danger-subtle"
+                  className="btn-danger inline-flex items-center"
                 >
                   <Trash2 className="mr-1.5 h-4 w-4" />
                   {deleting ? 'Deleting...' : 'Delete'}
@@ -290,7 +333,7 @@ export default function EditSecretPage() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="px-6 py-4">
+          <form onSubmit={handleSubmit} className="infra-card-body">
             <div className="space-y-4">
               <div>
                 <label htmlFor="secret-name" className="block text-sm font-medium text-secondary mb-1">
@@ -316,7 +359,7 @@ export default function EditSecretPage() {
                   id="secret-type"
                   type="text"
                   disabled
-                  value={secretType}
+                  value={secretTypeLabel(secretType)}
                   className="w-full rounded-md border-primary bg-card text-secondary sm:text-sm px-3 py-2 cursor-not-allowed"
                 />
               </div>
@@ -326,10 +369,10 @@ export default function EditSecretPage() {
                   <label htmlFor="secret-value" className="form-label">
                     Secret Value {isEditingValue && <span className="text-danger">*</span>}
                   </label>
-                  {isEditingValue && (
+                  {isEditingValue && !multiField && (
                     <button
                       type="button"
-                      onClick={() => setUseJsonMode(!useJsonMode)}
+                      onClick={() => (useJsonMode ? setUseJsonMode(false) : openJsonMode())}
                       className="text-xs text-info hover:text-info"
                     >
                       {useJsonMode ? '← Simple Mode' : 'JSON Mode →'}
@@ -341,10 +384,10 @@ export default function EditSecretPage() {
                 {!isEditingValue ? (
                   <div className="flex items-center gap-3">
                     <div className="flex-1 min-w-0 rounded-md border border-primary bg-surface px-3 py-2 overflow-x-auto">
-                      <span className="font-mono text-sm text-secondary break-all">
+                      <span className="font-mono text-sm text-secondary break-all whitespace-pre-wrap">
                         {hasExistingValue
-                          ? (showSecretValue && actualSecretValue
-                              ? actualSecretValue
+                          ? (showSecretValue && revealed
+                              ? displayValue(revealed, fields)
                               : '••••••••••••••••')
                           : '(not set)'}
                       </span>
@@ -353,7 +396,7 @@ export default function EditSecretPage() {
                     {hasExistingValue && (
                       <button
                         type="button"
-                        onClick={() => setShowSecretValue(!showSecretValue)}
+                        onClick={toggleShowSecret}
                         className="p-2 text-secondary hover:text-secondary border border-primary rounded-md hover:bg-surface"
                         title={showSecretValue ? 'Hide secret' : 'Show secret'}
                       >
@@ -361,16 +404,10 @@ export default function EditSecretPage() {
                       </button>
                     )}
                     {/* Copy button */}
-                    {hasExistingValue && actualSecretValue && (
+                    {hasExistingValue && (
                       <button
                         type="button"
-                        onClick={() => {
-                          if (actualSecretValue) {
-                            navigator.clipboard.writeText(actualSecretValue);
-                            setCopiedSecret(true);
-                            setTimeout(() => setCopiedSecret(false), TIMEOUTS.COPY_FEEDBACK);
-                          }
-                        }}
+                        onClick={copySecret}
                         className="p-2 text-secondary hover:text-secondary border border-primary rounded-md hover:bg-surface"
                         title="Copy to clipboard"
                       >
@@ -379,7 +416,7 @@ export default function EditSecretPage() {
                     )}
                     <button
                       type="button"
-                      onClick={() => setIsEditingValue(true)}
+                      onClick={startEditingValue}
                       className="px-3 py-2 text-sm font-medium text-info hover:text-info border border-info  rounded-md hover:bg-info-subtle"
                     >
                       {hasExistingValue ? 'Change' : 'Set Value'}
@@ -409,16 +446,17 @@ export default function EditSecretPage() {
                             setIsEditingValue(false);
                             setSimpleValue('');
                           }}
-                          className="px-3 py-2 text-sm text-secondary hover:text-secondary"
+                          className="btn-cancel text-sm"
                         >
                           Cancel
                         </button>
                       )}
                     </div>
                     <p className="mt-1 text-xs text-secondary">
-                      {secretType === 'api_key' && `Stored as {"api_key": "..."}`}
-                      {secretType === 'bearer' && `Stored as {"token": "..."}`}
-                      {secretType === 'custom' && 'Use JSON mode for custom structure'}
+                      {fields.length === 1 && `Stored as {"${fields[0]}": "..."}`}
+                      {fields.length === 0 && secretType === 'api_key' && `Stored as {"api_key": "..."}`}
+                      {fields.length === 0 && secretType === 'bearer' && `Stored as {"token": "..."}`}
+                      {fields.length === 0 && secretType === 'custom' && 'Use JSON mode for custom structure'}
                     </p>
                   </>
                 ) : (
@@ -441,7 +479,7 @@ export default function EditSecretPage() {
                             setIsEditingValue(false);
                             setUseJsonMode(false);
                           }}
-                          className="self-end px-3 py-1 text-sm text-secondary hover:text-secondary"
+                          className="btn-cancel self-end text-sm"
                         >
                           Cancel
                         </button>
@@ -469,7 +507,7 @@ export default function EditSecretPage() {
 
               <div>
                 <label htmlFor="secret-expires-at" className="block text-sm font-medium text-secondary mb-1">
-                  Expiration Date (optional)
+                  Expires (optional)
                 </label>
                 <input
                   id="secret-expires-at"
@@ -484,7 +522,7 @@ export default function EditSecretPage() {
             <div className="mt-6 flex justify-end space-x-3">
               <Link
                 href={returnTo}
-                className="btn-orange text-sm inline-flex items-center"
+                className="btn-cancel text-sm inline-flex items-center"
               >
                 Cancel
               </Link>
@@ -493,7 +531,7 @@ export default function EditSecretPage() {
                 disabled={submitting}
                 className="btn-primary"
               >
-                {submitting ? 'Saving...' : 'Save Changes'}
+                {submitting ? 'Saving...' : 'Save'}
               </button>
             </div>
           </form>

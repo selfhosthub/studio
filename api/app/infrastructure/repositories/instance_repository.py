@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import inspect, select, func
+from sqlalchemy import String, asc, cast, desc, func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes, selectinload
 
@@ -20,6 +20,16 @@ from app.infrastructure.persistence.models import (
 )
 
 
+# Columns each list sort orders by; the instance name is its workflow name then run number.
+_INSTANCE_SORT_COLUMNS: Dict[str, List[Any]] = {
+    "name": [WorkflowModel.name, InstanceModel.version],
+    "workflow_name": [WorkflowModel.name],
+    "status": [cast(InstanceModel.status, String)],
+    "updated_at": [InstanceModel.updated_at],
+    "created_at": [InstanceModel.created_at],
+}
+
+
 class SQLAlchemyInstanceRepository(InstanceRepository):
     """SQLAlchemy implementation of the workflow-instance repository."""
 
@@ -31,6 +41,7 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
             id=instance.id,
             workflow_id=instance.workflow_id,
             organization_id=instance.organization_id,
+            user_id=instance.user_id,
             status=instance.status,
             version=instance.version,
             input_data=instance.input_data,
@@ -49,7 +60,10 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
         await self.session.commit()
         await self.session.refresh(instance_model)
 
-        return self._to_domain(instance_model)
+        workflow_name = await self.session.scalar(
+            select(WorkflowModel.name).where(WorkflowModel.id == instance.workflow_id)
+        )
+        return self._to_domain(instance_model, workflow_name)
 
     async def update(self, instance: Instance, *, commit: bool = True) -> Instance:
         stmt = select(InstanceModel).where(InstanceModel.id == instance.id)
@@ -88,7 +102,7 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
         else:
             await self.session.flush()
 
-        return self._to_domain(instance_model)
+        return self._to_domain(instance_model, instance.workflow_name)
 
     async def get_by_id(self, instance_id: uuid.UUID) -> Optional[Instance]:
         stmt = (
@@ -198,7 +212,11 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
         elif status is not None:
             stmt = stmt.where(InstanceModel.status == status)
 
-        stmt = stmt.offset(skip).limit(limit)
+        stmt = (
+            stmt.order_by(InstanceModel.created_at.desc(), InstanceModel.id)
+            .offset(skip)
+            .limit(limit)
+        )
 
         result = await self.session.execute(stmt)
         rows = result.all()
@@ -216,6 +234,9 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
         statuses: Optional[List[InstanceStatus]] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        workflow_id: Optional[uuid.UUID] = None,
+        sort_by: Optional[str] = None,
+        sort_order: str = "desc",
     ) -> List[Instance]:
         stmt = (
             select(InstanceModel, WorkflowModel.name)
@@ -223,6 +244,8 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
             .where(InstanceModel.organization_id == organization_id)
             .options(selectinload(InstanceModel.step_executions))
         )
+        if workflow_id is not None:
+            stmt = stmt.where(InstanceModel.workflow_id == workflow_id)
 
         if statuses:
             stmt = stmt.where(InstanceModel.status.in_(statuses))
@@ -233,8 +256,14 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
         if end_date is not None:
             stmt = stmt.where(InstanceModel.created_at <= end_date)
 
+        sort_columns = _INSTANCE_SORT_COLUMNS.get(sort_by or "", [])
+        direction = asc if sort_order == "asc" else desc
         stmt = (
-            stmt.order_by(InstanceModel.created_at.desc())
+            stmt.order_by(
+                *(direction(column) for column in sort_columns),
+                InstanceModel.created_at.desc(),
+                InstanceModel.id,
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -267,12 +296,15 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
         organization_id: uuid.UUID,
         status: Optional[InstanceStatus] = None,
         statuses: Optional[List[InstanceStatus]] = None,
+        workflow_id: Optional[uuid.UUID] = None,
     ) -> int:
         stmt = (
             select(func.count())
             .select_from(InstanceModel)
             .where(InstanceModel.organization_id == organization_id)
         )
+        if workflow_id is not None:
+            stmt = stmt.where(InstanceModel.workflow_id == workflow_id)
         if statuses:
             stmt = stmt.where(InstanceModel.status.in_(statuses))
         elif status is not None:
@@ -416,6 +448,7 @@ class SQLAlchemyInstanceRepository(InstanceRepository):
             id=model.id,
             workflow_id=model.workflow_id,
             organization_id=model.organization_id,
+            user_id=model.user_id,
             workflow_name=workflow_name,
             status=model.status,
             version=model.version,

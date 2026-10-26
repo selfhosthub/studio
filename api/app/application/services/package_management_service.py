@@ -209,6 +209,15 @@ class PackageManagementService:
                 return row
         return max(rows, key=lambda r: parse_semver(r.version or "0"))
 
+    async def list_provider_rows(self, slug: str) -> List[Dict[str, Any]]:
+        """Every provider row for a slug, one per installed version, as {id, status}."""
+        result = await self._session.execute(
+            select(ProviderModel.id, ProviderModel.operational_status).where(
+                ProviderModel.slug == slug
+            )
+        )
+        return [{"id": row.id, "status": row.operational_status} for row in result]
+
     async def get_provider_id_by_slug(self, slug: str) -> Optional[str]:
         """Return provider UUID as string, or None."""
         provider = await self._row_for_slug(slug)
@@ -340,10 +349,12 @@ class PackageManagementService:
         await self._session.commit()
 
         svc_result = await self._session.execute(
-            select(ProviderServiceModel.service_id).where(
+            select(ProviderServiceModel.service_id)
+            .where(
                 ProviderServiceModel.provider_id == provider_id,
                 ProviderServiceModel.is_active.is_(True),
             )
+            .order_by(ProviderServiceModel.position, ProviderServiceModel.service_id)
         )
         services = [row[0] for row in svc_result.all()]
 

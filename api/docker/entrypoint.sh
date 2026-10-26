@@ -6,7 +6,8 @@
 # Two paths:
 #
 #   A. Default CMD (supervisord) → full first-boot:
-#      1. /workspace/.env exists → use as-is, generate nothing.
+#      1. /workspace/.env exists → use as-is, generate nothing; tighten
+#         to 0600 when this uid owns it.
 #      2. /workspace/.env absent → generate SHS_DEPLOYMENT_SHAPE, the three
 #         secrets (JWT, worker shared, credential encryption), and the nginx
 #         front-door vars (SHS_NGINX_PORT, SHS_CORS_ORIGINS=*,
@@ -90,6 +91,12 @@ consume_cf_token() {
     mv "$tmp" "$WORKSPACE_ENV"
     chmod 0600 "$WORKSPACE_ENV"
     echo "consumed $CF_TOKEN_MOUNT → .env"
+}
+
+# Tighten an existing .env to 0600 when this uid owns it; a foreign-owned file is left as is.
+secure_workspace_env() {
+    { [ -f "$WORKSPACE_ENV" ] && [ -O "$WORKSPACE_ENV" ]; } || return 0
+    chmod 0600 "$WORKSPACE_ENV" 2>/dev/null || echo "WARNING: could not chmod 0600 $WORKSPACE_ENV" >&2
 }
 
 # Write a literal numprocs=<count> into a supervisor conf fragment.
@@ -235,6 +242,7 @@ if [ ! -f "$WORKSPACE_ENV" ]; then
 else
     echo "Found existing $WORKSPACE_ENV - using as-is, no keys generated."
 fi
+secure_workspace_env
 
 # --- Step 3: symlinks ----------------------------------------------------
 # Two targets: /app/.env (per plan contract) and /app/api/.env (where

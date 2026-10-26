@@ -14,30 +14,43 @@ import Link from 'next/link';
 import {
   StatusBadge,
   ActionButton,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableCell,
-  TableHeaderCell,
-  TableContainer,
+  ResourceTable,
+  sortRows,
+  resolveTieBreak,
   SearchInput,
   Pagination,
   LoadingState,
   ErrorState,
   EmptyState,
+  type ResourceColumnConfig,
+  type SortDirection,
+  type SortState,
 } from '@/shared/ui';
 import { useUser } from '@/entities/user';
-import { uninstallPackage, checkPackageUsage, getProviders, updateProvider } from '@/shared/api';
+import { useToast } from '@/features/toast';
+import { uninstallPackage, reinstallPackage, getProviders, updateProvider } from '@/shared/api';
 import { LayoutGrid, List, Plug, HelpCircle } from 'lucide-react';
 import { ProviderDocsSlideOver } from '@/features/provider-docs/ProviderDocsSlideOver';
-import { PAGE_SIZE_OPTIONS, getStoredPageSize } from '@/shared/lib/pagination';
-import { listPageSizeKey, STORAGE_KEYS } from '@/shared/lib/constants';
+import { PAGE_SIZE_OPTIONS, DEFAULT_PAGE_SIZE } from '@/shared/lib/pagination';
+import { STORAGE_KEYS } from '@/shared/lib/constants';
 import { useCurrentUrl, withReturnTo } from '@/shared/hooks/useReturnTo';
-
-const PAGE_SIZE_KEY = listPageSizeKey('providers');
+import { deactivatedToast, useConfirmDeactivate } from './useConfirmDeactivate';
+import { useListPref, isPageSize, isString, oneOf } from '@/shared/hooks/useListPref';
 
 type ViewMode = 'grid' | 'table';
+
+const SORT_DIRECTIONS = ['asc', 'desc'] as const;
+
+// Package name for a provider: its slug, else its name hyphenated.
+function packageNameOf(provider: Provider): string {
+  return provider.slug || provider.name.toLowerCase().replace(/\s+/g, '-');
+}
+
+// Status label for a provider; an inactive provider reads as deactivated.
+function statusLabel(provider: Provider): string {
+  if (provider.status === 'inactive') return 'deactivated';
+  return provider.status || 'active'; // defaults-ok
+}
 
 interface ProvidersListProps {
   // Show only managed/custom-origin providers (non-reserved namespace).
@@ -47,16 +60,21 @@ interface ProvidersListProps {
 export default function ProvidersList({ customOriginOnly }: ProvidersListProps) {
   const { user } = useUser();
   const from = useCurrentUrl();
+  const confirmDeactivate = useConfirmDeactivate();
+  const { toast } = useToast();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [uninstalling, setUninstalling] = useState<string | null>(null);
+  const [deactivating, setDeactivating] = useState<string | null>(null);
+  const [activating, setActivating] = useState<string | null>(null);
 
   // Search and pagination state
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useListPref('providers', 'search', '', isString);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(() => getStoredPageSize(PAGE_SIZE_KEY));
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [pageSize, setPageSize] = useListPref('providers', 'pageSize', DEFAULT_PAGE_SIZE, isPageSize);
+  const [sortField, setSortField] = useListPref('providers', 'sortField', '', isString);
+  const [sortDirection, setSortDirection] = useListPref<SortDirection>('providers', 'sortDirection', 'asc', oneOf(SORT_DIRECTIONS));
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [docsSlug, setDocsSlug] = useState<string | null>(null);
   const [isDocsOpen, setIsDocsOpen] = useState(false);
 
@@ -66,8 +84,8 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
     if (didInitViewMode.current) return;
     didInitViewMode.current = true;
     const saved = localStorage.getItem(STORAGE_KEYS.PROVIDERS_VIEW_MODE);
-    // Compute unconditionally; fall back to 'grid' so setViewMode is a direct top-level statement.
-    const next: ViewMode = (saved === 'grid' || saved === 'table') ? (saved as ViewMode) : 'grid';
+    // Compute unconditionally; fall back to 'table' so setViewMode is a direct top-level statement.
+    const next: ViewMode = (saved === 'grid' || saved === 'table') ? (saved as ViewMode) : 'table';
     setViewMode(next);
   }, []);
 
@@ -95,16 +113,18 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
   }, []);
 
   const filteredProviders = useMemo(() => {
-    return providers.filter((provider) => {
-      if (customOriginOnly && !isCustomOriginSlug(provider.slug)) {
-        return false;
-      }
-      return (
-        provider.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        provider.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        provider.provider_type?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    });
+    return providers
+      .filter((provider) => {
+        if (customOriginOnly && !isCustomOriginSlug(provider.slug)) {
+          return false;
+        }
+        return (
+          provider.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          provider.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          provider.provider_type?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }, [providers, searchTerm, customOriginOnly]);
 
   // Reset page when search changes (adjust during render, not in an effect).
@@ -113,16 +133,6 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
     setPrevSearchTerm(searchTerm);
     setCurrentPage(1);
   }
-
-  // Pagination calculations
-  const totalCount = filteredProviders.length;
-  const totalPages = Math.ceil(totalCount / pageSize) || 1;
-
-  // Apply pagination
-  const paginatedProviders = filteredProviders.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
 
   if (isLoading) {
     return <LoadingState message="Loading providers..." />;
@@ -145,16 +155,16 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
     return (
       <EmptyState
         icon={<Plug className="h-12 w-12" />}
-        title={isSuperAdmin ? "No Custom Providers" : "No Providers Found"}
+        title={isSuperAdmin ? "No custom providers" : "No providers found"}
         description={isSuperAdmin
-          ? "Upload a custom provider package to make it available for organizations."
-          : "Get started by installing providers from the marketplace."}
+          ? "Upload a custom provider to make it available for organizations."
+          : "Get started by installing providers from the Marketplace."}
         action={isSuperAdmin ? (
           <Link
             href="/providers/create"
             className="btn-primary inline-flex items-center"
           >
-            Upload Package
+            Upload Provider
           </Link>
         ) : undefined}
       />
@@ -202,40 +212,34 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
     }
   };
 
-  const handleUninstall = async (provider: Provider) => {
-    const packageName = provider.slug || provider.name.toLowerCase().replace(/\s+/g, '-');
+  const handleDeactivate = async (provider: Provider) => {
+    const packageName = packageNameOf(provider);
+    if (!(await confirmDeactivate(provider.name, packageName))) return;
 
-    // Check usage and confirm
-    try {
-      const usage = await checkPackageUsage(packageName);
-      if (usage.workflow_count > 0) {
-        const orgCount = usage.affected_orgs?.length || 0;
-        const warningMsg = `This package is used by ${usage.workflow_count} workflow(s) across ${orgCount} organization(s). Deactivating will break these. Continue?`;
-        if (!confirm(warningMsg)) {
-          return;
-        }
-      } else {
-        if (!confirm(`Deactivate ${provider.name}?`)) {
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('Failed to check package usage:', err);
-      if (!confirm(`Deactivate ${provider.name}?`)) {
-        return;
-      }
-    }
-
-    // Proceed with uninstall (force=true since user confirmed)
-    setUninstalling(provider.id);
+    setDeactivating(provider.id);
     try {
       await uninstallPackage(packageName, true);
-      setProviders(prev => prev.filter(p => p.id !== provider.id));
+      setProviders(prev => prev.map(p => (p.id === provider.id ? { ...p, status: 'inactive' } : p)));
+      toast(deactivatedToast(provider.name));
     } catch (err: unknown) {
       console.error('Failed to deactivate package:', err);
-      setError(err instanceof Error ? err.message : 'Failed to deactivate package');
+      setError(err instanceof Error ? err.message : 'Failed to deactivate provider');
     } finally {
-      setUninstalling(null);
+      setDeactivating(null);
+    }
+  };
+
+  const handleActivate = async (provider: Provider) => {
+    setActivating(provider.id);
+    try {
+      await reinstallPackage(packageNameOf(provider));
+      setProviders(prev => prev.map(p => (p.id === provider.id ? { ...p, status: 'active' } : p)));
+      toast({ title: `"${provider.name}" activated`, variant: 'success' });
+    } catch (err: unknown) {
+      console.error('Failed to activate package:', err);
+      setError(err instanceof Error ? err.message : 'Failed to activate provider');
+    } finally {
+      setActivating(null);
     }
   };
 
@@ -255,64 +259,248 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
     }
   };
 
-  return (
-    <div>
-      {/* Search and View Controls */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        <div className="w-full sm:w-auto sm:flex-1">
-          <SearchInput
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="Search providers..."
-          />
+  const columns: ResourceColumnConfig<Provider>[] = [
+    {
+      key: 'name',
+      header: 'Provider',
+      sortValue: (provider) => provider.name,
+      render: (provider) => (
+        <div className="flex items-center gap-3">
+          <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${getAvatarGradient(provider.name)} flex items-center justify-center max-md:hidden`}>
+            <span className="text-white font-bold text-sm">
+              {getInitials(provider.name)}
+            </span>
+          </div>
+          <div>
+            <div className="flex items-center gap-1">
+              <Link
+                href={withReturnTo(`/providers/${provider.id}`, from)}
+                className="text-sm font-medium link hover:underline"
+              >
+                {provider.name}
+              </Link>
+              {!!(provider.client_metadata as Record<string, unknown>)?.slug && (
+                <button type="button" onClick={() => { setDocsSlug((provider.client_metadata as Record<string, unknown>).slug as string); setIsDocsOpen(true); }} className="text-muted hover:text-info transition-colors" title="Provider documentation">
+                  <HelpCircle className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="text-xs text-muted line-clamp-2">
+              {provider.description}
+            </div>
+          </div>
         </div>
-        {/* View Toggle */}
-        <div className="flex items-center gap-1 bg-card rounded-lg p-1">
-          <button
-            onClick={() => handleViewModeChange('grid')}
-            className={`p-2 rounded ${
-              viewMode === 'grid'
-                ? 'bg-card shadow text-primary'
-                : 'text-secondary hover:text-secondary'
-            }`}
-            title="Grid view"
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      align: 'center',
+      sortValue: (provider) => provider.provider_type,
+      render: (provider) => (
+        <span className={`badge ${getProviderTypeColor(provider.provider_type)}`}>
+          {provider.provider_type}
+        </span>
+      ),
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      align: 'center',
+      sortValue: (provider) => (provider.client_metadata?.package_version ? String(provider.client_metadata.package_version) : null),
+      render: (provider) => (
+        <span className="text-sm text-muted">
+          {provider.client_metadata?.package_version ? `v${provider.client_metadata.package_version}` : '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'tier',
+      header: 'Tier',
+      align: 'center',
+      sortValue: (provider) => getTierBadge(provider.tier)?.label,
+      render: (provider) => (
+        <span className={`badge ${getTierBadge(provider.tier)?.className}`}>
+          {getTierBadge(provider.tier)?.label}
+        </span>
+      ),
+    },
+    {
+      key: 'services',
+      header: 'Services',
+      align: 'center',
+      sortValue: (provider) => provider.services?.length,
+      render: (provider) => provider.services?.length || 0,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'center',
+      sortValue: (provider) => statusLabel(provider),
+      render: (provider) => (
+        <StatusBadge
+          status={statusLabel(provider)}
+          variant={
+            provider.status === "active"
+              ? "success"
+              : provider.status === "inactive"
+                ? "warning"
+                : "error"
+          }
+        />
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'center',
+      render: (provider) => (
+        <div className="flex justify-center gap-2 items-center max-md:flex-col max-md:items-stretch">
+          {isSuperAdmin && isCustomOriginSlug(provider.slug) && (
+            <select
+              aria-label="Visibility"
+              value={provider.visibility ?? 'private'} // defaults-ok
+              onChange={(e) =>
+                handleVisibilityChange(provider, e.target.value as Visibility)
+              }
+              className="form-input text-sm py-1"
+            >
+              {(Object.keys(VISIBILITY_LABELS) as Visibility[]).map((v) => (
+                <option key={v} value={v}>
+                  {VISIBILITY_LABELS[v]}
+                </option>
+              ))}
+            </select>
+          )}
+          <ActionButton
+            variant="navigate"
+            onClick={() => window.location.href = withReturnTo(`/providers/${provider.id}`, from)}
           >
-            <LayoutGrid className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => handleViewModeChange('table')}
-            className={`p-2 rounded ${
-              viewMode === 'table'
-                ? 'bg-card shadow text-primary'
-                : 'text-secondary hover:text-secondary'
-            }`}
-            title="Table view"
-          >
-            <List className="w-4 h-4" />
-          </button>
+            View
+          </ActionButton>
+          {user?.role === 'admin' && (
+            <ActionButton
+              variant="change"
+              onClick={() => window.location.href = withReturnTo(`/providers/${provider.id}/credentials`, from)}
+            >
+              Credentials
+            </ActionButton>
+          )}
+          {isSuperAdmin && provider.status === 'inactive' && (
+            <ActionButton
+              variant="active"
+              onClick={() => handleActivate(provider)}
+              disabled={activating === provider.id}
+            >
+              {activating === provider.id ? 'Activating...' : 'Activate'}
+            </ActionButton>
+          )}
+          {isSuperAdmin && provider.status !== 'inactive' && (
+            <ActionButton
+              variant="warning"
+              onClick={() => handleDeactivate(provider)}
+              disabled={deactivating === provider.id}
+            >
+              {deactivating === provider.id
+                ? 'Deactivating...'
+                : 'Deactivate'}
+            </ActionButton>
+          )}
         </div>
-        {/* Pagination Controls - Top */}
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          totalCount={totalCount}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setCurrentPage(1);
-            localStorage.setItem(PAGE_SIZE_KEY, String(size));
-          }}
-          pageSizeOptions={PAGE_SIZE_OPTIONS}
-          position="top"
+      ),
+    },
+  ];
+
+  const activeSortColumn = columns.find((c) => c.key === sortField && c.sortValue);
+  const sortedProviders = activeSortColumn?.sortValue
+    ? sortRows(filteredProviders, activeSortColumn.sortValue, sortDirection, (provider) => provider.id, resolveTieBreak(columns))
+    : filteredProviders;
+
+  const handleSortChange = (next: SortState) => {
+    setSortField(next.field ?? '');
+    setSortDirection(next.direction);
+    setCurrentPage(1);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
+
+  // Pagination shared by the grid and table views
+  const totalCount = sortedProviders.length;
+  const totalPages = Math.ceil(totalCount / pageSize) || 1; // defaults-ok
+  const paginatedProviders = sortedProviders.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  const viewControls = (
+    <>
+      <div className="w-full sm:w-auto sm:flex-1">
+        <SearchInput
+          value={searchTerm}
+          onChange={setSearchTerm}
+          placeholder="Search providers..."
         />
       </div>
+      {/* View Toggle */}
+      <div className="flex items-center gap-1 bg-card rounded-lg p-1">
+        <button
+          onClick={() => handleViewModeChange('grid')}
+          className={`p-2 rounded ${
+            viewMode === 'grid'
+              ? 'bg-card shadow text-primary'
+              : 'text-secondary hover:text-secondary'
+          }`}
+          title="Grid view"
+        >
+          <LayoutGrid className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => handleViewModeChange('table')}
+          className={`p-2 rounded ${
+            viewMode === 'table'
+              ? 'bg-card shadow text-primary'
+              : 'text-secondary hover:text-secondary'
+          }`}
+          title="Table view"
+        >
+          <List className="w-4 h-4" />
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <div>
+      {/* Search, view toggle and top pager for the grid view */}
+      {viewMode === 'grid' && (
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          {viewControls}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={handlePageSizeChange}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+            position="top"
+          />
+        </div>
+      )}
 
       {/* Empty state for filtered results */}
-      {filteredProviders.length === 0 && searchTerm && (
+      {viewMode === 'grid' && filteredProviders.length === 0 && searchTerm && (
         <EmptyState
           title="No providers found"
-          description="Try adjusting your search term."
+          description={`No results for "${searchTerm}".`}
+          action={
+            <button type="button" className="btn-secondary" onClick={() => setSearchTerm('')}>
+              Clear search
+            </button>
+          }
         />
       )}
 
@@ -346,7 +534,7 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
                       )}
                     </div>
                     <StatusBadge
-                      status={provider.status || 'active'}
+                      status={statusLabel(provider)}
                       variant={
                         provider.status === "active"
                           ? "success"
@@ -408,7 +596,7 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
                   href={withReturnTo(`/providers/${provider.id}`, from)}
                   className="link text-sm font-medium"
                 >
-                  View Details
+                  View
                 </Link>
                 <div className="flex space-x-3">
                   {user?.role === 'admin' && (
@@ -435,13 +623,22 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
                       ))}
                     </select>
                   )}
-                  {isSuperAdmin && (
+                  {isSuperAdmin && provider.status === 'inactive' && (
                     <button
-                      onClick={() => handleUninstall(provider)}
-                      disabled={uninstalling === provider.id}
-                      className="text-sm font-medium link-subtle disabled:opacity-50"
+                      onClick={() => handleActivate(provider)}
+                      disabled={activating === provider.id}
+                      className="text-sm font-medium link disabled:opacity-50"
                     >
-                      {uninstalling === provider.id
+                      {activating === provider.id ? 'Activating...' : 'Activate'}
+                    </button>
+                  )}
+                  {isSuperAdmin && provider.status !== 'inactive' && (
+                    <button
+                      onClick={() => handleDeactivate(provider)}
+                      disabled={deactivating === provider.id}
+                      className="text-sm font-medium text-warning hover:underline disabled:opacity-50"
+                    >
+                      {deactivating === provider.id
                         ? 'Deactivating...'
                         : 'Deactivate'}
                     </button>
@@ -454,134 +651,44 @@ export default function ProvidersList({ customOriginOnly }: ProvidersListProps) 
       )}
 
       {/* Table View */}
-      {viewMode === 'table' && paginatedProviders.length > 0 && (
-        <TableContainer>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Provider</TableHeaderCell>
-                <TableHeaderCell align="center">Type</TableHeaderCell>
-                <TableHeaderCell align="center">Version</TableHeaderCell>
-                <TableHeaderCell align="center">Tier</TableHeaderCell>
-                <TableHeaderCell align="center">Services</TableHeaderCell>
-                <TableHeaderCell align="center">Status</TableHeaderCell>
-                <TableHeaderCell align="center">Actions</TableHeaderCell>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedProviders.map((provider) => (
-                <TableRow key={provider.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${getAvatarGradient(provider.name)} flex items-center justify-center`}>
-                        <span className="text-white font-bold text-sm">
-                          {getInitials(provider.name)}
-                        </span>
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <Link
-                            href={withReturnTo(`/providers/${provider.id}`, from)}
-                            className="text-sm font-medium link hover:underline"
-                          >
-                            {provider.name}
-                          </Link>
-                          {!!(provider.client_metadata as Record<string, unknown>)?.slug && (
-                            <button type="button" onClick={() => { setDocsSlug((provider.client_metadata as Record<string, unknown>).slug as string); setIsDocsOpen(true); }} className="text-muted hover:text-info transition-colors" title="Provider documentation">
-                              <HelpCircle className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted line-clamp-2">
-                          {provider.description}
-                        </div>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell align="center">
-                    <span className={`badge ${getProviderTypeColor(provider.provider_type)}`}>
-                      {provider.provider_type}
-                    </span>
-                  </TableCell>
-                  <TableCell align="center">
-                    <span className="text-sm text-muted">
-                      {provider.client_metadata?.package_version ? `v${provider.client_metadata.package_version}` : '-'}
-                    </span>
-                  </TableCell>
-                  <TableCell align="center">
-                    <span className={`badge ${getTierBadge(provider.tier)?.className}`}>
-                      {getTierBadge(provider.tier)?.label}
-                    </span>
-                  </TableCell>
-                  <TableCell align="center">
-                    {provider.services?.length || 0}
-                  </TableCell>
-                  <TableCell align="center">
-                    <StatusBadge
-                      status={provider.status || 'active'}
-                      variant={
-                        provider.status === "active"
-                          ? "success"
-                          : provider.status === "inactive"
-                            ? "warning"
-                            : "error"
-                      }
-                    />
-                  </TableCell>
-                  <TableCell align="center">
-                    <div className="flex justify-center gap-2">
-                      {isSuperAdmin && isCustomOriginSlug(provider.slug) && (
-                        <select
-                          aria-label="Visibility"
-                          value={provider.visibility ?? 'private'} // defaults-ok
-                          onChange={(e) =>
-                            handleVisibilityChange(provider, e.target.value as Visibility)
-                          }
-                          className="form-input text-sm py-1"
-                        >
-                          {(Object.keys(VISIBILITY_LABELS) as Visibility[]).map((v) => (
-                            <option key={v} value={v}>
-                              {VISIBILITY_LABELS[v]}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      <ActionButton
-                        variant="navigate"
-                        onClick={() => window.location.href = withReturnTo(`/providers/${provider.id}`, from)}
-                      >
-                        View
-                      </ActionButton>
-                      {user?.role === 'admin' && (
-                        <ActionButton
-                          variant="change"
-                          onClick={() => window.location.href = withReturnTo(`/providers/${provider.id}/credentials`, from)}
-                        >
-                          Credentials
-                        </ActionButton>
-                      )}
-                      {isSuperAdmin && (
-                        <ActionButton
-                          variant="destructive"
-                          onClick={() => handleUninstall(provider)}
-                          disabled={uninstalling === provider.id}
-                        >
-                          {uninstalling === provider.id
-                            ? 'Uninstalling...'
-                            : 'Uninstall'}
-                        </ActionButton>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+      {viewMode === 'table' && (
+        <ResourceTable
+          data={paginatedProviders}
+          getItemId={(provider) => provider.id}
+          columns={columns}
+          sort={{
+            field: activeSortColumn ? activeSortColumn.key : null,
+            direction: sortDirection,
+            onChange: handleSortChange,
+            server: true,
+          }}
+          pagination={{
+            itemLabel: 'provider',
+            server: {
+              currentPage,
+              totalCount,
+              pageSize,
+              onPageChange: setCurrentPage,
+              onPageSizeChange: handlePageSizeChange,
+            },
+          }}
+          toolbar={viewControls}
+          emptyState={
+            <EmptyState
+              title="No providers found"
+              description={searchTerm ? `No results for "${searchTerm}".` : 'Try adjusting your search term.'}
+              action={searchTerm ? (
+                <button type="button" className="btn-secondary" onClick={() => setSearchTerm('')}>
+                  Clear search
+                </button>
+              ) : undefined}
+            />
+          }
+        />
       )}
 
       {/* Pagination Controls - Bottom */}
-      {paginatedProviders.length > 0 && (
+      {viewMode === 'grid' && paginatedProviders.length > 0 && (
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}

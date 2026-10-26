@@ -11,6 +11,8 @@ interface KeyValueEditorProps {
   keyPlaceholder?: string;
   valuePlaceholder?: string;
   addLabel?: string;
+  /** Keys holding a stored secret the viewer cannot read, shown as configured and read-only. */
+  configuredKeys?: string[];
 }
 
 interface Row {
@@ -33,6 +35,7 @@ export function KeyValueEditor({
   keyPlaceholder = 'key',
   valuePlaceholder = 'value',
   addLabel = 'Add pair',
+  configuredKeys = [],
 }: KeyValueEditorProps) {
   // Row IDs are derived from a monotonic counter. Seeded rows claim the
   // first N IDs deterministically; the ref takes over from there in
@@ -99,6 +102,31 @@ export function KeyValueEditor({
 
   return (
     <div className="w-full min-w-0 space-y-2">
+      {configuredKeys.map((key) => (
+        <div key={`configured-${key}`} className="flex gap-2 items-center min-w-0 overflow-hidden" data-testid={`kv-configured-${key}`}>
+          <input
+            type="text"
+            value={key}
+            readOnly
+            disabled
+            aria-label={`${key} key`}
+            className="flex-1 w-0 min-w-0 px-2 py-1.5 border rounded text-sm opacity-60"
+          />
+          <span className="text-muted text-sm">→</span>
+          <input
+            type="password"
+            value="configured"
+            readOnly
+            disabled
+            aria-label={`${key} (configured)`}
+            className="flex-1 w-0 min-w-0 px-2 py-1.5 border rounded text-sm opacity-60"
+          />
+          <span className="text-xs text-secondary whitespace-nowrap">Configured</span>
+        </div>
+      ))}
+      {configuredKeys.length > 0 && (
+        <p className="text-xs text-secondary">Configured pairs are kept. Ask an admin to change them.</p>
+      )}
       {rows.map((row, index) => {
         const isTrailing = index === rows.length - 1 && !row.key && !row.value;
         return (

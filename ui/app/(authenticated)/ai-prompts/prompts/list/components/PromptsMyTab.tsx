@@ -7,38 +7,22 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ActionButton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
+  ResourceTable,
   SearchInput,
-  Pagination,
-  LoadingState,
-  ErrorState,
   EmptyState,
   StatusBadge,
 } from '@/shared/ui';
+import type { ResourceColumnConfig } from '@/shared/ui';
 import type { Prompt } from '@/shared/types/prompt';
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
 import { useCurrentUrl, withReturnTo } from '@/shared/hooks/useReturnTo';
-
-const PAGE_SIZE_KEY = 'my-prompts-pageSize';
+import { formatPromptCategory } from '@/shared/lib/prompt-labels';
 
 interface PromptsMyTabProps {
   loading: boolean;
   error: string | null;
   filteredPrompts: Prompt[];
-  paginatedPrompts: Prompt[];
   searchTerm: string;
   onSearchChange: (term: string) => void;
-  currentPage: number;
-  totalPages: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
   onDelete: (prompt: Prompt) => void;
   deletingId: string | null;
   onRequestPublish: (prompt: Prompt) => void;
@@ -46,18 +30,20 @@ interface PromptsMyTabProps {
   onRetry: () => void;
 }
 
+// Status badge shown for a personal prompt.
+const myStatus = (prompt: Prompt) =>
+  prompt.publish_status === 'pending'
+    ? 'pending'
+    : prompt.publish_status === 'rejected'
+      ? 'rejected'
+      : 'personal';
+
 export function PromptsMyTab({
   loading,
   error,
   filteredPrompts,
-  paginatedPrompts,
   searchTerm,
   onSearchChange,
-  currentPage,
-  totalPages,
-  pageSize,
-  onPageChange,
-  onPageSizeChange,
   onDelete,
   deletingId,
   onRequestPublish,
@@ -67,12 +53,92 @@ export function PromptsMyTab({
   const router = useRouter();
   const from = useCurrentUrl();
 
-  if (loading) return <LoadingState message="Loading your prompts..." />;
-  if (error) return <ErrorState title="Error" message={error} onRetry={onRetry} />;
+  const columns: ResourceColumnConfig<Prompt>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      sortValue: (prompt) => prompt.name,
+      render: (prompt) => (
+        <div>
+          <Link
+            href={withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from)}
+            className="text-sm font-medium link hover:underline"
+          >
+            {prompt.name}
+          </Link>
+          {prompt.description && (
+            <div className="text-muted line-clamp-2">
+              {prompt.description}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      cellClassName: 'wrap-anywhere',
+      sortValue: (prompt) => formatPromptCategory(prompt.category),
+      render: (prompt) => (
+        <span className="text-sm text-secondary">
+          {formatPromptCategory(prompt.category)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortValue: myStatus,
+      render: (prompt) => <StatusBadge status={myStatus(prompt)} />,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'center',
+      render: (prompt) => (
+        <div className="flex justify-center items-center gap-2 max-md:flex-col max-md:items-stretch">
+          <ActionButton
+            variant="change"
+            onClick={() =>
+              router.push(withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from))
+            }
+          >
+            Edit
+          </ActionButton>
+          {prompt.publish_status !== 'pending' && (
+            <ActionButton
+              variant="active"
+              onClick={() => onRequestPublish(prompt)}
+              disabled={publishingId === prompt.id}
+            >
+              {prompt.publish_status === 'rejected' ? 'Resubmit' : 'Publish'}
+            </ActionButton>
+          )}
+          <ActionButton
+            variant="destructive"
+            onClick={() => onDelete(prompt)}
+            disabled={deletingId === prompt.id}
+          >
+            Delete
+          </ActionButton>
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <>
-      <div className="mb-6 flex flex-wrap gap-3 items-center">
+    <ResourceTable
+      data={filteredPrompts}
+      getItemId={(prompt) => prompt.id}
+      columns={columns}
+      prefPage="prompts-my"
+      pagination={{ itemLabel: 'prompt' }}
+      pageResetKey={searchTerm}
+      loading={loading}
+      loadingMessage="Loading your prompts..."
+      error={error}
+      onRetry={onRetry}
+      toolbar={
         <div className="w-full sm:w-auto sm:flex-1">
           <SearchInput
             value={searchTerm}
@@ -80,120 +146,22 @@ export function PromptsMyTab({
             placeholder="Search your prompts..."
           />
         </div>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          totalCount={filteredPrompts.length}
-          pageSize={pageSize}
-          onPageChange={onPageChange}
-          onPageSizeChange={(size) => {
-            onPageSizeChange(size);
-            localStorage.setItem(PAGE_SIZE_KEY, String(size));
-          }}
-          pageSizeOptions={PAGE_SIZE_OPTIONS}
-          position="top"
-          itemLabel="prompt"
-        />
-      </div>
-
-      {filteredPrompts.length === 0 ? (
+      }
+      emptyState={
         <EmptyState
           title="No personal prompts"
           description={
             searchTerm
-              ? 'No prompts match your search.'
+              ? `No results for "${searchTerm}".`
               : 'Copy a prompt from Organization to get started, or create a new one.'
           }
+          action={searchTerm ? (
+            <button type="button" className="btn-secondary" onClick={() => onSearchChange('')}>
+              Clear search
+            </button>
+          ) : undefined}
         />
-      ) : (
-        <>
-          <TableContainer>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Category</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell align="center">Actions</TableHeaderCell>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedPrompts.map((prompt) => (
-                  <TableRow key={prompt.id}>
-                    <TableCell>
-                      <div>
-                        <Link
-                          href={withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from)}
-                          className="text-sm font-medium link hover:underline"
-                        >
-                          {prompt.name}
-                        </Link>
-                        {prompt.description && (
-                          <div className="text-muted line-clamp-2">
-                            {prompt.description}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-secondary">
-                        {prompt.category.replace(/_/g, ' ')}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {prompt.publish_status === 'pending' ? (
-                        <StatusBadge status="pending" />
-                      ) : prompt.publish_status === 'rejected' ? (
-                        <StatusBadge status="rejected" />
-                      ) : (
-                        <StatusBadge status="personal" />
-                      )}
-                    </TableCell>
-                    <TableCell align="center">
-                      <div className="flex justify-center space-x-2">
-                        <ActionButton
-                          variant="change"
-                          onClick={() =>
-                            router.push(withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from))
-                          }
-                        >
-                          Edit
-                        </ActionButton>
-                        {prompt.publish_status !== 'pending' && (
-                          <ActionButton
-                            variant="active"
-                            onClick={() => onRequestPublish(prompt)}
-                            disabled={publishingId === prompt.id}
-                          >
-                            {prompt.publish_status === 'rejected' ? 'Resubmit' : 'Publish'}
-                          </ActionButton>
-                        )}
-                        <ActionButton
-                          variant="destructive"
-                          onClick={() => onDelete(prompt)}
-                          disabled={deletingId === prompt.id}
-                        >
-                          Delete
-                        </ActionButton>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalCount={filteredPrompts.length}
-            pageSize={pageSize}
-            onPageChange={onPageChange}
-            itemLabel="prompt"
-            position="bottom"
-          />
-        </>
-      )}
-    </>
+      }
+    />
   );
 }

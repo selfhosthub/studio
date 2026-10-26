@@ -6,43 +6,62 @@ import { useUser } from '@/entities/user';
 import { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { formatDate } from '@/shared/lib/dateFormatter';
-import { markNotificationAsRead, markAllNotificationsAsRead } from '@/shared/api';
+import { markNotificationAsRead, markNotificationAsUnread, deleteNotification, markAllNotificationsAsRead } from '@/shared/api';
+import { useToast } from '@/features/toast/provider';
 import { useNotificationEvents, type NotificationEvent } from '@/features/notifications';
 import { useNotificationsQuery, useRefreshNotifications, usePatchNotifications } from '@/features/notifications/useNotificationsQuery';
-import { PAGINATION } from '@/shared/lib/constants';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, Bell, CheckCheck } from 'lucide-react';
 import {
   SearchInput,
   Pagination,
   LoadingState,
-  ErrorState,
   EmptyState,
+  useConfirm,
 } from '@/shared/ui';
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import { PAGE_SIZE_OPTIONS, DEFAULT_PAGE_SIZE } from '@/shared/lib/pagination';
+import { useListPref, isString, isPageSize } from '@/shared/hooks/useListPref';
 
+
+// Category filter pills
+const CATEGORY_FILTERS = [
+  { key: 'workflow', label: 'Workflow' },
+  { key: 'job', label: 'Job' },
+  { key: 'system', label: 'System' },
+  { key: 'account', label: 'Account' },
+] as const;
+
+const EMPTY_ADMIN = 'Run updates for your organization\'s workflows appear here: started, finished, failed, and waiting for approval or a trigger.';
+const EMPTY_MEMBER = 'Messages a workflow\'s Send Notification node sends to you appear here. Run status updates go to your organization\'s admins.';
 
 function NotificationsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useUser();
+  const { user, status: authStatus } = useUser();
+  const { toast } = useToast();
+  const confirm = useConfirm();
   const userId = user?.id;
   const activeFilter = searchParams.get('filter') || 'all';
   const [expandedNotifications, setExpandedNotifications] = useState<Set<string>>(new Set());
 
   // Search and pagination state
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useListPref('notifications', 'search', '', isString);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGINATION.DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useListPref('notifications', 'pageSize', DEFAULT_PAGE_SIZE, isPageSize);
+
+  // A signed-out visitor goes to login
+  useEffect(() => {
+    if (authStatus === 'unauthenticated') router.push('/login');
+  }, [authStatus, router]);
 
 
   // Shared with the bell, so both readers cost one request.
   // Widened because this page renders fields NotificationResponse does not declare.
-  const { notifications: typedNotifications, loading } = useNotificationsQuery(userId);
+  const { notifications: typedNotifications, loading: queryLoading } = useNotificationsQuery(userId);
+  const loading = queryLoading || !userId;
   const notifications = typedNotifications as any[];
   const refreshNotifications = useRefreshNotifications(userId);
   const patchNotifications = usePatchNotifications(userId);
-  const error = userId ? null : 'No user ID found';
 
   // Refetch on WebSocket notification events
   useNotificationEvents(useCallback((event: NotificationEvent) => {
@@ -91,13 +110,14 @@ function NotificationsContent() {
       const query = searchTerm.toLowerCase();
       result = result.filter(n =>
         n.title?.toLowerCase().includes(query) ||
-        n.message?.toLowerCase().includes(query) ||
-        n.content?.toLowerCase().includes(query)
+        n.message?.toLowerCase().includes(query)
       );
     }
 
     return result;
   }, [notifications, activeFilter, searchTerm, isRead, getCategory]);
+
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   // Reset page when filters change
   useEffect(() => {
@@ -124,6 +144,34 @@ function NotificationsContent() {
       ));
     } catch {
       // Silently fail if marking as read fails
+    }
+  };
+
+  const handleMarkAsUnread = async (notificationId: string) => {
+    try {
+      await markNotificationAsUnread(notificationId);
+      patchNotifications(prev => prev.map(n =>
+        n.id === notificationId ? { ...n, read_at: null } : n
+      ));
+    } catch (error) {
+      toast({ title: `Failed to mark as unread: ${error instanceof Error ? error.message : 'Unknown error'}`, variant: 'destructive' });
+    }
+  };
+
+  const handleDelete = async (notification: any) => {
+    const confirmed = await confirm({
+      title: 'Delete notification',
+      message: `Delete "${notification.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await deleteNotification(notification.id);
+      patchNotifications(prev => prev.filter(n => n.id !== notification.id));
+      toast({ title: 'Notification deleted', variant: 'success' });
+    } catch (error) {
+      toast({ title: `Failed to delete notification: ${error instanceof Error ? error.message : 'Unknown error'}`, variant: 'destructive' });
     }
   };
 
@@ -239,16 +287,7 @@ function NotificationsContent() {
           <LoadingState message="Loading notifications..." />
         )}
 
-        {!loading && error && (
-          <ErrorState
-            title="Error Loading Notifications"
-            message={error}
-            onRetry={() => window.location.reload()}
-            retryLabel="Try Again"
-          />
-        )}
-
-        {!loading && !error && (
+        {!loading && (
           <div className="bg-card shadow overflow-hidden sm:rounded-md">
             <div className="border-b border-primary bg-card px-4 py-4 sm:px-6">
               <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
@@ -264,30 +303,15 @@ function NotificationsContent() {
                 >
                   Unread
                 </button>
-                <button
-                  onClick={() => router.push('/notifications?filter=workflow')}
-                  className={`filter-pill ${activeFilter === 'workflow' ? 'filter-pill-active' : 'filter-pill-inactive'}`}
-                >
-                  Workflow
-                </button>
-                <button
-                  onClick={() => router.push('/notifications?filter=job')}
-                  className={`filter-pill ${activeFilter === 'job' ? 'filter-pill-active' : 'filter-pill-inactive'}`}
-                >
-                  Job
-                </button>
-                <button
-                  onClick={() => router.push('/notifications?filter=system')}
-                  className={`filter-pill ${activeFilter === 'system' ? 'filter-pill-active' : 'filter-pill-inactive'}`}
-                >
-                  System
-                </button>
-                <button
-                  onClick={() => router.push('/notifications?filter=account')}
-                  className={`filter-pill ${activeFilter === 'account' ? 'filter-pill-active' : 'filter-pill-inactive'}`}
-                >
-                  Account
-                </button>
+                {CATEGORY_FILTERS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => router.push(`/notifications?filter=${key}`)}
+                    className={`filter-pill ${activeFilter === key ? 'filter-pill-active' : 'filter-pill-inactive'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -329,17 +353,17 @@ function NotificationsContent() {
                     >
                       <div className="px-4 py-4 sm:px-6">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center">
+                          <div className="flex items-center min-w-0">
                             {detailLink ? (
                               <Link
                                 href={detailLink}
                                 onClick={() => !isRead(notification) && handleMarkAsRead(notification.id)}
-                                className="text-sm font-medium link truncate hover:underline"
+                                className="text-sm font-medium link min-w-0 wrap-anywhere hover:underline"
                               >
                                 {notification.title}
                               </Link>
                             ) : (
-                              <p className="text-sm font-medium text-primary truncate">{notification.title}</p>
+                              <p className="text-sm font-medium text-primary min-w-0 wrap-anywhere">{notification.title}</p>
                             )}
                             <div className={`ml-2 flex-shrink-0 flex`}>
                               <p className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${categoryColors[getCategory(notification)]}`}>
@@ -366,8 +390,22 @@ function NotificationsContent() {
                                 Mark as read
                               </button>
                             ) : (
-                              <span className="text-muted dark:text-secondary">Read</span>
+                              <>
+                                <span className="text-muted dark:text-secondary">Read</span>
+                                <button
+                                  onClick={() => handleMarkAsUnread(notification.id)}
+                                  className="link"
+                                >
+                                  Mark as unread
+                                </button>
+                              </>
                             )}
+                            <button
+                              onClick={() => handleDelete(notification)}
+                              className="text-danger hover:underline"
+                            >
+                              Delete
+                            </button>
                           </div>
                         </div>
 
@@ -457,11 +495,19 @@ function NotificationsContent() {
                 })
               ) : (
                 <li className="py-8">
-                  <EmptyState
-                    icon={<Bell className="h-12 w-12" />}
-                    title="No notifications found"
-                    description={searchTerm ? 'Try adjusting your search term.' : 'No notifications matching your filter.'}
-                  />
+                  {notifications.length === 0 ? (
+                    <EmptyState
+                      icon={<Bell className="h-12 w-12" />}
+                      title="No notifications yet"
+                      description={isAdmin ? EMPTY_ADMIN : EMPTY_MEMBER}
+                    />
+                  ) : (
+                    <EmptyState
+                      icon={<Bell className="h-12 w-12" />}
+                      title="No notifications found"
+                      description={searchTerm ? 'Try adjusting your search term.' : 'No notifications matching your filter.'}
+                    />
+                  )}
                 </li>
               )}
             </ul>

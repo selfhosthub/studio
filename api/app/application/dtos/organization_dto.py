@@ -19,8 +19,10 @@ class OrganizationBase(BaseModel):
     settings: Optional[Dict[str, Any]] = None
 
 
-class OrganizationCreate(OrganizationBase):
-    pass
+class OrganizationCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
 
 
 class OrganizationUpdate(BaseModel):

@@ -36,6 +36,19 @@ export interface SiteContent {
 
 export type TabId = 'visibility' | 'hero' | 'testimonials' | 'features' | 'terms' | 'privacy' | 'contact' | 'about' | 'compliance' | 'disclosures';
 
+export const SITE_TABS: { id: TabId; label: string }[] = [
+  { id: 'visibility', label: 'Page Visibility' },
+  { id: 'hero', label: 'Hero Section' },
+  { id: 'compliance', label: 'Subscription Compliance' },
+  { id: 'disclosures', label: 'Disclosures' },
+  { id: 'features', label: 'Feature Blocks' },
+  { id: 'testimonials', label: 'Testimonials' },
+  { id: 'about', label: 'About Story' },
+  { id: 'contact', label: 'Contact Info' },
+  { id: 'privacy', label: 'Privacy Policy' },
+  { id: 'terms', label: 'Terms of Service' },
+];
+
 export interface PageVisibility {
   about: boolean;
   compliance: boolean;

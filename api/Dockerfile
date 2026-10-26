@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -42,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --only-upgrade \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
     libssl3t64 openssl openssl-provider-legacy \
-    perl-base gzip libpcre2-8-0 libsqlite3-0 \
+    perl-base gzip libpcre2-8-0 libsqlite3-0 libbrotli1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

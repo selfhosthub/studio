@@ -99,7 +99,7 @@ class OrganizationModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # Staging-tenant flag: orgs carrying this see staging-visibility catalog
@@ -267,7 +267,9 @@ class WorkflowModel(Base):
     last_instance_at: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
-    webhook_token: Mapped[Optional[str]] = mapped_column(
+    # Encrypted incoming-webhook token; webhook_token_hash is its lookup key.
+    webhook_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    webhook_token_hash: Mapped[Optional[str]] = mapped_column(
         String(64), nullable=True, unique=True, index=True
     )
     webhook_method: Mapped[str] = mapped_column(String(10), default="POST")
@@ -441,6 +443,13 @@ class InstanceModel(Base):
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id")
+    )
+    # The user who started the run; null when no creator is known (admin-only actions).
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     status: Mapped[InstanceStatus] = mapped_column(
         Enum(
@@ -730,7 +739,9 @@ class ProviderModel(Base):
     )
 
     services: Mapped[List["ProviderServiceModel"]] = relationship(
-        back_populates="provider"
+        back_populates="provider",
+        cascade="all, delete-orphan",
+        order_by="(ProviderServiceModel.position, ProviderServiceModel.service_id)",
     )
 
     __table_args__ = (
@@ -799,6 +810,10 @@ class ProviderServiceModel(Base):
     # Custom parameter-section title; UI falls back to "Service Parameters".
     parameter_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     client_metadata: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Index of the service in its provider file; lists order by it.
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     # Denormalized from the parent provider; service-level queries skip the join.
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
@@ -909,12 +924,10 @@ class ProviderCredentialModel(Base):
         TIMESTAMP(timezone=True), nullable=True
     )
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
-    # Opaque routing key for this credential's inbound provider-callback URL
-    # (/webhooks/incoming/{token}). Plaintext capability, not auth material - the
-    # inbound bearer secret is webhook_callback_api_key inside secret_data. Lazily
-    # minted on first save of a webhook_callback_api_key; immortal once set. NULL
-    # for poll-only credentials.
-    webhook_callback_token: Mapped[Optional[str]] = mapped_column(
+    # Encrypted routing token of this credential's inbound callback URL; NULL for poll-only credentials.
+    webhook_callback_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # SHA-256 lookup key of webhook_callback_token.
+    webhook_callback_token_hash: Mapped[Optional[str]] = mapped_column(
         String(64), nullable=True, unique=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -1949,3 +1962,9 @@ class DocumentationModel(Base):
         UniqueConstraint("slug", "doc_type", name="uix_documentation_slug_doc_type"),
         Index("ix_documentation_doc_type_active", "doc_type", "active"),
     )
+
+
+# Every Session refuses to store a plaintext secret.
+from app.infrastructure.persistence.stored_secret_guard import install_stored_secret_guard  # noqa: E402
+
+install_stored_secret_guard()

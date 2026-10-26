@@ -20,7 +20,7 @@ export function MessagingTabPanel({ health }: MessagingTabPanelProps) {
         <div className="detail-section-header">
           <h2 className="section-title flex items-center">
             <Activity className="w-5 h-5 mr-2 text-danger" />
-            Direct WebSocket Broadcasting
+            Messaging Overview
           </h2>
         </div>
         <div className="detail-section-body">
@@ -44,7 +44,7 @@ export function MessagingTabPanel({ health }: MessagingTabPanelProps) {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="text-center p-3 bg-page rounded-lg border border-primary">
               <p className="text-2xl font-bold text-primary">{health.websocket?.total_connections ?? 0}</p>
-              <p className="text-xs text-muted">Total Connections</p>
+              <p className="text-xs text-muted">Connections now</p>
             </div>
             <div className="text-center p-3 bg-page rounded-lg border border-primary">
               <p className="text-2xl font-bold text-primary">{health.websocket?.organizations_connected ?? 0}</p>

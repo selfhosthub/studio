@@ -7,7 +7,7 @@ importers work unchanged.
 """
 
 import uuid
-from typing import Any, BinaryIO, List, Optional, Tuple
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple
 from pathlib import Path
 
 from app.application.interfaces.event_bus import EventBus
@@ -16,7 +16,7 @@ from app.domain.org_file.models import (
     ResourceSource,
     ResourceStatus,
 )
-from app.domain.org_file.repository import OrgFileRepository
+from app.domain.org_file.repository import OrgFileQuery, OrgFileRepository
 from app.domain.instance.repository import InstanceRepository
 from app.domain.instance_step.step_execution_repository import (
     StepExecutionRepository,
@@ -99,11 +99,26 @@ class OrgFileService:
         return await self._resource_service.get_resources_for_job(job_execution_id)
 
     async def get_resources_for_organization(
-        self, organization_id: uuid.UUID, skip: int = 0, limit: int = 20
+        self,
+        organization_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 20,
+        query: Optional[OrgFileQuery] = None,
     ) -> List[OrgFile]:
         return await self._resource_service.get_resources_for_organization(
-            organization_id, skip=skip, limit=limit
+            organization_id, skip=skip, limit=limit, query=query
         )
+
+    async def count_resources_for_organization(
+        self, organization_id: uuid.UUID, query: Optional[OrgFileQuery] = None
+    ) -> int:
+        return await self._resource_service.count_resources_for_organization(
+            organization_id, query=query
+        )
+
+    async def count_live_files_by_organization(self) -> Dict[uuid.UUID, int]:
+        """Library file count per organization, keyed by organization id."""
+        return await self._resource_service.count_live_files_by_organization()
 
     async def get_resource_file_path(
         self,

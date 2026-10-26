@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Node } from '@xyflow/react';
 import { DEFAULT_NODE_X, DEFAULT_NODE_Y } from '../constants';
+import type { Provider } from '@/entities/provider';
 import type { Step, FlexibleConnection, CustomNodeData } from '../types';
 
 interface UseFlowNodeManagerProps {
@@ -11,6 +12,7 @@ interface UseFlowNodeManagerProps {
   selectedStepId?: string | null;
   credentialIssueStepIds: string[];
   nodeWidth: 'narrow' | 'normal' | 'wide';
+  providers?: Provider[];
   onStepsChange?: (steps: Step[]) => void;
   onConnectionsChange?: (connections: FlexibleConnection[]) => void;
   onStepSelect?: (stepId: string | null) => void;
@@ -18,6 +20,7 @@ interface UseFlowNodeManagerProps {
 
 interface UseFlowNodeManagerReturn {
   stepsToNodes: (stepsArray: Step[]) => Node<CustomNodeData>[];
+  stepToNodeData: (step: Step) => CustomNodeData;
   syncInputMappingsToConnections: () => void;
   stableHandleStepDelete: (stepId: string) => void;
   stableHandleStepEdit: (stepId: string) => void;
@@ -34,6 +37,7 @@ export function useFlowNodeManager({
   selectedStepId,
   credentialIssueStepIds,
   nodeWidth,
+  providers,
   onStepsChange,
   onConnectionsChange,
   onStepSelect,
@@ -129,43 +133,64 @@ export function useFlowNodeManager({
 
   // ---- Steps → ReactFlow nodes ----
 
+  // Provider and service display names keyed by provider id and "providerId:serviceId"
+  const catalogNames = useMemo(() => {
+    const providerNames = new Map<string, string>();
+    const serviceNames = new Map<string, string>();
+    for (const provider of providers ?? []) {
+      providerNames.set(provider.id, provider.name);
+      for (const service of provider.services ?? []) {
+        serviceNames.set(`${provider.id}:${service.service_id}`, service.display_name);
+      }
+    }
+    return { providerNames, serviceNames };
+  }, [providers]);
+
+  const stepToNodeData = useCallback(
+    (step: Step): CustomNodeData => ({
+      label: step.name,
+      description: step.description,
+      type: step.type?.toLowerCase(),
+      executionMode: step.execution_mode,
+      serviceType: step.service_id,
+      providerId: step.provider_id,
+      serviceId: step.service_id,
+      providerName: step.provider_id ? catalogNames.providerNames.get(step.provider_id) : undefined,
+      serviceName: step.provider_id && step.service_id
+        ? catalogNames.serviceNames.get(`${step.provider_id}:${step.service_id}`)
+        : undefined,
+      warnings: step.warnings,
+      isSelected: selectedStepId === step.id,
+      onDelete: stableHandleStepDelete,
+      onEdit: stableHandleStepEdit,
+      onToggleMode: stableHandleStepToggleMode,
+      nodeWidth,
+      hasCredentialIssue: credentialIssueStepIds.includes(step.id),
+      hasIteration: step.iteration_config?.enabled,
+      iterationMode: step.iteration_config?.execution_mode,
+      isManualTrigger: step.trigger_type === 'manual',
+    }),
+    [
+      catalogNames,
+      selectedStepId,
+      stableHandleStepDelete,
+      stableHandleStepEdit,
+      stableHandleStepToggleMode,
+      nodeWidth,
+      credentialIssueStepIds,
+    ],
+  );
+
   const stepsToNodes = useMemo(() => {
     return (stepsArray: Step[]): Node<CustomNodeData>[] =>
-      stepsArray.map(step => {
-        const position =
-          step.ui_config?.position || step.position || { x: DEFAULT_NODE_X, y: DEFAULT_NODE_Y };
-        return {
-          id: step.id,
-          type: 'customNode',
-          position,
-          data: {
-            label: step.name,
-            description: step.description,
-            type: step.type?.toLowerCase(),
-            executionMode: step.execution_mode,
-            serviceType: step.service_id,
-            providerId: step.provider_id,
-            serviceId: step.service_id,
-            warnings: step.warnings,
-            isSelected: selectedStepId === step.id,
-            onDelete: stableHandleStepDelete,
-            onEdit: stableHandleStepEdit,
-            onToggleMode: stableHandleStepToggleMode,
-            nodeWidth,
-            hasCredentialIssue: credentialIssueStepIds.includes(step.id),
-            hasIteration: step.iteration_config?.enabled,
-            iterationMode: step.iteration_config?.execution_mode,
-          },
-        };
-      });
-  }, [
-    selectedStepId,
-    stableHandleStepDelete,
-    stableHandleStepEdit,
-    stableHandleStepToggleMode,
-    nodeWidth,
-    credentialIssueStepIds,
-  ]);
+      stepsArray.map(step => ({
+        id: step.id,
+        type: 'customNode',
+        position:
+          step.ui_config?.position || step.position || { x: DEFAULT_NODE_X, y: DEFAULT_NODE_Y },
+        data: stepToNodeData(step),
+      }));
+  }, [stepToNodeData]);
 
   // ---- Field-mapping detection → auto-create connections ----
 
@@ -215,6 +240,7 @@ export function useFlowNodeManager({
 
   return {
     stepsToNodes,
+    stepToNodeData,
     syncInputMappingsToConnections,
     stableHandleStepDelete,
     stableHandleStepEdit,

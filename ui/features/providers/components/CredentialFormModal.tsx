@@ -94,7 +94,7 @@ export function CredentialFormModal({
     credentialSchema?.properties?.[WEBHOOK_CALLBACK_KEY_FIELD]
   );
   const isEdit = mode === 'edit';
-  const title = isEdit ? 'Edit Provider Credential' : 'Add Provider Credential';
+  const title = isEdit ? 'Edit Credential' : 'Add Credential';
   const submitText = isEdit ? 'Update Credential' : 'Add Credential';
   const idPrefix = isEdit ? 'edit-' : '';
   const schemaIdPrefix = isEdit ? 'edit_schema' : 'schema';
@@ -104,8 +104,8 @@ export function CredentialFormModal({
   return (
     <>
       <Modal isOpen={true} onClose={onClose} title={title} size="md" dismissOnOutsideClick={false}>
-        <form onSubmit={onSubmit}>
-          <div className="px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div data-testid="credential-form-body" className="min-h-0 flex-1 overflow-y-auto px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
             <div className="space-y-4">
               {providerDocSlug && (
                 <button
@@ -114,7 +114,7 @@ export function CredentialFormModal({
                   className="inline-flex items-center gap-1 text-xs text-info hover:underline"
                 >
                   <BookOpen className="w-3 h-3" />
-                  Setup guide
+                  Provider Documentation
                 </button>
               )}
               {oauthRedirectUri && <OAuthRedirectUri redirectUri={oauthRedirectUri} />}
@@ -149,6 +149,7 @@ export function CredentialFormModal({
                     schemaValues={schemaValues}
                     setSchemaValues={setSchemaValues}
                     idPrefix={schemaIdPrefix}
+                    isEdit={isEdit}
                   />
                   {/* Callback key + URL, below the API key, generate-only */}
                   {hasWebhookCallbackField && (
@@ -159,6 +160,7 @@ export function CredentialFormModal({
                       }
                       callbackToken={webhookCallbackToken}
                       setCallbackToken={setWebhookCallbackToken}
+                      keyPlaceholder={isEdit ? 'Leave blank to keep the current key' : undefined}
                     />
                   )}
                 </>
@@ -187,7 +189,7 @@ export function CredentialFormModal({
               {/* Expiration date */}
               <div>
                 <label htmlFor={`${idPrefix}expires_at`} className="form-label">
-                  Expiration Date (optional)
+                  Expires (optional)
                 </label>
                 <input
                   type="datetime-local"
@@ -199,14 +201,14 @@ export function CredentialFormModal({
               </div>
             </div>
           </div>
-          <div className="mt-6 flex justify-end gap-3 px-4 pb-4 sm:px-6">
+          <div className="shrink-0 border-t border-primary flex justify-end gap-3 px-4 py-4 sm:px-6">
             <button type="submit" className="btn-primary sm:ml-3">
               {submitText}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="btn-orange text-sm inline-flex items-center mt-3 sm:mt-0 sm:ml-3"
+              className="btn-cancel text-sm inline-flex items-center mt-3 sm:mt-0 sm:ml-3"
             >
               Cancel
             </button>

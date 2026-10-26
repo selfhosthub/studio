@@ -45,6 +45,7 @@ from app.infrastructure.persistence.models import (
     OrganizationSecretModel,
     UserModel,
 )
+from app.infrastructure.security.credential_encryption import get_credential_encryption
 
 # SQLAlchemy
 from sqlalchemy import event, select
@@ -268,7 +269,9 @@ async def create_entitlement_token_secret(
         organization_id=org_id,
         name="ENTITLEMENT_TOKEN",
         secret_type="bearer",
-        secret_data={"token": token_value} if token_value else {},
+        secret_data=get_credential_encryption().seal_secret_data(
+            {"token": token_value} if token_value else {}
+        ),
         description=(
             "Get your token from SelfHost Innovators"
             " (https://www.skool.com/selfhostinnovators)"

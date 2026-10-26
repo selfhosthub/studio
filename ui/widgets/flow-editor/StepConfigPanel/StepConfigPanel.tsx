@@ -125,9 +125,10 @@ export function StepConfigPanel({
   // Handle Escape key and click outside
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
+      if (e.key !== 'Escape' || !isOpen) return;
+      // Escape inside a confirm dialog cancels the dialog, not the panel
+      if ((e.target as HTMLElement | null)?.closest?.('[role="alertdialog"]')) return;
+      onClose();
     };
 
     const handleClickOutside = (e: MouseEvent) => {
@@ -151,7 +152,12 @@ export function StepConfigPanel({
       }
 
       // Don't close if clicking inside a modal or dialog (portaled content)
-      if (target.closest('[role="dialog"]') || target.closest('[data-radix-portal]') || target.closest('.modal')) {
+      if (
+        target.closest('[role="dialog"]') ||
+        target.closest('[role="alertdialog"]') ||
+        target.closest('[data-radix-portal]') ||
+        target.closest('.modal')
+      ) {
         return;
       }
 
@@ -334,7 +340,7 @@ export function StepConfigPanel({
     Object.values(instanceFormFields).some(f => !f._owning_step_ids?.includes(step.id)));
 
   return (
-    <ErrorBoundary name="Step Config">
+    <ErrorBoundary name="Node Config">
     <>
       {/* Backdrop - Visual overlay only, click handling is via document listener */}
       <div
@@ -457,8 +463,8 @@ export function StepConfigPanel({
                     ? 'bg-info-subtle text-info hover:bg-[var(--theme-primary)]/20'
                     : 'bg-card text-secondary hover:bg-input'
                 }`}
-                aria-label={showOutputsPanel ? 'Hide inputs panel' : 'Show inputs panel'}
-                title={showOutputsPanel ? 'Hide previous step outputs' : 'Show previous step outputs'}
+                aria-label={showOutputsPanel ? 'Hide input panel' : 'Show input panel'}
+                title={showOutputsPanel ? 'Hide input panel' : 'Show input panel'}
               >
                 {showOutputsPanel ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
                 <span className={`absolute -top-1 -right-1 text-[10px] min-w-[16px] h-4 flex items-center justify-center px-1 rounded-full ${

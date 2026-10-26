@@ -10,7 +10,8 @@ import {
   type EnrollmentRequest,
   type EnrollmentRequestStatus,
 } from '@/shared/api';
-import { ErrorState, LoadingState, Modal, StatusBadge } from '@/shared/ui';
+import { ErrorState, LoadingState, Modal, ResourceTable, StatusBadge } from '@/shared/ui';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 type Decision = { request: EnrollmentRequest; kind: 'approve' | 'reject' };
 
@@ -115,53 +116,53 @@ export function WorkerEnrollmentRequests({ onDecided, refreshSignal }: WorkerEnr
         />
       ) : (
         <>
-          {pending.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-theme">
-                <thead className="bg-card">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-muted uppercase">Worker</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-muted uppercase">Host</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-muted uppercase">Queues</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-muted uppercase">Requested</th>
-                    <th className="px-4 py-2" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-theme">
-                  {pending.map((r) => (
-                    <tr key={r.id}>
-                      <td className="px-4 py-2 text-sm">{r.name}</td>
-                      <td className="px-4 py-2 text-sm text-muted">{formatWhere(r)}</td>
-                      <td className="px-4 py-2 text-sm text-muted">{formatQueues(r.queues)}</td>
-                      <td className="px-4 py-2 text-sm text-muted">
-                        {new Date(r.created_at).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-2 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          className="btn btn-primary mr-2"
-                          aria-label={`Approve ${r.name}`}
-                          onClick={() => open(r, 'approve')}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          aria-label={`Reject ${r.name}`}
-                          onClick={() => open(r, 'reject')}
-                        >
-                          Reject
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-muted">No workers are waiting for approval.</p>
-          )}
+          <ResourceTable
+            data={pending}
+            getItemId={(r) => r.id}
+            tieBreaker="worker"
+            prefPage="infra-enrollment-requests"
+            pagination={{ itemLabel: 'request' }}
+            containerClassName="mb-0"
+            emptyState={<p className="text-sm text-muted">No workers are waiting for approval.</p>}
+            columns={[
+              { key: 'worker', header: 'Worker', headerClassName: 'text-muted', sortValue: (r) => r.name, render: (r) => r.name },
+              { key: 'host', header: 'Host', headerClassName: 'text-muted', cellClassName: 'text-muted', sortValue: (r) => formatWhere(r), render: (r) => formatWhere(r) },
+              { key: 'queues', header: 'Queues', headerClassName: 'text-muted', cellClassName: 'text-muted', sortValue: (r) => r.queues.join(', '), render: (r) => formatQueues(r.queues) },
+              {
+                key: 'requested',
+                header: 'Requested',
+                headerClassName: 'text-muted',
+                cellClassName: 'text-muted',
+                sortValue: (r) => new Date(r.created_at),
+                render: (r) => formatDate(r.created_at),
+              },
+              {
+                key: 'actions',
+                header: '',
+                align: 'right',
+                render: (r) => (
+                  <div className="flex justify-end gap-2 max-md:flex-col max-md:items-stretch">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      aria-label={`Approve ${r.name}`}
+                      onClick={() => open(r, 'approve')}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-warning"
+                      aria-label={`Reject ${r.name}`}
+                      onClick={() => open(r, 'reject')}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                ),
+              },
+            ]}
+          />
 
           {decided.length > 0 && (
             <details className="mt-3">
@@ -178,7 +179,7 @@ export function WorkerEnrollmentRequests({ onDecided, refreshSignal }: WorkerEnr
                     <span className="flex items-center gap-2">
                       {r.decided_at && (
                         <span className="text-xs text-muted">
-                          {new Date(r.decided_at).toLocaleString()}
+                          {formatDate(r.decided_at)}
                         </span>
                       )}
                       <StatusBadge status={r.status} variant={STATUS_VARIANT[r.status]} />
@@ -229,12 +230,12 @@ export function WorkerEnrollmentRequests({ onDecided, refreshSignal }: WorkerEnr
             )}
 
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" className="btn-secondary" disabled={busy} onClick={close}>
+              <button type="button" className="btn-cancel" disabled={busy} onClick={close}>
                 Cancel
               </button>
               <button
                 type="button"
-                className={decision.kind === 'approve' ? 'btn-primary' : 'btn-danger'}
+                className={decision.kind === 'approve' ? 'btn-primary' : 'btn-warning'}
                 disabled={busy || (decision.kind === 'approve' && granted.length === 0)}
                 onClick={() => void confirm()}
               >

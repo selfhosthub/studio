@@ -3,7 +3,7 @@
 """Workflow instance management API endpoints."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from app.config.settings import settings
@@ -123,7 +123,7 @@ async def create_instance(
         f"by user {user.get('id')} via API"
     )
     try:
-        return await service.create_instance(instance)
+        return await service.create_instance(instance, actor_id=UUID(user["id"]))
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
@@ -165,6 +165,11 @@ async def list_instances(
     status_filter: Optional[str] = Query(None, alias="status"),
     skip: int = Query(0, ge=0),
     limit: int = Query(settings.API_PAGE_LIMIT_SMALL, ge=1, le=settings.API_PAGE_MAX),
+    workflow_id: Optional[UUID] = Query(None),
+    sort_by: Optional[
+        Literal["name", "workflow_name", "status", "updated_at", "created_at"]
+    ] = Query(None),
+    sort_order: Literal["asc", "desc"] = Query("desc"),
     user: CurrentUser = Depends(get_current_user),
     service: InstanceService = Depends(get_instance_service),
 ):
@@ -174,6 +179,9 @@ async def list_instances(
         status=status_filter,
         skip=skip,
         limit=limit,
+        workflow_id=workflow_id,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
 
@@ -219,8 +227,6 @@ async def start_instance(
     instance_id: UUID = Path(...),
     user: CurrentUser = Depends(require_tenant),
     service: InstanceService = Depends(get_instance_service),
-    notifier=Depends(get_notifier),
-    session: AsyncSession = Depends(get_db_session),
 ):
     """Start a workflow instance."""
     instance = await service.get_instance(instance_id)
@@ -231,6 +237,7 @@ async def start_instance(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     logger.info(f"Instance {instance_id} started by user {user.get('id')} via API")
 
@@ -240,12 +247,6 @@ async def start_instance(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
         )
-
-    await notifier.announce_state_change(
-        instance=instance,
-        action_type="processing_started",
-        session=session,
-    )
 
     return result
 
@@ -262,8 +263,6 @@ async def submit_form_and_start(
     request: FormSubmitRequest = Body(...),
     user: CurrentUser = Depends(require_tenant),
     service: InstanceService = Depends(get_instance_service),
-    notifier=Depends(get_notifier),
-    session: AsyncSession = Depends(get_db_session),
 ):
     """Submit form values and start a workflow instance. form_values keyed by '{step_id}.{parameter_key}'."""
     instance = await service.get_instance(instance_id)
@@ -274,6 +273,7 @@ async def submit_form_and_start(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     logger.info(
         f"Instance {instance_id} form submitted and started "
@@ -281,17 +281,13 @@ async def submit_form_and_start(
     )
 
     try:
-        result = await service.submit_form_and_start(instance_id, request.form_values)
+        result = await service.submit_form_and_start(
+            instance_id, request.form_values, announce_start=True
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
         )
-
-    await notifier.announce_state_change(
-        instance=instance,
-        action_type="processing_started",
-        session=session,
-    )
 
     return result
 
@@ -312,6 +308,7 @@ async def complete_instance(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     logger.info(f"Instance {instance_id} completed by user {user.get('id')} via API")
 
@@ -339,6 +336,7 @@ async def fail_instance(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     logger.info(
         f"Instance {instance_id} marked failed by user {user.get('id')} via API"
@@ -367,6 +365,7 @@ async def pause_instance(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     logger.info(f"Instance {instance_id} paused by user {user.get('id')} via API")
 
@@ -393,6 +392,7 @@ async def resume_instance(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     logger.info(f"Instance {instance_id} resumed by user {user.get('id')} via API")
 
@@ -422,6 +422,7 @@ async def cancel_instance(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -447,12 +448,26 @@ async def cancel_instance(
         instance=instance,
         action_type="cancelled",
         session=session,
+        actor_id=UUID(user["id"]),
     )
 
     return result
 
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def require_run_control(
+    instance: InstanceResponse,
+    user: CurrentUser,
+    detail: str = "Only the run's owner or an admin can do this",
+) -> None:
+    """Raise 403 unless the caller is an admin, a super admin or the run's owner."""
+    if user.get("role") in ("admin", "super_admin"):
+        return
+    if instance.user_id is not None and str(instance.user_id) == str(user.get("id")):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 @router.delete("/{instance_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -472,13 +487,9 @@ async def delete_instance(
 
     await validate_organization_access(str(instance.organization_id), user)
 
-    # Users can only delete instances they created; admins can delete any in their org
-    user_role = user.get("role", "user")
-    if user_role == "user" and str(instance.user_id) != str(user.get("id")):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Users can only delete their own instances",
-        )
+    require_run_control(
+        instance, user, detail="Users can only delete their own instances"
+    )
 
     if instance.status not in TERMINAL_STATUSES:
         raise HTTPException(
@@ -498,7 +509,7 @@ async def delete_instance(
 
     logger.info(
         f"Instance {instance_id} deleted by user {user.get('id')} "
-        f"(role={user_role}) via API"
+        f"(role={user.get('role')}) via API"
     )
 
     try:
@@ -536,6 +547,7 @@ async def create_job(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     try:
         return await service.create_job_for_instance(instance_id, job)
@@ -600,6 +612,7 @@ async def cancel_job(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -647,6 +660,7 @@ async def cancel_all_jobs(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -710,6 +724,7 @@ async def approve_step(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     if instance.status != "waiting_for_approval":
         raise HTTPException(
@@ -722,7 +737,7 @@ async def approve_step(
     if not step_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending approval step found",
+            detail="No pending approval node found",
         )
 
     action = AuditAction.APPROVE if request.approved else AuditAction.REJECT
@@ -754,17 +769,15 @@ async def approve_step(
             status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
         )
 
-    # Refresh instance so announce uses the post-transition status.
-    refreshed = await service.get_instance(instance_id)
-    announce_instance = refreshed or instance
-    # Reject transitions to FAILED; approve resumes → PROCESSING.
-    action_type = "failed" if not request.approved else "processing_started"
-    await notifier.announce_state_change(
-        instance=announce_instance,
-        action_type=action_type,
-        step_id=step_id,
-        session=session,
-    )
+    # Approve announces from the service; a rejection fails the run here.
+    if not request.approved:
+        refreshed = await service.get_instance(instance_id)
+        await notifier.announce_state_change(
+            instance=refreshed or instance,
+            action_type="failed",
+            step_id=step_id,
+            session=session,
+        )
 
     return ApprovalResponse(
         instance_id=instance_id,
@@ -784,8 +797,6 @@ async def trigger_step(
     user: CurrentUser = Depends(require_tenant),
     service: InstanceService = Depends(get_instance_service),
     audit_service: AuditService = Depends(get_audit_service),
-    notifier=Depends(get_notifier),
-    session: AsyncSession = Depends(get_db_session),
 ):
     """Trigger a step waiting for manual trigger, resuming execution."""
     instance = await service.get_instance(instance_id)
@@ -796,6 +807,7 @@ async def trigger_step(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     pending_trigger = instance.output_data.get("pending_trigger", {})
     # New shape carries every armed step; tolerate the legacy single-step shape.
@@ -817,13 +829,13 @@ async def trigger_step(
     if not pending_step_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending trigger step found",
+            detail="No pending trigger node found",
         )
 
     if step_id not in pending_step_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Step {step_id} is not an armed manual-trigger step (armed: {pending_step_ids})",
+            detail=f"Node {step_id} is not an armed manual-trigger node (armed: {pending_step_ids})",
         )
 
     await _audit_instance_action(
@@ -851,20 +863,11 @@ async def trigger_step(
             status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
         )
 
-    refreshed = await service.get_instance(instance_id)
-    announce_instance = refreshed or instance
-    await notifier.announce_state_change(
-        instance=announce_instance,
-        action_type="processing_started",
-        step_id=step_id,
-        session=session,
-    )
-
     return TriggerResponse(
         instance_id=instance_id,
         step_id=step_id,
         status=result.status if hasattr(result, "status") else "triggered",
-        message="Step triggered successfully",
+        message="Node triggered successfully",
     )
 
 
@@ -891,6 +894,7 @@ async def retry_job(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -939,6 +943,7 @@ async def rerun_job_only(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -987,6 +992,7 @@ async def rerun_and_continue(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -1034,6 +1040,7 @@ async def rerun_step_only(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -1089,6 +1096,7 @@ async def check_webhook_status(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -1142,6 +1150,7 @@ async def update_job_result(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -1195,8 +1204,6 @@ async def run_stopped_step(
     user: CurrentUser = Depends(require_tenant),
     service: InstanceService = Depends(get_instance_service),
     audit_service: AuditService = Depends(get_audit_service),
-    notifier=Depends(get_notifier),
-    session: AsyncSession = Depends(get_db_session),
 ):
     """Run a stopped or pending step, using results from previously completed steps."""
     instance = await service.get_instance(instance_id)
@@ -1207,6 +1214,7 @@ async def run_stopped_step(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -1228,15 +1236,6 @@ async def run_stopped_step(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
         )
-
-    refreshed = await service.get_instance(instance_id)
-    announce_instance = refreshed or instance
-    await notifier.announce_state_change(
-        instance=announce_instance,
-        action_type="processing_started",
-        step_id=step_id,
-        session=session,
-    )
 
     return result
 
@@ -1292,6 +1291,7 @@ async def regenerate_resources(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     if not request.resource_ids:
         raise HTTPException(
@@ -1357,6 +1357,7 @@ async def regenerate_iteration(
         )
 
     await validate_organization_access(str(instance.organization_id), user)
+    require_run_control(instance, user)
 
     await _audit_instance_action(
         audit_service,
@@ -1435,6 +1436,7 @@ async def upload_files_to_step(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this instance",
         )
+    require_run_control(instance, user)
 
     instance_step = await step_execution_repo.get_by_instance_and_key(
         instance_id, step_id
@@ -1442,7 +1444,7 @@ async def upload_files_to_step(
     if not instance_step:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Step '{step_id}' not found for instance {instance_id}",
+            detail=f"Node '{step_id}' not found for instance {instance_id}",
         )
 
     await _audit_instance_action(
@@ -1569,6 +1571,7 @@ async def add_files_from_library(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this instance",
         )
+    require_run_control(instance, user)
 
     instance_step = await step_execution_repo.get_by_instance_and_key(
         instance_id, step_id
@@ -1576,7 +1579,7 @@ async def add_files_from_library(
     if not instance_step:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Step '{step_id}' not found for instance {instance_id}",
+            detail=f"Node '{step_id}' not found for instance {instance_id}",
         )
 
     await _audit_instance_action(

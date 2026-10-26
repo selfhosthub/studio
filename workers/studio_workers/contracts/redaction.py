@@ -47,6 +47,7 @@ Compliance notes
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Optional, Set
 from urllib.parse import urlparse, urlunparse
 
@@ -96,6 +97,7 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "signing_key",
         "webhook_secret",
         "encryption_key",
+        "code_verifier",
     }
 )
 
@@ -239,6 +241,50 @@ def redact_url(url: Optional[str]) -> Optional[str]:
     return url
 
 
+_QUERY_PARAM = re.compile(r"([?&;])([A-Za-z0-9_.\-\[\]]+)=([^&#\s'\"<>]*)")
+_QUOTED_PAIR = re.compile(
+    r"(?P<q>['\"])(?P<name>[A-Za-z0-9_.\-]{1,64})(?P=q)(?P<sep>\s*:\s*)(?P<vq>['\"])(?P<value>[^'\"]*)(?P=vq)"
+)
+_AUTH_HEADER = re.compile(
+    r"(?i)\b((?:proxy-)?authorization\s*[:=]\s*)(?:(bearer|basic|token|digest)\s+)?[^\s'\",;}]+"
+)
+_BEARER = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=\-]{8,}")
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+
+
+def _redact_query_param(match: "re.Match[str]") -> str:
+    """A query parameter with its value replaced when its name is secret-class."""
+    sep, name, value = match.group(1), match.group(2), match.group(3)
+    if value and is_sensitive_key(name):
+        return f"{sep}{name}={REDACTED_PLACEHOLDER}"
+    return match.group(0)
+
+
+def _redact_quoted_pair(match: "re.Match[str]") -> str:
+    """A quoted name/value pair with its value replaced when the name is secret-class."""
+    if not is_sensitive_key(match.group("name")):
+        return match.group(0)
+    q, vq = match.group("q"), match.group("vq")
+    return f"{q}{match.group('name')}{q}{match.group('sep')}{vq}{REDACTED_PLACEHOLDER}{vq}"
+
+
+def _redact_auth_header(match: "re.Match[str]") -> str:
+    """An Authorization value replaced, keeping its scheme."""
+    scheme = f"{match.group(2)} " if match.group(2) else ""
+    return f"{match.group(1)}{scheme}{REDACTED_PLACEHOLDER}"
+
+
+def redact_text(text: str) -> str:
+    """Free text with secret-class query parameters, quoted pairs, Authorization values, bearer tokens and JWTs redacted."""
+    if not text or not isinstance(text, str):
+        return text
+    text = _QUERY_PARAM.sub(_redact_query_param, text)
+    text = _QUOTED_PAIR.sub(_redact_quoted_pair, text)
+    text = _AUTH_HEADER.sub(_redact_auth_header, text)
+    text = _BEARER.sub(lambda m: f"{m.group(1)}{REDACTED_PLACEHOLDER}", text)
+    return _JWT.sub(REDACTED_PLACEHOLDER, text)
+
+
 __all__ = [
     "SENSITIVE_KEYS",
     "PII_KEYS",
@@ -246,5 +292,6 @@ __all__ = [
     "is_sensitive_key",
     "is_pii_key",
     "redact_sensitive_data",
+    "redact_text",
     "redact_url",
 ]

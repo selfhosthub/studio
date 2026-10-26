@@ -7,7 +7,7 @@ Resource CRUD, query, reorder, and delete operations.
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ from app.domain.org_file.models import (
     ResourceStatus,
 )
 from app.config.settings import settings
-from app.domain.org_file.repository import OrgFileRepository
+from app.domain.org_file.repository import OrgFileQuery, OrgFileRepository
 from app.domain.instance.repository import InstanceRepository
 from app.domain.instance_step.step_execution_repository import (
     StepExecutionRepository,
@@ -98,11 +98,25 @@ class ResourceService:
         return await self.resource_repository.list_by_job(job_execution_id)
 
     async def get_resources_for_organization(
-        self, organization_id: uuid.UUID, skip: int = 0, limit: int = 20
+        self,
+        organization_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 20,
+        query: Optional[OrgFileQuery] = None,
     ) -> List[OrgFile]:
         return await self.resource_repository.list_by_organization(
-            organization_id, skip=skip, limit=limit
+            organization_id, skip=skip, limit=limit, query=query
         )
+
+    async def count_resources_for_organization(
+        self, organization_id: uuid.UUID, query: Optional[OrgFileQuery] = None
+    ) -> int:
+        return await self.resource_repository.count_by_organization(
+            organization_id, query=query
+        )
+
+    async def count_live_files_by_organization(self) -> Dict[uuid.UUID, int]:
+        return await self.resource_repository.count_live_by_organization()
 
     async def get_resource_file_path(
         self,
@@ -291,7 +305,7 @@ class ResourceService:
             )
         if resource.job_execution_id is None:
             raise BusinessRuleViolation(
-                message="Resource has no associated step execution to select within.",
+                message="Resource has no associated node execution to select within.",
                 code="RESOURCE_NO_JOB",
             )
 

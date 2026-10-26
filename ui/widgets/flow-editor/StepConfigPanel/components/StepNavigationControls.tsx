@@ -60,7 +60,7 @@ export function StepNavigationControls({
         }}
         disabled={!hasPrev}
         className={`hover:text-secondary transition-colors ${hasPrev ? 'cursor-pointer' : 'opacity-30 cursor-not-allowed'}`}
-        title={hasPrev ? `Go to ${prevSteps[prevSteps.length - 1].name || prevSteps[prevSteps.length - 1].id}` : 'No previous step'}
+        title={hasPrev ? `Go to ${prevSteps[prevSteps.length - 1].name || prevSteps[prevSteps.length - 1].id}` : 'No previous node'}
       >
         prev
       </button>
@@ -71,7 +71,7 @@ export function StepNavigationControls({
           type="button"
           onClick={() => setShowStepDropdown(showStepDropdown === 'prev' ? false : 'prev')}
           className="flex items-center gap-0.5 p-1 rounded-md text-muted hover:text-secondary hover:bg-card transition-colors"
-          title="Select from previous steps"
+          title="Select from previous nodes"
         >
           <ChevronLeft size={16} />
           <ChevronDown size={10} />
@@ -82,7 +82,7 @@ export function StepNavigationControls({
           onClick={() => hasPrev && onSelectStep(prevSteps[0].id)}
           disabled={!hasPrev}
           className="p-1 rounded-md text-muted hover:text-secondary hover:bg-card transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          title={hasPrev ? `Go to ${prevSteps[0].name || prevSteps[0].id}` : 'No previous step'}
+          title={hasPrev ? `Go to ${prevSteps[0].name || prevSteps[0].id}` : 'No previous node'}
         >
           <ChevronLeft size={16} />
         </button>
@@ -94,7 +94,7 @@ export function StepNavigationControls({
           type="button"
           onClick={() => setShowStepDropdown(showStepDropdown === 'next' ? false : 'next')}
           className="flex items-center gap-0.5 p-1 rounded-md text-muted hover:text-secondary hover:bg-card transition-colors"
-          title="Select from next steps"
+          title="Select from next nodes"
         >
           <ChevronRight size={16} />
           <ChevronDown size={10} />
@@ -105,7 +105,7 @@ export function StepNavigationControls({
           onClick={() => hasNext && onSelectStep(nextSteps[0].id)}
           disabled={!hasNext}
           className="p-1 rounded-md text-muted hover:text-secondary hover:bg-card transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          title={hasNext ? `Go to ${nextSteps[0].name || nextSteps[0].id}` : 'No next step'}
+          title={hasNext ? `Go to ${nextSteps[0].name || nextSteps[0].id}` : 'No next node'}
         >
           <ChevronRight size={16} />
         </button>
@@ -121,7 +121,7 @@ export function StepNavigationControls({
         }}
         disabled={!hasNext}
         className={`hover:text-secondary transition-colors ${hasNext ? 'cursor-pointer' : 'opacity-30 cursor-not-allowed'}`}
-        title={hasNext ? `Go to ${nextSteps[0].name || nextSteps[0].id}` : 'No next step'}
+        title={hasNext ? `Go to ${nextSteps[0].name || nextSteps[0].id}` : 'No next node'}
       >
         next
       </button>

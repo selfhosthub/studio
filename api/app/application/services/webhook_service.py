@@ -32,6 +32,8 @@ from app.domain.common.exceptions import (
 from app.domain.instance.iteration_execution import IterationExecutionStatus
 from app.domain.instance_step.models import StepExecutionStatus
 from app.domain.workflow.repository import WorkflowRepository
+from app.infrastructure.security.trigger_headers import redact_trigger_headers
+from app.infrastructure.security.webhook_tokens import hash_webhook_token
 
 if TYPE_CHECKING:
     from app.application.services.form_field_resolver import FormFieldResolver
@@ -57,11 +59,10 @@ ProcessResultFn = Callable[[Dict[str, Any]], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
-# ValidationError codes meaning "credentials were presented and rejected". Every
-# trigger endpoint maps these to 401 and everything else to 400, so a new auth
-# type joins this set rather than editing each endpoint. Server-side
-# misconfiguration (UNSUPPORTED_AUTH_TYPE) is deliberately not here: no
-# credential the sender can present would change the outcome.
+# Header a Wait for Webhook node's API Key Header auth reads.
+STEP_WEBHOOK_AUTH_HEADER = "X-API-Key"
+
+# ValidationError codes every trigger endpoint answers with 401; all others answer 400.
 AUTH_FAILURE_CODES = frozenset(
     {
         "HEADER_AUTH_FAILED",
@@ -69,6 +70,7 @@ AUTH_FAILURE_CODES = frozenset(
         "INVALID_SIGNATURE",
         "UNAUTHORIZED",
         "INVALID_API_KEY",
+        "WEBHOOK_AUTH_NOT_CONFIGURED",
     }
 )
 
@@ -345,19 +347,57 @@ class WebhookService:
         # OrganizationSecret (keys: webhook_auth_value / webhook_jwt_secret); the
         # caller passes its decrypted secret_data in. The header NAME is non-secret
         # config and stays on the workflow row.
-        auth_type = getattr(workflow, "webhook_auth_type", "none")
+        self._verify_configured_auth(
+            getattr(workflow, "webhook_auth_type", "none"),
+            getattr(workflow, "webhook_auth_header_name", None),
+            headers,
+            secret_data,
+            f"workflow {workflow.id}",
+        )
 
+    def _verify_step_auth(
+        self, workflow: Any, step_id: str, step_config: Any, headers: Dict[str, str]
+    ) -> None:
+        """Verify a step callback against the auth its Wait for Webhook node configures."""
+        params = step_config.job.parameters if step_config and step_config.job else {}
+        self._verify_configured_auth(
+            params.get("webhook_auth_type") or "none",
+            STEP_WEBHOOK_AUTH_HEADER,
+            headers,
+            {
+                "webhook_auth_value": params.get("webhook_auth_header_value"),
+                "webhook_jwt_secret": params.get("webhook_jwt_secret"),
+            },
+            f"step {step_id} in workflow {workflow.id}",
+        )
+
+    @staticmethod
+    def _auth_not_configured() -> ValidationError:
+        """Rejection for a webhook whose API Key or JWT auth has no secret set."""
+        return ValidationError(
+            message="This webhook's authentication is not configured",
+            code="WEBHOOK_AUTH_NOT_CONFIGURED",
+        )
+
+    def _verify_configured_auth(
+        self,
+        auth_type: str,
+        header_name: Optional[str],
+        headers: Dict[str, str],
+        secret_data: Dict[str, Any],
+        subject: str,
+    ) -> None:
+        """Raise ValidationError when headers do not satisfy the configured header or JWT auth."""
         if auth_type == "none":
             return  # No auth required
 
         if auth_type == "header":
-            header_name = workflow.webhook_auth_header_name
             header_value = secret_data.get("webhook_auth_value")
             if not header_name or not header_value:
                 logger.warning(
-                    f"Header auth configured but missing header name/value for workflow {workflow.id}"
+                    f"Header auth configured but missing header name/value for {subject}"
                 )
-                return  # Misconfigured - allow through (fail open)
+                raise self._auth_not_configured()
 
             if not self._verify_header_auth(header_name, header_value, headers):
                 raise ValidationError(
@@ -369,9 +409,9 @@ class WebhookService:
             jwt_secret = secret_data.get("webhook_jwt_secret")
             if not jwt_secret:
                 logger.warning(
-                    f"JWT auth configured but missing secret for workflow {workflow.id}"
+                    f"JWT auth configured but missing secret for {subject}"
                 )
-                return  # Misconfigured - allow through (fail open)
+                raise self._auth_not_configured()
 
             if not self._verify_jwt_auth(jwt_secret, headers):
                 raise ValidationError(
@@ -392,7 +432,7 @@ class WebhookService:
             # Unrecognized auth type rejects the request rather than falling
             # through to an implicit accept.
             logger.warning(
-                f"Unrecognized webhook auth type {auth_type!r} for workflow {workflow.id}"
+                f"Unrecognized webhook auth type {auth_type!r} for {subject}"
             )
             raise ValidationError(
                 message="Unsupported webhook authentication type",
@@ -435,14 +475,16 @@ class WebhookService:
             if credential is not None:
                 return await self._handle_provider_callback(credential, payload, headers)
 
-        # Not a credential token - try a per-iteration execution token: the URL
-        # token IS the parked iteration row's external_id (json2video-style
-        # routing), self-routing with no credential or generation-id demux.
+        # Not a credential token - try a per-iteration execution token: the
+        # parked iteration row's external_id holds the URL token's hash
+        # (json2video-style routing), self-routing with no credential or demux.
         if self.iteration_execution_repository is not None:
-            row = await self.iteration_execution_repository.get_by_external_id(token)
+            row = await self.iteration_execution_repository.get_by_external_id(
+                hash_webhook_token(token)
+            )
             if row is not None:
                 return await self._handle_execution_token_callback(
-                    row, payload, headers
+                    row, token, payload, headers
                 )
 
         # Token not found anywhere
@@ -624,11 +666,12 @@ class WebhookService:
     async def _handle_execution_token_callback(
         self,
         row: Any,  # IterationExecution
+        token: str,
         payload: Dict[str, Any],
         headers: Dict[str, str],
     ) -> Dict[str, Any]:
         """Provider-completion callback routed by a per-iteration token: the URL
-        token IS the row's external_id (minted at enqueue), so the row is matched
+        token's hash is the row's external_id (minted at enqueue), so the row is matched
         before this is called - no credential, no demux, no inbound auth (the
         unguessable token is the only gate, e.g. json2video sends no signature).
 
@@ -636,7 +679,6 @@ class WebhookService:
         result means the provider failed the render. Assets download via the same
         seeded retrieve sub-job the generation_id path uses.
         """
-        token = str(row.external_id)
         ctx = await self._resolve_iteration_completion_context(row)
         guard = self._iteration_callback_guard(row, ctx, token)
         if guard is not None:
@@ -876,11 +918,11 @@ class WebhookService:
             source="webhook",
             extra_metadata={
                 "webhook_type": "workflow_trigger",
-                "headers": {
-                    k: v
-                    for k, v in headers.items()
-                    if k.lower() not in ("authorization", "x-webhook-signature")
-                },
+                "headers": redact_trigger_headers(
+                    headers,
+                    getattr(workflow, "webhook_auth_header_name", None),
+                    getattr(workflow, "webhook_config", None),
+                ),
             },
         )
 
@@ -917,6 +959,8 @@ class WebhookService:
                         code="INVALID_SIGNATURE",
                     )
 
+        self._verify_step_auth(workflow, step_id, step_config, headers)
+
         # Find the waiting instance
         waiting_instance = await self.instance_service.get_waiting_for_webhook(
             workflow.id
@@ -924,7 +968,7 @@ class WebhookService:
 
         if not waiting_instance:
             raise ValidationError(
-                message="No workflow instance is waiting for a callback on this step",
+                message="No workflow instance is waiting for a callback on this node",
                 code="NO_WAITING_INSTANCE",
             )
 
@@ -937,7 +981,7 @@ class WebhookService:
             or waiting_step.status != StepExecutionStatus.WAITING_FOR_WEBHOOK
         ):
             raise ValidationError(
-                message="No workflow instance is waiting for a callback on this step",
+                message="No workflow instance is waiting for a callback on this node",
                 code="NO_WAITING_INSTANCE",
             )
 

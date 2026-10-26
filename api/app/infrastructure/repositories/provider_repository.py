@@ -7,9 +7,10 @@ from datetime import UTC, datetime
 from typing import List, Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.common.exceptions import EntityNotFoundError
+from app.domain.common.exceptions import BusinessRuleViolation, EntityNotFoundError
 from app.domain.common.value_objects import OperationalStatus, Visibility
 from app.domain.provider.models import (
     CredentialType,
@@ -30,6 +31,11 @@ from app.infrastructure.persistence.models import (
     ProviderServiceModel,
 )
 from app.infrastructure.security.credential_encryption import get_credential_encryption
+from app.infrastructure.security.webhook_tokens import (
+    hash_webhook_token,
+    open_webhook_token,
+    seal_webhook_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +250,15 @@ class SQLAlchemyProviderRepository(ProviderRepository):
             return False
 
         await self.session.delete(provider_model)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            raise BusinessRuleViolation(
+                "Cannot delete provider: files created with it still exist. "
+                "Delete those files first, or uninstall the package to deactivate the provider.",
+                code="provider_in_use",
+            )
 
         return True
 
@@ -301,6 +315,12 @@ class SQLAlchemyProviderServiceRepository(ProviderServiceRepository):
                 code=f"Provider with ID {service.provider_id} not found",
             )
 
+        next_position = await self.session.scalar(
+            select(func.coalesce(func.max(ProviderServiceModel.position) + 1, 0)).where(
+                ProviderServiceModel.provider_id == service.provider_id
+            )
+        )
+
         service_model = ProviderServiceModel(
             id=service.id,
             provider_id=service.provider_id,
@@ -319,6 +339,7 @@ class SQLAlchemyProviderServiceRepository(ProviderServiceRepository):
             parameter_title=service.parameter_title,
             client_metadata=service.client_metadata,
             version=provider_version,
+            position=next_position,
             created_by=service.created_by,
         )
         self.session.add(service_model)
@@ -407,7 +428,11 @@ class SQLAlchemyProviderServiceRepository(ProviderServiceRepository):
         if is_active is not None:
             stmt = stmt.where(ProviderServiceModel.is_active == is_active)
 
-        stmt = stmt.offset(skip).limit(limit)
+        stmt = (
+            stmt.order_by(ProviderServiceModel.position, ProviderServiceModel.service_id)
+            .offset(skip)
+            .limit(limit)
+        )
 
         result = await self.session.execute(stmt)
         models = result.scalars().all()
@@ -489,7 +514,7 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
         self._encryption = get_credential_encryption()
 
     def _to_domain(self, model: ProviderCredentialModel) -> ProviderCredential:
-        credentials = self._encryption.decrypt_credential_dict(model.secret_data)
+        credentials = self._encryption.open_secret_data(model.secret_data)
 
         return ProviderCredential(
             id=model.id,
@@ -504,16 +529,17 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
             expires_at=model.expires_at,
             created_by=model.created_by,
             client_metadata={},
-            webhook_callback_token=model.webhook_callback_token,
+            webhook_callback_token=open_webhook_token(model.webhook_callback_token),
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
 
     async def create(self, credential: ProviderCredential) -> ProviderCredential:
-        credentials_to_store = self._encryption.encrypt_credential_dict(
+        credentials_to_store = self._encryption.seal_secret_data(
             credential.credentials
         )
 
+        sealed_token, token_hash = seal_webhook_token(credential.webhook_callback_token)
         credential_model = ProviderCredentialModel(
             id=credential.id,
             provider_slug=credential.provider_slug,
@@ -521,12 +547,13 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
             name=credential.name,
             description=credential.description,
             credential_type=credential.credential_type.value,
-            secret_data=credentials_to_store or {},
+            secret_data=credentials_to_store,
             is_active=credential.is_active,
             is_token_type=getattr(credential, "is_token_type", False),
             expires_at=credential.expires_at,
             created_by=credential.created_by,
-            webhook_callback_token=credential.webhook_callback_token,
+            webhook_callback_token=sealed_token,
+            webhook_callback_token_hash=token_hash,
         )
         self.session.add(credential_model)
         await self.session.commit()
@@ -548,17 +575,24 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
                 code=f"Provider credential with ID {credential.id} not found",
             )
 
-        credentials_to_store = self._encryption.encrypt_credential_dict(
+        credentials_to_store = self._encryption.seal_secret_data(
             credential.credentials
         )
 
         credential_model.name = credential.name
         credential_model.description = credential.description
         credential_model.credential_type = credential.credential_type.value
-        credential_model.secret_data = credentials_to_store or {}
+        credential_model.secret_data = credentials_to_store
         credential_model.is_active = credential.is_active
         credential_model.expires_at = credential.expires_at
-        credential_model.webhook_callback_token = credential.webhook_callback_token
+        token = credential.webhook_callback_token
+        if credential_model.webhook_callback_token_hash != (
+            hash_webhook_token(token) if token else None
+        ):
+            (
+                credential_model.webhook_callback_token,
+                credential_model.webhook_callback_token_hash,
+            ) = seal_webhook_token(token)
         credential_model.updated_at = datetime.now(UTC)
 
         await self.session.commit()
@@ -578,13 +612,10 @@ class SQLAlchemyProviderCredentialRepository(ProviderCredentialRepository):
     async def get_by_webhook_callback_token(
         self, token: str
     ) -> Optional[ProviderCredential]:
-        """Resolve the credential that owns this inbound-callback routing token.
-
-        The token is unique per credential; the inbound webhook handler uses it
-        as the auth-gate key before demultiplexing the callback by generation id.
-        """
+        """Credential whose stored callback token hash matches token, or None."""
         stmt = select(ProviderCredentialModel).where(
-            ProviderCredentialModel.webhook_callback_token == token
+            ProviderCredentialModel.webhook_callback_token_hash
+            == hash_webhook_token(token)
         )
         result = await self.session.execute(stmt)
         credential_model = result.scalars().first()

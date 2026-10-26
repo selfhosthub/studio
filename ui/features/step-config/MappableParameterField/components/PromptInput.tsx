@@ -261,9 +261,9 @@ export function PromptInput({
               }}
               className="flex-1 min-w-0 p-1.5 border rounded text-xs"
             >
-              <option value="">Select step...</option>
+              <option value="">Select node...</option>
               {isInstanceForm && (
-                <option value="__instance_form__">Instance Form</option>
+                <option value="__instance_form__">Form</option>
               )}
               {reversedSteps.map((step) => (
                 <option key={step.id} value={step.id}>{step.name || step.id}</option>

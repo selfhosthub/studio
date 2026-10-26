@@ -33,7 +33,7 @@ export default function SettingsLayout({
               Settings
             </h1>
             <p className="mt-2 text-sm text-secondary">
-              Manage your account settings and preferences.
+              Manage your profile and account.
             </p>
           </div>
         </div>

@@ -3,13 +3,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Copy, Check, RefreshCw } from 'lucide-react';
+import { Copy, Check, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { AlertTriangle } from 'lucide-react';
 import { generateWorkflowApiKey, regenerateWorkflowApiKey, clearWorkflowApiKey, recallWorkflowApiKey, setWorkflowTriggerSecret, getWorkflowFormSchema } from '@/shared/api';
 import { buildTriggerSampleBody } from '@/shared/lib/webhook-utils';
 import { useToast } from '@/features/toast';
-import { TIMEOUTS } from '@/shared/lib/constants';
+import { useCopyToClipboard } from '@/shared/hooks/useCopyToClipboard';
 import { TriggerSecretPicker } from './TriggerSecretPicker';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 interface ApiKeyConfigSectionProps {
   workflowId: string;
@@ -19,18 +20,22 @@ interface ApiKeyConfigSectionProps {
   onChanged: (hasApiKey: boolean) => void;
 }
 
+const MASKED_SECRET = '••••••••••••';
+
 function buildApiKeyCurl(triggerUrl: string, apiKey: string, body: string): string {
   return `curl -X POST ${triggerUrl} -H "Authorization: Bearer ${apiKey}" -H "Content-Type: application/json" -d '${body}'`;
 }
 
 export function ApiKeyConfigSection({ workflowId, hasApiKey, onChanged }: ApiKeyConfigSectionProps) {
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [triggerUrl, setTriggerUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copiedKey, setCopiedKey] = useState(false);
-  const [copiedCurl, setCopiedCurl] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const { copied: copiedKey, copy: copyKey } = useCopyToClipboard();
+  const { copied: copiedCurl, copy: copyCurl } = useCopyToClipboard();
   // Pre-populate the curl body with field_id-keyed defaults from the form schema.
   const [sampleBody, setSampleBody] = useState('{}');
   // Workflows sharing this key's trigger secret (incl. this one). >1 → regeneration
@@ -91,7 +96,12 @@ export function ApiKeyConfigSection({ workflowId, hasApiKey, onChanged }: ApiKey
   };
 
   const handleGenerate = async (regenerate: boolean) => {
-    if (regenerate && !confirm('Regenerate the API key? The old key will stop working immediately and any integrations using it will break.')) {
+    if (regenerate && !(await confirm({
+      title: 'Regenerate API key',
+      message: 'Regenerate the API key? The old key will stop working immediately and any integrations using it will break.',
+      confirmLabel: 'Regenerate',
+      variant: 'danger',
+    }))) {
       return;
     }
     setLoading(true);
@@ -121,7 +131,12 @@ export function ApiKeyConfigSection({ workflowId, hasApiKey, onChanged }: ApiKey
     const message = shared
       ? `Unlink this workflow from the shared trigger secret? The other ${sharedByCount - 1} workflow(s) using it keep working; only this workflow stops.`
       : 'Remove the API key for this workflow? Integrations using it will stop working.';
-    if (!confirm(message)) {
+    if (!(await confirm({
+      title: shared ? 'Unlink trigger secret' : 'Remove API key',
+      message,
+      confirmLabel: shared ? 'Unlink' : 'Remove',
+      variant: shared ? 'warning' : 'danger',
+    }))) {
       return;
     }
     setLoading(true);
@@ -140,19 +155,11 @@ export function ApiKeyConfigSection({ workflowId, hasApiKey, onChanged }: ApiKey
   };
 
   const handleCopyKey = () => {
-    if (apiKey) {
-      navigator.clipboard.writeText(apiKey);
-      setCopiedKey(true);
-      setTimeout(() => setCopiedKey(false), TIMEOUTS.COPY_FEEDBACK);
-    }
+    if (apiKey) copyKey(apiKey);
   };
 
   const handleCopyCurl = () => {
-    if (apiKey && triggerUrl) {
-      navigator.clipboard.writeText(buildApiKeyCurl(triggerUrl, apiKey, sampleBody));
-      setCopiedCurl(true);
-      setTimeout(() => setCopiedCurl(false), TIMEOUTS.COPY_FEEDBACK);
-    }
+    if (apiKey && triggerUrl) copyCurl(buildApiKeyCurl(triggerUrl, apiKey, sampleBody));
   };
 
   return (
@@ -170,11 +177,19 @@ export function ApiKeyConfigSection({ workflowId, hasApiKey, onChanged }: ApiKey
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-xs text-secondary flex-shrink-0">Key:</span>
               <input
-                type="text"
+                type={showKey ? 'text' : 'password'}
                 readOnly
                 value={apiKey}
                 className="form-input-mono form-input-readonly flex-1 min-w-0 text-xs py-1.5"
               />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="btn-secondary btn-with-icon p-1.5 flex-shrink-0"
+                title={showKey ? 'Hide API key' : 'Show API key'}
+              >
+                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
               <button
                 type="button"
                 onClick={handleCopyKey}
@@ -192,7 +207,7 @@ export function ApiKeyConfigSection({ workflowId, hasApiKey, onChanged }: ApiKey
                 <input
                   type="text"
                   readOnly
-                  value={buildApiKeyCurl(triggerUrl, apiKey, sampleBody)}
+                  value={buildApiKeyCurl(triggerUrl, showKey ? apiKey : MASKED_SECRET, sampleBody)}
                   className="form-input-mono form-input-readonly flex-1 min-w-0 text-xs py-1.5"
                 />
                 <button
@@ -252,7 +267,7 @@ export function ApiKeyConfigSection({ workflowId, hasApiKey, onChanged }: ApiKey
                 type="button"
                 onClick={handleRemove}
                 disabled={loading}
-                className="text-xs text-secondary hover:text-danger inline-flex items-center"
+                className={`text-xs text-secondary inline-flex items-center ${shared ? 'hover:text-warning' : 'hover:text-danger'}`}
               >
                 {shared ? 'Unlink' : 'Remove'}
               </button>

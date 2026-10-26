@@ -3,10 +3,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Download, FileText, Image, Video, AudioLines, File, Calendar, Eye, Upload, CloudDownload, Sparkles, Check, Trash2, RotateCw } from 'lucide-react';
+import { Download, FileText, Image, Video, AudioLines, File, Calendar, Eye, Upload, CloudDownload, Sparkles, Check, Trash2, RotateCw, Play } from 'lucide-react';
 import { OrgFile } from '@/shared/types/api';
 import { downloadResource, apiFetchBlob } from '@/shared/api';
-import { formatFileSize, formatDuration } from '@/shared/lib/format-utils';
+import { formatFileSize, formatDuration, formatStatus } from '@/shared/lib/format-utils';
+import { formatDate } from '@/shared/lib/dateFormatter';
+import { getFileName, getFileTypeLabel } from '@/shared/lib/file-name';
 
 export type CardSize = 'small' | 'medium' | 'large';
 
@@ -26,26 +28,6 @@ interface ResourceCardProps {
   onUseVariant?: (resourceId: string) => void; // Keep-variants: make this the selected variant
 }
 
-// Get filename from resource - prefer virtual_path filename which already has unique ID
-function getDownloadFilename(resource: OrgFile): string {
-  // Extract filename from virtual_path (e.g., "generated_images_d8f06d83.png")
-  if (resource.virtual_path) {
-    const parts = resource.virtual_path.split('/');
-    const filename = parts[parts.length - 1];
-    if (filename && filename.includes('.')) return filename;
-  }
-  // Fallback: construct from display_name + short ID
-  let baseName = resource.display_name || 'file';
-  const lastDot = baseName.lastIndexOf('.');
-  if (lastDot > 0) {
-    baseName = baseName.substring(0, lastDot);
-  }
-  baseName = baseName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
-  const shortId = resource.id.slice(-8);
-  const ext = resource.file_extension || '.bin';
-  return `${baseName}_${shortId}${ext.startsWith('.') ? ext : '.' + ext}`;
-}
-
 function getFileIcon(mimeType: string) {
   if (mimeType.startsWith('image/')) return Image;
   if (mimeType.startsWith('video/')) return Video;
@@ -58,20 +40,22 @@ function getFileIcon(mimeType: string) {
 function getStatusBadge(status: string) {
   switch (status) {
     case 'available':
-      return <span className="text-xs px-2 py-1 rounded bg-success-subtle text-success">Ready</span>;
+      return <span className="text-xs px-2 py-1 rounded bg-success-subtle text-success">ready</span>;
     case 'pending':
-      return <span className="text-xs px-2 py-1 rounded bg-card text-secondary">Pending</span>;
+      return <span className="text-xs px-2 py-1 rounded bg-card text-secondary">pending</span>;
     case 'generating':
       return (
         <span className="text-xs px-2 py-1 rounded bg-info-subtle text-info flex items-center gap-1">
           <span className="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
-          Generating...
+          generating
         </span>
       );
     case 'failed':
-      return <span className="text-xs px-2 py-1 rounded bg-danger-subtle text-danger">Failed</span>;
+      return <span className="text-xs px-2 py-1 rounded bg-danger-subtle text-danger">failed</span>;
+    case 'orphaned':
+      return <span className="text-xs px-2 py-1 rounded bg-warning-subtle text-warning">orphaned</span>;
     default:
-      return <span className="text-xs px-2 py-1 rounded bg-card text-secondary">{status}</span>;
+      return <span className="text-xs px-2 py-1 rounded bg-card text-secondary">{formatStatus(status)}</span>;
   }
 }
 
@@ -110,7 +94,7 @@ const ResourceCard = React.memo(function ResourceCard({ resource, onDownload, on
   const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const SourceIcon = getSourceIcon(resource.source);
-  const createdDate = new Date(resource.created_at).toLocaleDateString();
+  const createdDate = formatDate(resource.created_at, { time: false });
 
   // Helper to detect file type by extension when mime_type is octet-stream
   const getFileExtension = (filename: string): string => {
@@ -198,35 +182,18 @@ const ResourceCard = React.memo(function ResourceCard({ resource, onDownload, on
     };
   }, [thumbnailBlobUrl]);
 
-  // Load audio file for inline player
-  useEffect(() => {
-    if (!isAudioType || resource.status !== 'available' || audioBlobUrl) return;
-
-    let cancelled = false;
+  // Fetch the audio file on the first play click
+  const handlePlayAudio = async () => {
     setAudioLoading(true);
-
-    const loadAudio = async () => {
-      try {
-        const blob = await downloadResource(resource.id);
-        if (!cancelled) {
-          const url = URL.createObjectURL(blob);
-          setAudioBlobUrl(url);
-          setAudioLoading(false);
-        }
-      } catch (error) {
-        console.error('Error loading audio:', error);
-        if (!cancelled) {
-          setAudioLoading(false);
-        }
-      }
-    };
-
-    loadAudio();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAudioType, resource.status, resource.id, audioBlobUrl]);
+    try {
+      const blob = await downloadResource(resource.id);
+      setAudioBlobUrl(URL.createObjectURL(blob));
+    } catch (error) {
+      console.error('Error loading audio:', error);
+    } finally {
+      setAudioLoading(false);
+    }
+  };
 
   // Cleanup audio blob URL on unmount
   useEffect(() => {
@@ -323,14 +290,14 @@ const ResourceCard = React.memo(function ResourceCard({ resource, onDownload, on
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload(resource.id, getDownloadFilename(resource));
+                onDownload(resource.id, getFileName(resource));
               }}
               className={`${buttonSize} bg-black/60 hover:bg-black/80 rounded transition-colors`}
               title="Download"
             >
               <Download className={`${buttonIconSize} text-white`} />
             </button>
-            {onRegenerate && (
+            {onRegenerate && resource.job_execution_id && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -409,11 +376,11 @@ const ResourceCard = React.memo(function ResourceCard({ resource, onDownload, on
 
       {/* File Info */}
       <div className={isSmall ? 'space-y-0.5' : 'space-y-1'}>
-        <div className={`font-medium break-all text-primary ${titleSize}`} title={getDownloadFilename(resource)}>
-          {getDownloadFilename(resource)}
+        <div className={`font-medium break-all text-primary ${titleSize}`} title={getFileName(resource)}>
+          {getFileName(resource)}
         </div>
         <div className={`text-secondary ${metaSize}`}>
-          {formatFileSize(resource.file_size)}{duration != null && ` • ${formatDuration(duration)}`} • {resource.mime_type.split('/')[1]?.toUpperCase() || 'FILE'}
+          {formatFileSize(resource.file_size)}{duration != null && ` • ${formatDuration(duration)}`} • {getFileTypeLabel(resource)}
         </div>
 
         {/* Seed display for AI-generated images */}
@@ -441,19 +408,30 @@ const ResourceCard = React.memo(function ResourceCard({ resource, onDownload, on
         {/* Inline Audio Player */}
         {isAudioType && resource.status === 'available' && (
           <div className={`mt-2 pt-2 border-t border-primary ${isSmall ? 'mt-1 pt-1' : ''}`}>
-            {audioLoading ? (
-              <div className="flex items-center justify-center py-2 text-secondary">
-                <div className="w-4 h-4 border-2 border-primary border-t-[var(--theme-primary)] rounded-full animate-spin" />
-                <span className={`ml-2 ${metaSize}`}>Loading audio...</span>
-              </div>
-            ) : audioBlobUrl ? (
+            {audioBlobUrl ? (
               <audio
                 src={audioBlobUrl}
                 controls
+                autoPlay
                 className="w-full"
                 preload="metadata"
               />
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                onClick={handlePlayAudio}
+                disabled={audioLoading}
+                className={`flex items-center justify-center gap-2 w-full py-2 text-secondary hover:text-primary disabled:cursor-wait ${metaSize}`}
+                title="Play audio"
+              >
+                {audioLoading ? (
+                  <div className="w-4 h-4 border-2 border-primary border-t-[var(--theme-primary)] rounded-full animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4" />
+                )}
+                <span>{audioLoading ? 'Loading audio...' : 'Play'}</span>
+              </button>
+            )}
           </div>
         )}
       </div>

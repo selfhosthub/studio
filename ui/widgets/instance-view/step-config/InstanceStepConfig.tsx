@@ -65,7 +65,7 @@ export default function InstanceStepConfig({
       // In instances, we typically hide provider selection as it's locked from workflow
       showProviderSection={false}
       // Instance-specific section titles
-      generalSectionTitle="Instance Step"
+      generalSectionTitle="Instance Node"
       serviceSectionTitle="Service Configuration"
       inputMappingsSectionTitle="Runtime Input Mapping"
       outputFieldsSectionTitle="Runtime Outputs"

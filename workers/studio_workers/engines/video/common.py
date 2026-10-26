@@ -86,12 +86,14 @@ def download_file(client: httpx.Client, url: str, path: str) -> None:
     params: dict = {}
     if needs_worker_auth:
         headers, params = internal_request_auth()
+    # Merge params into the URL's own query string.
+    request_url = httpx.URL(translated_url).copy_merge_params(params)
 
     max_bytes = MAX_DOWNLOAD_SIZE_MB * 1024 * 1024
     downloaded = 0
 
     with client.stream(
-        "GET", translated_url, headers=headers, params=params
+        "GET", request_url, headers=headers
     ) as response:
         response.raise_for_status()
         with open(path, "wb") as f:

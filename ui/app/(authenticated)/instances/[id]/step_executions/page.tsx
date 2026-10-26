@@ -8,10 +8,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { formatDate } from '@/shared/lib/dateFormatter';
 import { getJobsForInstance, getInstance } from '@/shared/api';
 import { useToast } from '@/features/toast';
-import {
-  Table, TableHeader, TableBody, TableRow, TableCell,
-  TableHeaderCell, StatusBadge, ActionButton, TableContainer
-} from '@/shared/ui/Table';
+import { StatusBadge, ActionButton } from '@/shared/ui/Table';
+import { ResourceTable, type ResourceColumnConfig } from '@/shared/ui';
 
 interface Job {
   id: string;
@@ -35,22 +33,26 @@ interface Job {
   duration?: string;
 }
 
+// Elapsed milliseconds from start to completion, or to now while running
+const durationMs = (startedAt: string | null, completedAt: string | null): number | null => {
+  if (!startedAt) return null;
+  const end = completedAt ? new Date(completedAt) : new Date();
+  return end.getTime() - new Date(startedAt).getTime();
+};
+
 // Helper function to calculate duration
 const calculateDuration = (startedAt: string | null, completedAt: string | null): string => {
-  if (!startedAt) return "N/A";
+  const elapsed = durationMs(startedAt, completedAt);
+  if (elapsed === null) return "N/A";
 
-  const start = new Date(startedAt);
-  const end = completedAt ? new Date(completedAt) : new Date();
-  const durationMs = end.getTime() - start.getTime();
-
-  const minutes = Math.floor(durationMs / 60000);
+  const minutes = Math.floor(elapsed / 60000);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
 
   if (days > 0) return `${days}d ${hours % 24}h`;
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   if (minutes > 0) return `${minutes}m`;
-  return `${Math.floor(durationMs / 1000)}s`;
+  return `${Math.floor(elapsed / 1000)}s`;
 };
 
 export default function InstanceJobMonitoring() {
@@ -97,6 +99,106 @@ export default function InstanceJobMonitoring() {
     void (async () => { await fetchJobs(); })();
   }, [instanceId, fetchJobs]);
 
+  const columns: ResourceColumnConfig<Job>[] = [
+    {
+      key: 'id',
+      header: 'JOB ID',
+      sortValue: (job) => job.id,
+      cellClassName: 'font-medium text-xs font-mono',
+      render: (job) => `${job.id.slice(0, 8)}...`,
+    },
+    {
+      key: 'step',
+      header: 'NODE ID',
+      sortValue: (job) => job.step_id,
+      render: (job) => (
+        <span className="text-xs px-2 py-1 rounded bg-card">
+          {job.step_id}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'STATUS',
+      sortValue: (job) => job.status,
+      render: (job) => (
+        <StatusBadge
+          status={job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+          variant={
+            job.status === 'running' || job.status === 'queued' ? 'info' :
+            job.status === 'completed' ? 'success' :
+            job.status === 'failed' || job.status === 'timeout' ? 'error' :
+            job.status === 'pending' ? 'warning' : 'default'
+          }
+        />
+      ),
+    },
+    {
+      key: 'started',
+      header: 'STARTED',
+      sortValue: (job) => (job.started_at ? new Date(job.started_at) : null),
+      cellClassName: 'text-muted',
+      render: (job) => (job.started_at ? formatDate(job.started_at) : 'N/A'),
+    },
+    {
+      key: 'completed',
+      header: 'COMPLETED',
+      sortValue: (job) => (job.completed_at ? new Date(job.completed_at) : null),
+      cellClassName: 'text-muted',
+      render: (job) => (job.completed_at ? formatDate(job.completed_at) :
+        job.status === 'running' || job.status === 'queued' ? 'In progress' : 'N/A'),
+    },
+    {
+      key: 'duration',
+      header: 'DURATION',
+      sortValue: (job) => durationMs(job.started_at, job.completed_at),
+      cellClassName: 'text-muted',
+      render: (job) => job.duration,
+    },
+    {
+      key: 'retries',
+      header: 'RETRIES',
+      sortValue: (job) => job.retry_count ?? 0,
+      cellClassName: 'text-center',
+      render: (job) => ((job.retry_count || 0) > 0 ? (
+        <span className="px-2 py-1 text-xs rounded bg-warning-subtle text-warning">
+          {job.retry_count}
+        </span>
+      ) : (
+        <span className="text-muted">0</span>
+      )),
+    },
+    {
+      key: 'actions',
+      header: 'ACTIONS',
+      align: 'center',
+      render: (job) => (
+        <div className="flex justify-center gap-2 items-center max-md:flex-col max-md:items-stretch">
+          <ActionButton
+            variant="navigate"
+            size="sm"
+            onClick={() => {
+              // View job details - could expand or navigate to detail page
+            }}
+          >
+            Details
+          </ActionButton>
+          {job.error_message && (
+            <ActionButton
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                toast({ title: 'Node error', description: job.error_message || 'Unknown error', variant: 'destructive' }); // defaults-ok
+              }}
+            >
+              View Error
+            </ActionButton>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <>
       <div className="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-9xl mx-auto">
@@ -139,99 +241,24 @@ export default function InstanceJobMonitoring() {
         ) : isLoading ? (
           <div className="text-center py-10">
             <div className="spinner-md"></div>
-            <p className="mt-2 text-secondary">Loading jobs...</p>
+            <p className="mt-2 text-secondary">Loading nodes...</p>
           </div>
         ) : jobs.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-muted">
-              No jobs found for this instance.
+              No nodes found for this instance.
             </p>
           </div>
         ) : (
-          <TableContainer className="border-0">
-            <Table>
-              <TableHeader>
-                <tr>
-                  <TableHeaderCell>JOB ID</TableHeaderCell>
-                  <TableHeaderCell>STEP ID</TableHeaderCell>
-                  <TableHeaderCell>STATUS</TableHeaderCell>
-                  <TableHeaderCell>STARTED</TableHeaderCell>
-                  <TableHeaderCell>COMPLETED</TableHeaderCell>
-                  <TableHeaderCell>DURATION</TableHeaderCell>
-                  <TableHeaderCell>RETRIES</TableHeaderCell>
-                  <TableHeaderCell align="center">ACTIONS</TableHeaderCell>
-                </tr>
-              </TableHeader>
-              <TableBody>
-                {jobs.map((job) => (
-                  <TableRow key={job.id}>
-                    <TableCell className="font-medium text-xs font-mono">
-                      {job.id.slice(0, 8)}...
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs px-2 py-1 rounded bg-card">
-                        {job.step_id}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge
-                        status={job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                        variant={
-                          job.status === 'running' || job.status === 'queued' ? 'info' :
-                          job.status === 'completed' ? 'success' :
-                          job.status === 'failed' || job.status === 'timeout' ? 'error' :
-                          job.status === 'pending' ? 'warning' : 'default'
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-muted">
-                      {job.started_at ? formatDate(job.started_at) : 'N/A'}
-                    </TableCell>
-                    <TableCell className="text-muted">
-                      {job.completed_at ? formatDate(job.completed_at) :
-                       job.status === 'running' || job.status === 'queued' ? 'In progress' : 'N/A'}
-                    </TableCell>
-                    <TableCell className="text-muted">
-                      {job.duration}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {(job.retry_count || 0) > 0 ? (
-                        <span className="px-2 py-1 text-xs rounded bg-warning-subtle text-warning">
-                          {job.retry_count}
-                        </span>
-                      ) : (
-                        <span className="text-muted">0</span>
-                      )}
-                    </TableCell>
-                    <TableCell align="center">
-                      <div className="flex justify-center space-x-2">
-                        <ActionButton
-                          variant="navigate"
-                          size="sm"
-                          onClick={() => {
-                            // View job details - could expand or navigate to detail page
-                          }}
-                        >
-                          Details
-                        </ActionButton>
-                        {job.error_message && (
-                          <ActionButton
-                            variant="danger"
-                            size="sm"
-                            onClick={() => {
-                              toast({ title: 'Step error', description: job.error_message || 'Unknown error', variant: 'destructive' });
-                            }}
-                          >
-                            View Error
-                          </ActionButton>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <ResourceTable<Job>
+            data={jobs}
+            getItemId={(job) => job.id}
+            columns={columns}
+            nameColumn="step"
+            prefPage="step-executions"
+            pagination={{ itemLabel: 'job' }}
+            containerClassName="border-0"
+          />
         )}
       </div>
     </>

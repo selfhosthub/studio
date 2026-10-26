@@ -97,14 +97,12 @@ class StepResultHandler:
         """Handle PROCESSING status - worker started executing. Returns should_continue=False."""
         logger.debug(f"Step {step_id} is now PROCESSING (running)")
 
-        # Update instance step via entity (source of truth).
-        # PENDING and QUEUED both transition to RUNNING via start():
-        # enqueue_step calls step.queue() so the row is QUEUED by the
-        # time the worker's PROCESSING publish arrives.
+        # PENDING, QUEUED and an inline manual trigger's WAITING_FOR_MANUAL_TRIGGER start the step.
         if instance_step:
             if instance_step.status in (
                 StepExecutionStatus.PENDING,
                 StepExecutionStatus.QUEUED,
+                StepExecutionStatus.WAITING_FOR_MANUAL_TRIGGER,
             ):
                 instance_step.start()
             elif instance_step.status in (
@@ -137,7 +135,7 @@ class StepResultHandler:
         immediately; the parent's terminal status is decided once all iterations are
         terminal, so step_failed=False is returned for iteration jobs.
         """
-        error_msg = error or "Step execution failed"
+        error_msg = error or "Node execution failed"
         logger.debug(f"Step {step_id} FAILED: {error_msg}")
 
         # Guard: if step was cancelled mid-flight, skip transition

@@ -46,6 +46,11 @@ from app.domain.queue.repository import QueuedJobRepository, WorkerRepository
 from app.domain.common.interfaces import JobStatusPublisher
 from app.domain.queue.interfaces import QueueRouter, QueueRoutingContext
 from app.infrastructure.messaging.queue_router import QueueRoutingError
+from app.infrastructure.security.webhook_tokens import hash_webhook_token
+from app.infrastructure.security.step_secrets import (
+    step_secret_paths,
+    without_secret_values,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +285,9 @@ class IterationJobEnqueuer:
             iteration_requests.append(
                 {
                     "iteration_index": i,
-                    "params": iter_params,
+                    "params": without_secret_values(
+                        iter_params, step_secret_paths(step_config)
+                    ),
                 }
             )
 
@@ -311,7 +318,7 @@ class IterationJobEnqueuer:
         # token placed in the request body, so the provider POSTs to exactly
         # what we template - an absolute, publicly reachable base is required.
         # Mint each row's token now (before row creation) so it can be both the
-        # row's external_id (the inbound match key) and the body's callback_url.
+        # row's external_id hash (the inbound match key) and the body's callback_url.
         if use_execution_token:
             if not settings.external_api_base:
                 raise BusinessRuleViolation(
@@ -329,7 +336,7 @@ class IterationJobEnqueuer:
                 )
 
         # Persist PENDING IterationExecution rows in the queued_jobs transaction.
-        # For execution_token routing the row's external_id is the minted token,
+        # For execution_token routing the row's external_id is the token's hash,
         # so the inbound callback matches before any provider id exists.
         await self._create_iteration_execution_rows(
             instance_id=instance_id,
@@ -457,7 +464,9 @@ class IterationJobEnqueuer:
             job_ids.append(job_id)
 
             # Build request_body for debugging
-            request_body = job_config.get("parameters") or {}
+            request_body = without_secret_values(
+                job_config.get("parameters") or {}, step_secret_paths(step_config)
+            )
 
             # Publish QUEUED status for this iteration job
             # input_data = resolved parameters (Contract 3 compliant)
@@ -604,7 +613,7 @@ class IterationJobEnqueuer:
                 step_key=step_id,
                 iteration_index=iteration_index,
                 iteration_group_id=iteration_group_id,
-                external_id=token,
+                external_id=hash_webhook_token(token),
             )
 
         iteration_adapter = build_adapter_for_endpoint(endpoint)
@@ -686,7 +695,9 @@ class IterationJobEnqueuer:
         if iter_http_request is not None:
             job_payload["http_request"] = iter_http_request
 
-        request_body = iter_job_cfg.get("parameters") or {}
+        request_body = without_secret_values(
+            iter_job_cfg.get("parameters") or {}, step_secret_paths(step_config)
+        )
         await self.status_publisher.publish_status(
             {
                 "instance_id": str(instance_id),
@@ -726,7 +737,7 @@ class IterationJobEnqueuer:
         iteration_group_id: str,
         external_id: str,
     ) -> None:
-        """Write a freshly-minted callback token onto the existing reset row.
+        """Write a freshly-minted callback token's hash onto the existing reset row.
 
         The regen reuses the row the API already reset (external_id cleared); the
         new token is the inbound match key for this fire. No new row is created.
@@ -830,9 +841,13 @@ class IterationJobEnqueuer:
                 iteration_index=req["iteration_index"],
                 iteration_group_id=group_uuid,
                 parameters=req.get("params") or {},
-                # execution_token routing: the minted callback token is the
-                # inbound match key. None for get / generation_id routing.
-                external_id=req.get("callback_token"),
+                # execution_token routing: the minted callback token's hash is
+                # the inbound match key. None for get / generation_id routing.
+                external_id=(
+                    hash_webhook_token(req["callback_token"])
+                    if req.get("callback_token")
+                    else None
+                ),
             )
             for req in iteration_requests
         ]

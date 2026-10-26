@@ -200,7 +200,7 @@ export function WorkflowToolbar({
           Edit Workflow
         </h1>
         <p className="text-muted text-xs">
-          Modify your workflow configuration and steps.
+          Modify your workflow configuration and nodes.
         </p>
       </div>
     </>

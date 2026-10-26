@@ -51,6 +51,20 @@ class InstanceStatus(str, Enum):
     ACTIVE = "active"
 
 
+# A run that has started and not finished: the one meaning of "running" for the Running tab and the dashboard count.
+RUNNING_STATUSES: frozenset[InstanceStatus] = frozenset(
+    {
+        InstanceStatus.PENDING,
+        InstanceStatus.PROCESSING,
+        InstanceStatus.WAITING_FOR_WEBHOOK,
+        InstanceStatus.WAITING_FOR_APPROVAL,
+        InstanceStatus.WAITING_FOR_MANUAL_TRIGGER,
+        InstanceStatus.DEBUG_PAUSED,
+        InstanceStatus.PAUSED,
+    }
+)
+
+
 class OperationType(str, Enum):
     """Active re-execution operation on an instance. is_isolated controls whether the workflow advances after the target completes."""
 
@@ -440,7 +454,7 @@ class Instance(AggregateRoot):
             ]
             if incomplete_steps:
                 raise BusinessRuleViolation(
-                    message="Cannot complete instance with incomplete steps",
+                    message="Cannot complete instance with incomplete nodes",
                     code="INCOMPLETE_STEPS",
                     context={
                         "instance_id": str(self.id),

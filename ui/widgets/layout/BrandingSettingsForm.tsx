@@ -152,8 +152,8 @@ export default function BrandingSettingsForm({
     try {
       const org = await getOrganization(targetOrgId);
 
+      // Sends only the branding and domain sections; the API keeps the rest
       const updatedSettings = {
-        ...org.settings,
         branding: {
           // Preserve company_name, short_name, tagline - they're now managed on Org Details page
           ...org.settings?.branding,
@@ -621,7 +621,7 @@ export default function BrandingSettingsForm({
                 <li>Configure Cloudflare tunnel credentials in environment variables (see documentation)</li>
                 <li>Add your custom domain in the field above (e.g., workflows.mycompany.com)</li>
                 <li>Configure DNS CNAME record pointing to your tunnel</li>
-                <li>Save changes and test by visiting your custom domain</li>
+                <li>Save, then test by visiting your custom domain</li>
               </ol>
             </div>
           </div>
@@ -694,7 +694,7 @@ export default function BrandingSettingsForm({
             disabled={isSaving}
             className="btn-primary px-6"
           >
-            {isSaving ? 'Saving...' : 'Save Changes'}
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
       )}

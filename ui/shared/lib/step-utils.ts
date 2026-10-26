@@ -169,7 +169,7 @@ export function validateDependencies(
     for (const depId of step.depends_on || []) {
       if (depId === '__instance_form__') continue; // virtual step, not a real dependency
       if (!steps[depId]) {
-        errors.push(`Step "${stepId}" depends on non-existent step "${depId}"`);
+        errors.push(`Node "${stepId}" depends on non-existent node "${depId}"`);
       }
     }
   }
@@ -187,7 +187,7 @@ export function validateDependencies(
       if (!visited.has(depId)) {
         if (hasCycle(depId)) return true;
       } else if (recStack.has(depId)) {
-        errors.push(`Circular dependency detected involving step "${stepId}" and "${depId}"`);
+        errors.push(`Circular dependency detected involving node "${stepId}" and "${depId}"`);
         return true;
       }
     }
@@ -462,7 +462,7 @@ export function getEffectiveOutputs(
 type OrderableStep = { id: string; depends_on?: string[]; ui_config?: { position?: { y?: number } } };
 
 /**
- * Canonical step display order — the TS twin of the backend `order_steps_topologically`.
+ * Canonical step display order - the TS twin of the backend `order_steps_topologically`.
  * Sorts by DAG depth (longest path from a root), then canvas Y, then insertion. Cycle-safe.
  */
 export function orderStepsByDepth<T extends OrderableStep>(steps: T[]): T[] {

@@ -22,6 +22,20 @@ interface PickInitialSelectionArgs {
   hasInputs: boolean;
   /** Steps in workflow order - fallback target when inputs aren't shown. */
   orderedSteps: WorkflowStep[];
+  /** Step a failed run stopped on; opens first when set. */
+  failedStepId?: string;
+}
+
+/** Returns the first step, in workflow order, that a failed run failed on. */
+export function findFailedStep(
+  orderedSteps: WorkflowStep[],
+  instanceStatus: string,
+  failedStepIds: string[] = [],
+): WorkflowStep | undefined {
+  if (instanceStatus !== 'failed') return undefined;
+  return orderedSteps.find(
+    (s) => s.status === 'failed' || failedStepIds.includes(s.step_id),
+  );
 }
 
 /**
@@ -33,13 +47,17 @@ interface PickInitialSelectionArgs {
  * Simple mode: normally hide Inputs and jump to the first step
  * (execution view is what the user cares about). The exception is
  * pre-submission state, where the form IS the page - show Inputs first.
+ *
+ * Either mode: a failed run opens on the step it failed on.
  */
 export function pickInitialSelection({
   simpleMode,
   isPreSubmission,
   hasInputs,
   orderedSteps,
+  failedStepId,
 }: PickInitialSelectionArgs): SelectedItem {
+  if (failedStepId && !isPreSubmission) return { type: 'step', stepId: failedStepId };
   if (!simpleMode || isPreSubmission) {
     if (hasInputs) return { type: 'inputs' };
   }

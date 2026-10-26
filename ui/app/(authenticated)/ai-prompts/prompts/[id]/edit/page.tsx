@@ -88,7 +88,7 @@ function EditPromptPageContent() {
           className="link-subtle inline-flex items-center mb-4"
         >
           <ArrowLeft size={16} className="mr-1" />
-          Back to My Prompts
+          Back
         </Link>
 
         <h1 className="text-2xl font-bold text-primary mb-6">
@@ -105,11 +105,11 @@ function EditPromptPageContent() {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-3xl mx-auto">
       <Link
-        href="/ai-prompts/prompts/list"
+        href={returnTo}
         className="link-subtle inline-flex items-center mb-4"
       >
         <ArrowLeft size={16} className="mr-1" />
-        Back to My Prompts
+        Back
       </Link>
 
       <h1 className="text-2xl font-bold text-primary mb-6">

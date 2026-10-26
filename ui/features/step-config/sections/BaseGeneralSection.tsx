@@ -47,7 +47,7 @@ export default function BaseGeneralSection({ title = 'General' }: BaseGeneralSec
       <div className="space-y-4">
         <div>
           <label htmlFor="step-name" className="block text-sm font-medium mb-1">
-            Step Name
+            Node Name
           </label>
           <input
             type="text"
@@ -55,7 +55,7 @@ export default function BaseGeneralSection({ title = 'General' }: BaseGeneralSec
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full px-3 py-2 border border-primary rounded-md shadow-sm focus:outline-none focus:border-info"
-            placeholder="Enter step name"
+            placeholder="Enter node name"
           />
         </div>
         
@@ -69,7 +69,7 @@ export default function BaseGeneralSection({ title = 'General' }: BaseGeneralSec
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             className="w-full px-3 py-2 border border-primary rounded-md shadow-sm focus:outline-none focus:border-info"
-            placeholder="Add a description to explain what this step does"
+            placeholder="Add a description to explain what this node does"
           />
         </div>
       </div>

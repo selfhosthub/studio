@@ -4,7 +4,7 @@
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Iterable, List, Optional
 
 from app.domain.workflow.models import Workflow, WorkflowStatus, WorkflowTriggerType
 
@@ -154,3 +154,15 @@ class WorkflowRepository(ABC):
         self, source_workflow_id: uuid.UUID
     ) -> List[Workflow]:
         """Active event-trigger workflows bound to fire when source finishes."""
+
+    @abstractmethod
+    async def list_by_event_source(
+        self, source_workflow_id: uuid.UUID
+    ) -> List[Workflow]:
+        """Every workflow bound to source_workflow_id as its event source."""
+
+    @abstractmethod
+    async def parameter_schemas(
+        self, service_ids: Iterable[str]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Parameter schemas of every ACTIVE service named in service_ids, by service id."""

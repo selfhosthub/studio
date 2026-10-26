@@ -123,7 +123,7 @@ export default function FileLibraryModal({
       setError(null);
       try {
         const data = await getFiles(1, 100);
-        setFiles(asOutputResources(data || []));
+        setFiles(asOutputResources(data?.items || []));
       } catch (err) {
         console.error('Failed to fetch user files:', err);
         setError('Failed to load files');
@@ -260,7 +260,7 @@ export default function FileLibraryModal({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-secondary hover:bg-card rounded-lg transition-colors"
+              className="btn-cancel text-sm"
             >
               Cancel
             </button>

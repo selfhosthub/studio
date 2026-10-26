@@ -199,7 +199,7 @@ export default function UploadComfyUIPackagePage() {
               type="button"
               onClick={() => router.back()}
               disabled={loading}
-              className="btn-danger"
+              className="btn-cancel"
             >
               Cancel
             </button>

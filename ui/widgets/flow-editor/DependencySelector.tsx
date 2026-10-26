@@ -57,7 +57,7 @@ export default function DependencySelector({
   if (availableSteps.length === 0) {
     return (
       <div className="text-sm text-secondary py-2">
-        No other steps available to depend on.
+        No other nodes available to depend on.
       </div>
     );
   }
@@ -70,8 +70,8 @@ export default function DependencySelector({
         <div className="text-sm text-info">
           <p className="font-medium">About Dependencies</p>
           <p className="mt-1">
-            This step will only run after all its dependencies have completed successfully.
-            Select which steps must complete before this one runs.
+            This node will only run after all its dependencies have completed successfully.
+            Select which nodes must complete before this one runs.
           </p>
         </div>
       </div>
@@ -81,7 +81,7 @@ export default function DependencySelector({
         <div className="flex items-start space-x-2 p-3 bg-warning-subtle border border-warning rounded-md">
           <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
           <div className="text-sm text-warning">
-            <p className="font-medium">Steps depending on this one:</p>
+            <p className="font-medium">Nodes depending on this one:</p>
             <ul className="mt-1 list-disc list-inside">
               {dependents.map(depId => (
                 <li key={depId}>{allSteps[depId]?.name || depId}</li>
@@ -138,7 +138,7 @@ export default function DependencySelector({
       {/* Current selection summary */}
       {currentDependencies.length > 0 && (
         <div className="text-sm text-secondary">
-          <p className="font-medium mb-1">This step will run after:</p>
+          <p className="font-medium mb-1">This node will run after:</p>
           <ul className="list-disc list-inside space-y-1">
             {currentDependencies.map(depId => (
               <li key={depId}>

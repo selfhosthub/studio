@@ -2,74 +2,40 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
-import { OrgFile } from '@/shared/types/api';
-import {
-  isImageFile,
-  isVideoFile,
-  isAudioFile,
-  getDisplayFilename,
-} from '../lib/fileTypeDetector';
+import { useEffect, useMemo, useState } from 'react';
+import { useListPref, oneOf, isString } from '@/shared/hooks/useListPref';
+import type { FileListQuery, FileSortField } from '@/shared/api/files';
 
-export type SortField = 'name' | 'date' | 'size' | 'type' | 'source';
+export type SortField = FileSortField;
 export type SortDirection = 'asc' | 'desc';
 
-export function useFileFiltering(files: OrgFile[] | undefined) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [fileTypeFilter, setFileTypeFilter] = useState<string>('all');
-  const [sourceFilter, setSourceFilter] = useState<string>('all');
-  const [sortField, setSortField] = useState<SortField>('date');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+const SORT_FIELDS: readonly SortField[] = ['name', 'date', 'size', 'type', 'source', 'thumb', 'status'];
+const SORT_DIRECTIONS: readonly SortDirection[] = ['asc', 'desc'];
+const FILE_TYPES = ['all', 'image', 'video', 'audio', 'document', 'other'] as const;
+const SOURCES = ['all', 'job_generated', 'job_download', 'user_upload'] as const;
+const SEARCH_DELAY_MS = 300;
 
-  const filteredAndSortedFiles = useMemo(() => {
-    let result = files?.filter((resource) => {
-      const filename = getDisplayFilename(resource);
-      const matchesSearch = filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            resource.virtual_path?.toLowerCase().includes(searchTerm.toLowerCase());
+// Search, filter and sort choices for the files list, sent to the server as one query
+export function useFileFiltering() {
+  const [searchTerm, setSearchTerm] = useListPref<string>('files', 'search', '', isString);
+  const [fileTypeFilter, setFileTypeFilter] = useListPref<string>('files', 'fileType', 'all', oneOf(FILE_TYPES));
+  const [sourceFilter, setSourceFilter] = useListPref<string>('files', 'source', 'all', oneOf(SOURCES));
+  const [sortField, setSortField] = useListPref<SortField>('files', 'sortField', 'date', oneOf(SORT_FIELDS));
+  const [sortDirection, setSortDirection] = useListPref<SortDirection>('files', 'sortDirection', 'desc', oneOf(SORT_DIRECTIONS));
+  const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
 
-      const isImage = isImageFile(resource);
-      const isVideo = isVideoFile(resource);
-      const isAudio = isAudioFile(resource);
-      const isDocument = !isImage && !isVideo && !isAudio &&
-        (resource.mime_type.startsWith('text/') || resource.mime_type.startsWith('application/'));
-      const isOther = !isImage && !isVideo && !isAudio && !isDocument;
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-      const matchesFileType = fileTypeFilter === 'all' ||
-                             (fileTypeFilter === 'image' && isImage) ||
-                             (fileTypeFilter === 'video' && isVideo) ||
-                             (fileTypeFilter === 'audio' && isAudio) ||
-                             (fileTypeFilter === 'document' && isDocument) ||
-                             (fileTypeFilter === 'other' && isOther);
-
-      const matchesSource = sourceFilter === 'all' || resource.source === sourceFilter;
-
-      return matchesSearch && matchesFileType && matchesSource;
-    }) || [];
-
-    result.sort((a, b) => {
-      let comparison = 0;
-      switch (sortField) {
-        case 'name':
-          comparison = getDisplayFilename(a).localeCompare(getDisplayFilename(b));
-          break;
-        case 'date':
-          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-          break;
-        case 'size':
-          comparison = a.file_size - b.file_size;
-          break;
-        case 'type':
-          comparison = a.mime_type.localeCompare(b.mime_type);
-          break;
-        case 'source':
-          comparison = a.source.localeCompare(b.source);
-          break;
-      }
-      return sortDirection === 'asc' ? comparison : -comparison;
-    });
-
-    return result;
-  }, [files, searchTerm, fileTypeFilter, sourceFilter, sortField, sortDirection]);
+  const query = useMemo<FileListQuery>(() => ({
+    search: debouncedSearch,
+    fileType: fileTypeFilter,
+    source: sourceFilter,
+    sortBy: sortField,
+    sortDir: sortDirection,
+  }), [debouncedSearch, fileTypeFilter, sourceFilter, sortField, sortDirection]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -79,6 +45,13 @@ export function useFileFiltering(files: OrgFile[] | undefined) {
       setSortDirection(field === 'date' ? 'desc' : 'asc');
     }
   };
+
+  const setSort = (field: SortField, direction: SortDirection) => {
+    setSortField(field);
+    setSortDirection(direction);
+  };
+
+  const hasFilters = searchTerm.trim() !== '' || fileTypeFilter !== 'all' || sourceFilter !== 'all';
 
   return {
     searchTerm,
@@ -90,6 +63,8 @@ export function useFileFiltering(files: OrgFile[] | undefined) {
     sortField,
     sortDirection,
     handleSort,
-    filteredAndSortedFiles,
+    setSort,
+    hasFilters,
+    query,
   };
 }

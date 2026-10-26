@@ -29,7 +29,7 @@ studio-workers = "studio_workers.cli:main"
 
 [project.optional-dependencies]
 audio = [
-    "chatterbox-tts",
+    "chatterbox-tts>=0.1.7",
     "torch",
     "soundfile",
     # resemble-perth needs pkg_resources (gone in setuptools 82, warns in 81); uv venvs ship
@@ -42,6 +42,7 @@ comfyui = [
 video = [
     "openai-whisper>=20231117",
     "faster-whisper>=1.0.0",
+    "av>=11,<19",
 ]
 test = [
     "pytest>=8.0.0",
@@ -55,6 +56,10 @@ test = [
     "flake8>=7.1.1",
     "python-dotenv>=1.2.2",  # test-time only: conftest.py pre-loads envs/.env.test before shared.settings imports
 ]
+
+[tool.uv]
+# chatterbox-tts declares gradio, which the audio worker never imports.
+exclude-dependencies = ["gradio"]
 
 [tool.setuptools.dynamic]
 version = {attr = "studio_workers.contracts.version.WORKERS_VERSION"}

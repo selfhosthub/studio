@@ -37,6 +37,8 @@ export interface CustomNodeData extends Record<string, unknown> {
   serviceType?: string;
   providerId?: string;
   serviceId?: string;
+  providerName?: string;
+  serviceName?: string;
   warnings?: Record<string, unknown>;
   isSelected?: boolean;
   type?: string;

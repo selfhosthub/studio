@@ -1,7 +1,7 @@
 // ui/app/(authenticated)/comfyui/marketplace/components/useComfyUIMarketplace.ts
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PAGINATION } from '@/shared/lib/constants';
+import { useListPref, isString, oneOf } from '@/shared/hooks/useListPref';
 import {
   getComfyUICatalog,
   getInstalledComfyUI,
@@ -16,15 +16,14 @@ import type {
   ComfyUIInstallResponse,
 } from '@/shared/api';
 import { useToast } from '@/features/toast';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 import { useCatalogStatus } from '@/features/marketplace';
 
-type SortField = 'display_name' | 'category' | 'tier';
-type SortDirection = 'asc' | 'desc';
-
-export type { SortField, SortDirection };
+const TIER_FILTERS = ['all', 'community', 'plus'] as const;
 
 export function useComfyUIMarketplace() {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { reportWarnings } = useCatalogStatus();
 
   const [catalogWorkflows, setCatalogWorkflows] = useState<MarketplaceComfyUI[]>([]);
@@ -34,13 +33,9 @@ export function useComfyUIMarketplace() {
   const [error, setError] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [tierFilter, setTierFilter] = useState<'all' | 'community' | 'plus'>('all');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGINATION.DEFAULT_PAGE_SIZE);
-  const [sortField, setSortField] = useState<SortField>('display_name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [search, setSearch] = useListPref('comfyui-marketplace', 'search', '', isString);
+  const [categoryFilter, setCategoryFilter] = useListPref('comfyui-marketplace', 'category', 'all', isString);
+  const [tierFilter, setTierFilter] = useListPref<typeof TIER_FILTERS[number]>('comfyui-marketplace', 'tier', 'all', oneOf(TIER_FILTERS));
   const [catalogFilterOptions, setCatalogFilterOptions] = useState<Record<string, string[]>>({
     tier: ['community', 'plus'],
     category: [],
@@ -109,9 +104,9 @@ export function useComfyUIMarketplace() {
     [catalogWorkflows]
   );
 
-  // Filter + sort + paginate. Private managed rows belong to the Custom view.
+  // Filters the catalog, ordered by name. Private managed rows belong to the Custom view.
   const filteredCatalog = useMemo(() => {
-    let result = catalogWorkflows.filter((t) => {
+    return catalogWorkflows.filter((t) => {
       if (t.origin === 'managed' && t.visibility === 'private') return false;
       if (tierFilter !== 'all' && t.tier !== tierFilter) return false;
       if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
@@ -123,51 +118,8 @@ export function useComfyUIMarketplace() {
         );
       }
       return true;
-    });
-
-    result.sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case 'display_name':
-          cmp = a.display_name.localeCompare(b.display_name);
-          break;
-        case 'category':
-          cmp = a.category.localeCompare(b.category);
-          break;
-        case 'tier': {
-          const order: Record<string, number> = { community: 0, plus: 1 };
-          cmp = (order[a.tier] ?? 2) - (order[b.tier] ?? 2);
-          break;
-        }
-      }
-      return sortDirection === 'asc' ? cmp : -cmp;
-    });
-
-    return result;
-  }, [catalogWorkflows, search, categoryFilter, tierFilter, sortField, sortDirection]);
-
-  // Reset to first page when filters change (adjust during render, not in an effect).
-  const filterKey = `${search}|${categoryFilter}|${tierFilter}`;
-  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
-  if (filterKey !== prevFilterKey) {
-    setPrevFilterKey(filterKey);
-    setPage(1);
-  }
-
-  const totalPages = Math.ceil(filteredCatalog.length / pageSize) || 1;
-  const paginatedCatalog = filteredCatalog.slice(
-    (page - 1) * pageSize,
-    page * pageSize
-  );
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+    }).sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
+  }, [catalogWorkflows, search, categoryFilter, tierFilter]);
 
   const handleInstall = async (tpl: MarketplaceComfyUI) => {
     setInstallingId(tpl.id);
@@ -196,7 +148,12 @@ export function useComfyUIMarketplace() {
   const handleUninstall = async (marketplaceId: string) => {
     const info = installedMap.get(marketplaceId);
     const displayName = info?.name || marketplaceId;
-    if (!window.confirm(`Remove "${displayName}"?`)) return;
+    if (!(await confirm({
+      title: 'Remove workflow',
+      message: `Remove "${displayName}"?`,
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    }))) return;
 
     setUninstallingId(marketplaceId);
     try {
@@ -237,9 +194,11 @@ export function useComfyUIMarketplace() {
       return;
     }
     if (
-      !window.confirm(
-        `Install ${notInstalled.length} ${tier} workflow${notInstalled.length > 1 ? 's' : ''}?`
-      )
+      !(await confirm({
+        title: 'Install workflows',
+        message: `Install ${notInstalled.length} ${tier} workflow${notInstalled.length > 1 ? 's' : ''}?`,
+        confirmLabel: 'Install',
+      }))
     )
       return;
 
@@ -308,25 +267,16 @@ export function useComfyUIMarketplace() {
     catalogWorkflows,
     customWorkflows,
     filteredCatalog,
-    paginatedCatalog,
     installedIds,
     catalogFilterOptions,
     loading,
     error,
-    page,
-    setPage,
-    pageSize,
-    setPageSize,
-    totalPages,
     search,
     setSearch,
     categoryFilter,
     setCategoryFilter,
     tierFilter,
     setTierFilter,
-    sortField,
-    sortDirection,
-    handleSort,
     installingId,
     uninstallingId,
     uploading,

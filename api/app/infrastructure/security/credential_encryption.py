@@ -3,6 +3,7 @@
 """Fernet-based two-way encryption for secret-class credential fields."""
 
 import base64
+import json
 import os
 from enum import Enum
 from typing import Any, Dict, Optional
@@ -11,6 +12,9 @@ from studio_workers.contracts.redaction import is_sensitive_key
 from cryptography.fernet import Fernet
 
 from app.config.settings import settings
+
+# Key of a secret_data dict whose whole plaintext is one Fernet ciphertext.
+SEALED_MARKER = "_sealed"
 
 
 class CredentialType(str, Enum):
@@ -99,6 +103,20 @@ class CredentialEncryption:
                 result[field_name] = self.decrypt(field_value)
 
         return result
+
+    def seal_secret_data(self, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """The whole dict as one ciphertext under SEALED_MARKER; empty stays empty."""
+        if not data:
+            return {}
+        return {SEALED_MARKER: self.encrypt(json.dumps(data))}
+
+    def open_secret_data(self, stored: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Plaintext of a sealed, per-key encrypted or plaintext secret_data dict."""
+        if not stored:
+            return {}
+        if SEALED_MARKER in stored:
+            return json.loads(self.decrypt(stored[SEALED_MARKER]))
+        return self.decrypt_credential_dict(stored) or {}
 
 
 def generate_encryption_key() -> str:

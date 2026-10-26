@@ -65,8 +65,8 @@ class EmptyIterationSourceError(BusinessRuleViolation):
         self.source_step = source_step
         self.source_field = source_field
         super().__init__(
-            f"Step '{step_id}': iteration source '{source_step}.{source_field}' "
-            f"is empty. Upstream step produced no items to iterate over."
+            f"Node '{step_id}': iteration source '{source_step}.{source_field}' "
+            f"is empty. Upstream node produced no items to iterate over."
         )
 
 
@@ -203,9 +203,9 @@ class StepEndpointResolver:
             # an actionable message rather than returning an empty endpoint that
             # dies downstream in queue routing as service ''.
             raise ServiceNotFoundError(
-                f"Step references no service "
+                f"Node references no service "
                 f"(service_id={service_id_str!r}, provider_id={provider_id_str!r}). "
-                f"Set a valid service_id, then rerun the step."
+                f"Set a valid service_id, then rerun the node."
             )
 
         # Check for direct URL in parameters
@@ -224,7 +224,7 @@ class StepEndpointResolver:
                 raise ServiceNotFoundError(
                     f"Service '{service_id_str}' not found "
                     f"(provider '{provider_id_str}' is not installed). "
-                    f"Install the package that provides it, then rerun the step."
+                    f"Install the package that provides it, then rerun the node."
                 )
 
             # Check for local_worker config (for shs-* providers with no endpoint_url)
@@ -261,7 +261,7 @@ class StepEndpointResolver:
                 if not url:
                     raise ServiceNotFoundError(
                         f"Service '{service_id_str}' not found. "
-                        f"Install the package that provides it, then rerun the step."
+                        f"Install the package that provides it, then rerun the node."
                     )
                 auth_config = provider.config.get("auth") if provider.config else None
                 local_worker = (

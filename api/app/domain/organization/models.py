@@ -32,6 +32,7 @@ from app.domain.common.exceptions import (
     InvalidStateTransition,
     ValidationError,
 )
+from app.domain.organization.slug import SLUG_MAX_LENGTH
 
 
 class User(AggregateRoot):
@@ -376,6 +377,11 @@ class Organization(AggregateRoot):
         auto_activate: bool = True,
     ) -> "Organization":
         """status defaults ACTIVE for backwards compat. auto_activate sets activation tracking when initially active."""
+        if len(slug) > SLUG_MAX_LENGTH:
+            raise ValidationError(
+                message=f"Slug must be at most {SLUG_MAX_LENGTH} characters",
+                code="INVALID_SLUG",
+            )
         now = datetime.now(UTC)
         is_active = status == OrganizationStatus.ACTIVE
 

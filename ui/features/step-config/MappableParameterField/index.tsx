@@ -7,12 +7,14 @@ import ReactDOM from 'react-dom';
 import { Link2, Type, ChevronDown, HelpCircle, FileInput, Repeat, Sparkles } from 'lucide-react';
 import { getEffectiveOutputs } from '@/shared/lib/step-utils';
 import DynamicCombobox from '@/shared/ui/DynamicCombobox';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 // Extracted components
 import { PromptInput } from './components/PromptInput';
 import { StaticInputRenderer } from './components/StaticInputRenderer';
 import { MappedFieldSelector } from './components/MappedFieldSelector';
 import { ArrayItemsPanel } from './components/ArrayItemsPanel';
+import { ConfiguredSecretsNote } from '@/features/step-config/ConfiguredSecretsNote';
 
 // Array widget registry
 import { getArrayWidget } from '@/shared/lib/array-widget-registry';
@@ -54,7 +56,10 @@ export function MappableParameterField({
   instanceFormFields,
   currentStepId,
   arrayMappingNotice,
+  secretConfigured = false,
+  configuredSecretPaths = [],
 }: MappableParameterFieldProps) {
+const confirm = useConfirm();
   // Detect if value is a template string
   const detectMappingFromValue = (): { stepId: string; outputField: string } | null => {
     if (typeof value === 'string') {
@@ -179,7 +184,7 @@ export function MappableParameterField({
     setShowModeDropdown(!showModeDropdown);
   };
 
-  const handleModeChange = (newMode: FieldMode | 'iterate') => {
+  const handleModeChange = async (newMode: FieldMode | 'iterate') => {
     setShowModeDropdown(false);
     if (newMode === 'static') {
       onMappingChange(paramKey, null);
@@ -200,9 +205,12 @@ export function MappableParameterField({
       }
     } else if (newMode === 'prompt') {
       if (Array.isArray(value) && value.length > 0) {
-        const confirmed = window.confirm(
-          'Switching to a prompt will replace your existing messages. This cannot be undone.\n\nContinue?'
-        );
+        const confirmed = await confirm({
+          title: 'Switch to prompt',
+          message: 'Switching to a prompt will replace your existing messages. This cannot be undone.\n\nContinue?',
+          confirmLabel: 'Switch',
+          variant: 'danger',
+        });
         if (!confirmed) return;
       }
       onMappingChange(paramKey, { mappingType: 'prompt', promptId: '', variableValues: {} });
@@ -304,6 +312,12 @@ export function MappableParameterField({
     return null;
   };
 
+  // Stored secrets inside this parameter: key-value keys are marked inline, the rest listed in a note
+  const inlineSecretKeys = currentMode === 'static' && schema.type === 'object' && schema.ui?.widget === 'key-value'
+    ? configuredSecretPaths.filter((p) => p.length === 1 && typeof p[0] === 'string').map((p) => String(p[0]))
+    : [];
+  const notedSecretPaths = secretConfigured ? [] : configuredSecretPaths.filter((p) => !(p.length === 1 && inlineSecretKeys.includes(String(p[0]))));
+
   const mappedSampleValue = getMappedSampleValue();
   const mappingStatus = isMapped ? (effectiveMapping?.stepId && effectiveMapping?.outputField ? 'complete' : 'incomplete') : null;
 
@@ -391,7 +405,7 @@ export function MappableParameterField({
             {showModeDropdown && modeDropdownPosition && ReactDOM.createPortal(
               <div ref={modeDropdownMenuRef} data-step-config-dropdown className="fixed w-48 bg-card border border-primary rounded-md shadow-lg z-[9999]" style={{ top: modeDropdownPosition.top, left: modeDropdownPosition.left }}>
                 <button type="button" data-testid={`param-mode-option-static-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('static'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'static' ? 'bg-surface' : ''}`}><Type className="h-4 w-4 text-secondary" /><div><div className="font-medium">Static</div><div className="text-xs text-secondary">{isComplexArray ? 'Edit items individually' : 'Fixed value set here'}</div></div></button>
-                {!isComplexArray && previousSteps.length > 0 && <button type="button" data-testid={`param-mode-option-mapped-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('mapped'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'mapped' && !isIterationEnabled ? 'bg-surface' : ''}`}><Link2 className="h-4 w-4 text-critical" /><div><div className="font-medium">Mapped</div><div className="text-xs text-secondary">From previous step output</div></div></button>}
+                {!isComplexArray && previousSteps.length > 0 && <button type="button" data-testid={`param-mode-option-mapped-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('mapped'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'mapped' && !isIterationEnabled ? 'bg-surface' : ''}`}><Link2 className="h-4 w-4 text-critical" /><div><div className="font-medium">Mapped</div><div className="text-xs text-secondary">From previous node output</div></div></button>}
                 {!isComplexArray && <button type="button" data-testid={`param-mode-option-form-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('form'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'form' ? 'bg-surface' : ''}`}><FileInput className="h-4 w-4 text-info" /><div><div className="font-medium">Form</div><div className="text-xs text-secondary">User provides at runtime</div></div></button>}
                 {schema.ui?.prompt && <button type="button" data-testid={`param-mode-option-prompt-${paramKey}`} onClick={(e) => { e.stopPropagation(); handleModeChange('prompt'); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-card ${currentMode === 'prompt' ? 'bg-surface' : ''}`}><Sparkles className="h-4 w-4 text-success" /><div><div className="font-medium">Prompt</div><div className="text-xs text-secondary">From AI Prompts library</div></div></button>}
               </div>,
@@ -400,6 +414,7 @@ export function MappableParameterField({
           </div>
         )}
       </div>
+      <ConfiguredSecretsNote value={value} paths={notedSecretPaths} testId={`param-secrets-note-${paramKey}`} />
       <div className="param-field-input-row" data-testid={`param-control-${paramKey}`}>
         {isPrompt ? (
           <PromptInput
@@ -469,6 +484,18 @@ export function MappableParameterField({
               />
             );
           })()
+        ) : secretConfigured ? (
+          <div className="flex-1 min-w-0" data-testid={`param-secret-configured-${paramKey}`}>
+            <input
+              type="password"
+              value="configured"
+              readOnly
+              disabled
+              aria-label={`${label} (configured)`}
+              className="w-full p-2 border rounded text-sm opacity-60"
+            />
+            <p className="mt-1 text-xs text-secondary">Configured. Ask an admin to change it.</p>
+          </div>
         ) : (
           <StaticInputRenderer
             schema={schema}
@@ -482,6 +509,7 @@ export function MappableParameterField({
             credentialId={credentialId}
             required={required}
             previousSteps={previousSteps}
+            configuredKeys={inlineSecretKeys}
           />
         )}
       </div>

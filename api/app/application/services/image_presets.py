@@ -57,7 +57,7 @@ def apply_image_presets(parameters: Dict[str, Any]) -> Dict[str, Any]:
     merge_mode = params.get("style_merge", "nested")
     if merge_mode not in ("nested", "stacked", "blended", "minimal"):
         logger.warning(
-            f"Unknown style_merge mode '{merge_mode}', defaulting to 'nested'"
+            "Unknown style_merge mode, defaulting to 'nested'"
         )
         merge_mode = "nested"
 
@@ -87,7 +87,7 @@ def apply_image_presets(parameters: Dict[str, Any]) -> Dict[str, Any]:
         if style_name in styles:
             valid_styles.append((style_name, styles[style_name]))
         else:
-            logger.warning(f"Unknown image style preset: {style_name}")
+            logger.warning("Unknown image style preset skipped")
 
     if not valid_styles:
         return parameters
@@ -125,11 +125,10 @@ def apply_image_presets(parameters: Dict[str, Any]) -> Dict[str, Any]:
     if negatives:
         params["negative_prompt"] = ", ".join(negatives)
 
-    style_names_applied = [s[0] for s in valid_styles]
     neg_count = len(style_negatives)
     neg_status = f"{neg_count} style negative(s)" if neg_count else "no style negatives"
     logger.debug(
-        f"Applied {len(valid_styles)} style(s) [{merge_mode}] ({neg_status}): {', '.join(style_names_applied)}"
+        f"Applied {len(valid_styles)} style(s) ({neg_status})"
     )
 
     del params["styles"]

@@ -53,6 +53,7 @@ function ProviderCredentialsPageContent() {
     providerId,
     credentialSchema: data.credentialSchema,
     hasCredentialSchema: data.hasCredentialSchema,
+    providerAuthType: data.providerAuthType,
     setCredentials: data.setCredentials,
     onRevealedSecretInvalidate: secrets.invalidateRevealedSecret,
   });
@@ -147,7 +148,7 @@ function ProviderCredentialsPageContent() {
                   className="inline-flex items-center gap-1 text-sm text-info hover:underline"
                 >
                   <BookOpen className="w-4 h-4" />
-                  Setup guide
+                  Provider Documentation
                 </button>
               </div>
             )}

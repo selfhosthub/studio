@@ -33,6 +33,12 @@ class CredentialType(str, Enum):
     CUSTOM = "custom"
 
 
+# Keys the OAuth callback writes; never revealed and kept across edits.
+OAUTH2_TOKEN_KEYS = frozenset(
+    {"access_token", "refresh_token", "token_type", "scope"}
+)
+
+
 class CatalogType(str, Enum):
     PROVIDERS = "providers"
     BLUEPRINTS = "blueprints"

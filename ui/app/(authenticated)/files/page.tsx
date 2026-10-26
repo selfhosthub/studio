@@ -20,7 +20,9 @@ import {
   LoadingState,
   ErrorState,
   EmptyState,
-  Modal,
+  ResourceTable,
+  StatusBadge,
+  type ResourceColumnConfig,
 } from '@/shared/ui';
 import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
 import { formatFileSize, formatDuration } from '@/shared/lib/format-utils';
@@ -36,7 +38,9 @@ import {
   getSourceColor,
   getSourceDescription,
   getSourceProvenance,
+  getFileStatus,
 } from './lib/fileTypeDetector';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 function getFileIconComponent(resource: OrgFile) {
   if (isImageFile(resource)) return Image;
@@ -55,33 +59,46 @@ function getSourceIcon(source: string) {
   }
 }
 
-// Table row component with thumbnail loading
-function FileTableRow({
+const VIEWABLE = (resource: OrgFile) =>
+  isImageFile(resource) || isVideoFile(resource) || isAudioFile(resource) || resource.mime_type === 'application/pdf';
+
+const SORT_FIELD_BY_COLUMN: Record<string, SortField> = {
+  preview: 'type',
+  name: 'name',
+  size: 'size',
+  date: 'date',
+  source: 'source',
+  thumb: 'thumb',
+  status: 'status',
+};
+
+const COLUMN_BY_SORT_FIELD: Partial<Record<SortField, string>> = {
+  type: 'preview',
+  name: 'name',
+  size: 'size',
+  date: 'date',
+  source: 'source',
+  thumb: 'thumb',
+  status: 'status',
+};
+
+// Grid sort buttons, also shown on phones in table view where the column headers are hidden.
+const SORT_BUTTON_FIELDS: SortField[] = ['name', 'date', 'size', 'type', 'source', 'status'];
+
+// Preview cell that loads the image thumbnail as a blob
+function FileThumbnail({
   resource,
-  onView,
-  onDownload,
   showThumbnails,
-  isSelected,
-  onToggleSelect,
-  selectionMode,
   cardSize = 'medium',
 }: {
   resource: OrgFile;
-  onView: (resource: OrgFile) => void;
-  onDownload: (id: string, name: string) => void;
   showThumbnails: boolean;
-  isSelected: boolean;
-  onToggleSelect: (id: string) => void;
-  selectionMode: boolean;
   cardSize?: CardSize;
 }) {
   const [thumbnailBlobUrl, setThumbnailBlobUrl] = useState<string | null>(null);
   const [thumbnailError, setThumbnailError] = useState(false);
 
   const isImageType = isImageFile(resource);
-  const isViewable = isImageFile(resource) || isVideoFile(resource) || isAudioFile(resource) || resource.mime_type === 'application/pdf';
-  const duration = resource.metadata?.duration as number | undefined;
-
   const shouldLoadThumbnail = showThumbnails && isImageType && resource.preview_url && !thumbnailError;
 
   useEffect(() => {
@@ -115,147 +132,36 @@ function FileTableRow({
     };
   }, [thumbnailBlobUrl]);
 
-  const handleRowClick = () => {
-    if (selectionMode) {
-      onToggleSelect(resource.id);
-    } else if (isViewable && resource.status === 'available') {
-      onView(resource);
-    }
-  };
-
-  const handleCheckboxClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onToggleSelect(resource.id);
-  };
-
   return (
-    <tr
-      className={`border-b border-primary hover:bg-surface ${
-        isViewable && resource.status === 'available' && !selectionMode ? 'cursor-pointer' : ''
-      } ${selectionMode ? 'cursor-pointer' : ''} ${isSelected ? 'bg-info-subtle' : ''}`}
-      onClick={handleRowClick}
-    >
-      {/* Checkbox */}
-      <td className="px-3 py-2 w-10">
-        <div
-          onClick={handleCheckboxClick}
-          className="w-5 h-5 flex items-center justify-center cursor-pointer"
-        >
-          {isSelected ? (
-            <CheckSquare className="w-5 h-5 text-info" />
-          ) : (
-            <Square className="w-5 h-5 text-muted hover:text-secondary" />
-          )}
-        </div>
-      </td>
-
-      {/* Preview/Icon */}
-      <td className="px-3 py-2 text-center">
-        <div className={`inline-flex items-center justify-center bg-surface rounded overflow-hidden ${
-          cardSize === 'small' ? 'w-12 h-12' : cardSize === 'large' ? 'w-24 h-24' : 'w-16 h-16'
-        }`}>
-          {thumbnailBlobUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- blob URLs not supported by Next.js Image
-            <img
-              src={thumbnailBlobUrl}
-              alt={resource.display_name}
-              className="w-full h-full object-cover"
-              onError={() => setThumbnailError(true)}
-            />
-          ) : (
-            createElement(getFileIconComponent(resource), {
-              className: `text-muted ${
-                cardSize === 'small' ? 'w-5 h-5' : cardSize === 'large' ? 'w-10 h-10' : 'w-7 h-7'
-              }`,
-            })
-          )}
-        </div>
-      </td>
-
-      {/* Filename */}
-      <td className="px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-primary break-all" title={getDisplayFilename(resource)}>
-            {getDisplayFilename(resource)}
-          </span>
-          {isViewable && resource.status === 'available' && (
-            <Eye className="w-3 h-3 text-muted flex-shrink-0" />
-          )}
-        </div>
-        <div className="text-muted text-xs">
-          {resource.mime_type}
-        </div>
-      </td>
-
-      {/* Size */}
-      <td className="px-3 py-2">
-        <span className="text-sm text-secondary">
-          {formatFileSize(resource.file_size)}
-          {duration != null && (
-            <span className="ml-2 text-secondary dark:text-secondary">{formatDuration(duration)}</span>
-          )}
-        </span>
-      </td>
-
-      {/* Date */}
-      <td className="px-3 py-2">
-        <span className="text-sm text-secondary">
-          {new Date(resource.created_at).toLocaleString()}
-        </span>
-      </td>
-
-      {/* Source */}
-      <td className="px-3 py-2">
-        <div
-          className={`flex items-center gap-1 text-sm ${getSourceColor(resource.source)}`}
-          title={getSourceDescription(resource.source)}
-        >
-          {createElement(getSourceIcon(resource.source), { className: 'w-4 h-4' })}
-          <span>{getSourceLabel(resource.source)}</span>
-        </div>
-        {getSourceProvenance(resource) && (
-          <div className="text-xs text-muted mt-0.5" title="Provenance">
-            from {getSourceProvenance(resource)}
-          </div>
-        )}
-      </td>
-
-      {/* Thumbnail exists */}
-      <td className="px-3 py-2 text-center">
-        {isImageType ? (
-          resource.has_thumbnail ? (
-            <Check className="w-4 h-4 text-success mx-auto" />
-          ) : (
-            <X className="w-4 h-4 text-muted mx-auto" />
-          )
-        ) : (
-          <span className="text-muted">-</span>
-        )}
-      </td>
-
-      {/* Actions */}
-      <td className="px-3 py-2">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDownload(resource.id, resource.display_name);
-          }}
-          disabled={resource.status !== 'available'}
-          className="p-1.5 link rounded disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Download"
-        >
-          <Download className="w-4 h-4" />
-        </button>
-      </td>
-    </tr>
+    <div className={`inline-flex items-center justify-center bg-surface rounded overflow-hidden ${
+      cardSize === 'small' ? 'w-12 h-12' : cardSize === 'large' ? 'w-24 h-24' : 'w-16 h-16'
+    }`}>
+      {thumbnailBlobUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- blob URLs not supported by Next.js Image
+        <img
+          src={thumbnailBlobUrl}
+          alt={resource.display_name}
+          className="w-full h-full object-cover"
+          onError={() => setThumbnailError(true)}
+        />
+      ) : (
+        createElement(getFileIconComponent(resource), {
+          className: `text-muted ${
+            cardSize === 'small' ? 'w-5 h-5' : cardSize === 'large' ? 'w-10 h-10' : 'w-7 h-7'
+          }`,
+        })
+      )}
+    </div>
   );
 }
 
 export default function FilesPage() {
-  const fm = useFileManager();
-  const filtering = useFileFiltering(fm.files);
+  const filtering = useFileFiltering();
+  const fm = useFileManager(filtering.query);
+  const files = fm.files ?? [];
+  const canDelete = fm.user?.role === 'admin' || fm.user?.role === 'super_admin';
   const selection = useFileSelection(
-    filtering.filteredAndSortedFiles,
+    files,
     {
       searchTerm: filtering.searchTerm,
       fileTypeFilter: filtering.fileTypeFilter,
@@ -307,7 +213,7 @@ export default function FilesPage() {
   }
 
   // Pagination calculations
-  const totalCount = filtering.filteredAndSortedFiles.length;
+  const totalCount = fm.totalCount;
   const totalPages = Math.ceil(totalCount / fm.pageSize) || 1;
 
   const renderSortIcon = (field: SortField) => {
@@ -316,6 +222,201 @@ export default function FilesPage() {
       ? <ArrowUp className="w-3 h-3 text-info" />
       : <ArrowDown className="w-3 h-3 text-info" />;
   };
+
+  const allSelected = selection.selectedIds.size === files.length && files.length > 0;
+
+  const handleRowClick = (resource: OrgFile) => {
+    if (selection.selectionMode) {
+      selection.handleToggleSelect(resource.id);
+    } else if (VIEWABLE(resource) && resource.status === 'available') {
+      fm.handleView(resource);
+    }
+  };
+
+  const selectColumn: ResourceColumnConfig<OrgFile>[] = canDelete ? [
+    {
+      key: 'select',
+      priority: 'primary',
+      header: (
+        <div
+          onClick={selection.handleSelectAll}
+          className="w-5 h-5 flex items-center justify-center cursor-pointer"
+          title={selection.selectedIds.size === files.length ? "Deselect all" : "Select all"}
+        >
+          {allSelected ? (
+            <CheckSquare className="w-5 h-5 text-info" />
+          ) : selection.selectedIds.size > 0 ? (
+            <div className="w-5 h-5 border-2 border-info rounded flex items-center justify-center">
+              <div className="w-2 h-2 bg-info rounded-sm" />
+            </div>
+          ) : (
+            <Square className="w-5 h-5 text-muted hover:text-secondary" />
+          )}
+        </div>
+      ),
+      headerClassName: 'w-10',
+      cellClassName: 'w-10',
+      render: (resource) => (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            selection.handleToggleSelect(resource.id);
+          }}
+          className="w-5 h-5 flex items-center justify-center cursor-pointer"
+        >
+          {selection.selectedIds.has(resource.id) ? (
+            <CheckSquare className="w-5 h-5 text-info" />
+          ) : (
+            <Square className="w-5 h-5 text-muted hover:text-secondary" />
+          )}
+        </div>
+      ),
+    },
+  ] : [];
+
+  const columns: ResourceColumnConfig<OrgFile>[] = [
+    ...selectColumn,
+    {
+      key: 'preview',
+      header: 'Preview',
+      headerClassName: 'w-14',
+      cellClassName: 'text-center',
+      sortValue: (resource) => resource.mime_type,
+      render: (resource) => (
+        <FileThumbnail
+          resource={resource}
+          showThumbnails={fm.orgSettings.showThumbnails}
+          cardSize={fm.orgSettings.resourceCardSize}
+        />
+      ),
+    },
+    {
+      key: 'name',
+      header: 'Name',
+      sortValue: (resource) => getDisplayFilename(resource),
+      render: (resource) => (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-primary min-w-0 wrap-anywhere" title={getDisplayFilename(resource)}>
+              {getDisplayFilename(resource)}
+            </span>
+            {VIEWABLE(resource) && resource.status === 'available' && (
+              <Eye className="w-3 h-3 text-muted flex-shrink-0" />
+            )}
+          </div>
+          <div className="text-muted text-xs">
+            {resource.mime_type}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortValue: (resource) => resource.status,
+      render: (resource) => {
+        const { label, variant } = getFileStatus(resource.status);
+        return <StatusBadge status={label} variant={variant} />;
+      },
+    },
+    {
+      key: 'size',
+      header: 'Size',
+      sortValue: (resource) => resource.file_size,
+      render: (resource) => {
+        const duration = resource.metadata?.duration as number | undefined;
+        return (
+          <span className="text-sm text-secondary">
+            {formatFileSize(resource.file_size)}
+            {duration != null && (
+              <span className="ml-2 text-secondary dark:text-secondary">{formatDuration(duration)}</span>
+            )}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      sortValue: (resource) => new Date(resource.created_at),
+      render: (resource) => (
+        <span className="text-sm text-secondary">
+          {formatDate(resource.created_at)}
+        </span>
+      ),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      sortValue: (resource) => resource.source,
+      render: (resource) => (
+        <>
+          <div
+            className={`flex items-center gap-1 text-sm ${getSourceColor(resource.source)}`}
+            title={getSourceDescription(resource.source)}
+          >
+            {createElement(getSourceIcon(resource.source), { className: 'w-4 h-4' })}
+            <span>{getSourceLabel(resource.source)}</span>
+          </div>
+          {getSourceProvenance(resource) && (
+            <div className="text-xs text-muted mt-0.5" title="Provenance">
+              from {getSourceProvenance(resource)}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'thumb',
+      header: 'Thumbnail',
+      align: 'center',
+      headerClassName: 'w-24',
+      sortValue: (resource) => (isImageFile(resource) ? (resource.has_thumbnail ? 0 : 1) : 2),
+      render: (resource) => (isImageFile(resource) ? (
+        resource.has_thumbnail ? (
+          <Check className="w-4 h-4 text-success mx-auto" />
+        ) : (
+          <X className="w-4 h-4 text-muted mx-auto" />
+        )
+      ) : (
+        <span className="text-muted">-</span>
+      )),
+    },
+    {
+      key: 'actions',
+      header: '',
+      headerClassName: 'w-16',
+      render: (resource) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            fm.handleDownload(resource.id, getDisplayFilename(resource));
+          }}
+          disabled={resource.status !== 'available'}
+          className="p-1.5 link rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Download"
+        >
+          <Download className="w-4 h-4" />
+        </button>
+      ),
+    },
+  ];
+
+  const emptyState = (
+    <EmptyState
+      icon={<File className="h-12 w-12" />}
+      title={filtering.hasFilters
+        ? 'No files found matching your filters'
+        : 'No files available yet'}
+      description="Files generated by workflows or uploaded by users will appear here."
+    />
+  );
+
+  const fileCount = (
+    <div className="text-sm text-secondary">
+      {totalCount} {totalCount === 1 ? 'file' : 'files'}
+    </div>
+  );
 
   return (
     <>
@@ -429,7 +530,7 @@ export default function FilesPage() {
         <div className="filter-bar space-y-4">
           <div className="flex items-center gap-2 text-sm font-medium text-secondary">
             <Filter className="w-4 h-4" />
-            Filters {fm.viewMode === 'grid' && '& Sort'}
+            Filters <span className={fm.viewMode === 'grid' ? '' : 'md:hidden'}>&amp; Sort</span>
           </div>
 
           <div className={`grid grid-cols-1 md:grid-cols-2 ${fm.viewMode === 'grid' ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
@@ -483,36 +584,34 @@ export default function FilesPage() {
                 className="form-select w-full"
               >
                 <option value="all">All Sources</option>
-                <option value="job_generated" title="Created by a Studio worker">Generated (by worker)</option>
-                <option value="job_download" title="Retrieved by a Studio worker from an external provider">Downloaded (from provider)</option>
-                <option value="user_upload" title="Uploaded directly by a user">Uploaded (by user)</option>
+                <option value="job_generated" title="Created by a Studio worker">Generated</option>
+                <option value="job_download" title="Retrieved by a Studio worker from an external provider">Downloaded</option>
+                <option value="user_upload" title="Uploaded directly by a user">Uploaded</option>
               </select>
             </div>
 
-            {/* Sort - only show in grid view */}
-            {fm.viewMode === 'grid' && (
-              <div>
-                <label className="form-label">
-                  Sort By
-                </label>
-                <div className="flex gap-1">
-                  {(['name', 'date', 'size', 'type', 'source'] as SortField[]).map((field) => (
-                    <button
-                      key={field}
-                      onClick={() => filtering.handleSort(field)}
-                      className={`flex-1 px-2 py-2 text-xs border rounded-md flex items-center justify-center gap-1 transition-colors ${
-                        filtering.sortField === field
-                          ? 'border-info bg-info-subtle text-info'
-                          : 'border-primary hover:bg-surface text-secondary'
-                      }`}
-                    >
-                      <span className="capitalize">{field}</span>
-                      {renderSortIcon(field)}
-                    </button>
-                  ))}
-                </div>
+            {/* Sort - grid view, and table view on phones */}
+            <div className={fm.viewMode === 'grid' ? '' : 'md:hidden'}>
+              <label className="form-label">
+                Sort By
+              </label>
+              <div className="grid grid-cols-3 gap-1">
+                {SORT_BUTTON_FIELDS.map((field) => (
+                  <button
+                    key={field}
+                    onClick={() => filtering.handleSort(field)}
+                    className={`px-2 py-2 text-xs border rounded-md flex items-center justify-center gap-1 transition-colors ${
+                      filtering.sortField === field
+                        ? 'border-info bg-info-subtle text-info'
+                        : 'border-primary hover:bg-surface text-secondary'
+                    }`}
+                  >
+                    <span className="capitalize">{field}</span>
+                    {renderSortIcon(field)}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
           </div>
         </div>
 
@@ -533,163 +632,123 @@ export default function FilesPage() {
           </div>
         )}
 
-        {/* Pagination Controls - Top */}
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-secondary">
-            {totalCount} {totalCount === 1 ? 'file' : 'files'}
-          </div>
-          <Pagination
-            currentPage={fm.page}
-            totalPages={totalPages}
-            totalCount={totalCount}
-            pageSize={fm.pageSize}
-            onPageChange={fm.setPage}
-            onPageSizeChange={fm.handlePageSizeChange}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            position="top"
+        {fm.viewMode === 'table' ? (
+          <ResourceTable<OrgFile>
+            data={files}
+            getItemId={(resource) => resource.id}
+            columns={columns}
+            nameColumn="name"
+            sort={{
+              field: COLUMN_BY_SORT_FIELD[filtering.sortField] ?? null,
+              direction: filtering.sortDirection,
+              onChange: (next) => {
+                if (next.field) filtering.setSort(SORT_FIELD_BY_COLUMN[next.field], next.direction);
+              },
+              server: true,
+            }}
+            pagination={{
+              itemLabel: 'file',
+              server: {
+                currentPage: fm.page,
+                totalCount,
+                pageSize: fm.pageSize,
+                onPageChange: fm.setPage,
+                onPageSizeChange: fm.handlePageSizeChange,
+              },
+            }}
+            toolbar={fileCount}
+            emptyState={emptyState}
+            onRowClick={handleRowClick}
+            rowClassName={(resource) => `${
+              VIEWABLE(resource) && resource.status === 'available' && !selection.selectionMode ? 'cursor-pointer' : ''
+            } ${selection.selectionMode ? 'cursor-pointer' : ''} ${selection.selectedIds.has(resource.id) ? 'bg-info-subtle' : ''}`}
+            ariaLabel="Files"
           />
-        </div>
+        ) : (
+          <>
+            {/* Pagination Controls - Top */}
+            <div className="flex items-center justify-between">
+              {fileCount}
+              <Pagination
+                currentPage={fm.page}
+                totalPages={totalPages}
+                totalCount={totalCount}
+                pageSize={fm.pageSize}
+                onPageChange={fm.setPage}
+                onPageSizeChange={fm.handlePageSizeChange}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                position="top"
+              />
+            </div>
 
-        {/* Files Display */}
-        {filtering.filteredAndSortedFiles.length === 0 ? (
-          <EmptyState
-            icon={<File className="h-12 w-12" />}
-            title={filtering.searchTerm || filtering.fileTypeFilter !== 'all' || filtering.sourceFilter !== 'all'
-              ? 'No files found matching your filters'
-              : 'No files available yet'}
-            description="Files generated by workflows or uploaded by users will appear here."
-          />
-        ) : fm.viewMode === 'table' ? (
-          /* Table View */
-          <div className="bg-card rounded-lg shadow border border-primary overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-primary">
-                <thead className="bg-surface">
-                  <tr>
-                    {/* Select All Checkbox */}
-                    <th className="px-3 py-2 w-10">
+            {files.length === 0 ? emptyState : (
+              <div className={`grid gap-4 items-start ${
+                fm.orgSettings.resourceCardSize === 'small'
+                  ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6'
+                  : fm.orgSettings.resourceCardSize === 'large'
+                  ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3'
+                  : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+              }`}>
+                {files.map((file) => (
+                  <div key={file.id} className="relative group">
+                    {/* Selection checkbox overlay - bottom-left to avoid the
+                        Download/Regenerate/Delete cluster at top-left of ResourceCard */}
+                    {canDelete && (
+                    <div
+                      className={`absolute bottom-2 left-2 z-10 transition-opacity ${
+                        selection.selectionMode || selection.selectedIds.has(file.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                    >
                       <div
-                        onClick={selection.handleSelectAll}
-                        className="w-5 h-5 flex items-center justify-center cursor-pointer"
-                        title={selection.selectedIds.size === filtering.filteredAndSortedFiles.length ? "Deselect all" : "Select all"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selection.handleToggleSelect(file.id);
+                        }}
+                        className="w-6 h-6 flex items-center justify-center cursor-pointer bg-card rounded shadow-sm"
                       >
-                        {selection.selectedIds.size === filtering.filteredAndSortedFiles.length && filtering.filteredAndSortedFiles.length > 0 ? (
+                        {selection.selectedIds.has(file.id) ? (
                           <CheckSquare className="w-5 h-5 text-info" />
-                        ) : selection.selectedIds.size > 0 ? (
-                          <div className="w-5 h-5 border-2 border-info rounded flex items-center justify-center">
-                            <div className="w-2 h-2 bg-info rounded-sm" />
-                          </div>
                         ) : (
                           <Square className="w-5 h-5 text-muted hover:text-secondary" />
                         )}
                       </div>
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-secondary uppercase tracking-wider w-14">
-                      Preview
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-secondary uppercase tracking-wider cursor-pointer hover:bg-card select-none" onClick={() => filtering.handleSort('name')}>
-                      <div className="flex items-center gap-1">Filename{renderSortIcon('name')}</div>
-                    </th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-secondary uppercase tracking-wider cursor-pointer hover:bg-card select-none" onClick={() => filtering.handleSort('size')}>
-                      <div className="flex items-center gap-1">Size{renderSortIcon('size')}</div>
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-secondary uppercase tracking-wider cursor-pointer hover:bg-card select-none" onClick={() => filtering.handleSort('date')}>
-                      <div className="flex items-center gap-1">Date{renderSortIcon('date')}</div>
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-secondary uppercase tracking-wider cursor-pointer hover:bg-card select-none" onClick={() => filtering.handleSort('source')}>
-                      <div className="flex items-center gap-1">Source{renderSortIcon('source')}</div>
-                    </th>
-                    <th className="px-3 py-2 text-center text-xs font-medium text-secondary uppercase tracking-wider w-20">
-                      Thumb
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-secondary uppercase tracking-wider w-16">
-
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-card divide-y divide-primary">
-                  {filtering.filteredAndSortedFiles.map((file) => (
-                    <FileTableRow
-                      key={file.id}
-                      resource={file}
-                      onView={fm.handleView}
-                      onDownload={fm.handleDownload}
-                      showThumbnails={fm.orgSettings.showThumbnails}
-                      isSelected={selection.selectedIds.has(file.id)}
-                      onToggleSelect={selection.handleToggleSelect}
-                      selectionMode={selection.selectionMode}
-                      cardSize={fm.orgSettings.resourceCardSize}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          /* Grid View */
-          <div className={`grid gap-4 ${
-            fm.orgSettings.resourceCardSize === 'small'
-              ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6'
-              : fm.orgSettings.resourceCardSize === 'large'
-              ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3'
-              : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-          }`}>
-            {filtering.filteredAndSortedFiles.map((file) => (
-              <div key={file.id} className="relative group">
-                {/* Selection checkbox overlay - bottom-left to avoid the
-                    Download/Regenerate/Delete cluster at top-left of ResourceCard */}
-                <div
-                  className={`absolute bottom-2 left-2 z-10 transition-opacity ${
-                    selection.selectionMode || selection.selectedIds.has(file.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                  }`}
-                >
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      selection.handleToggleSelect(file.id);
-                    }}
-                    className="w-6 h-6 flex items-center justify-center cursor-pointer bg-card rounded shadow-sm"
-                  >
-                    {selection.selectedIds.has(file.id) ? (
-                      <CheckSquare className="w-5 h-5 text-info" />
-                    ) : (
-                      <Square className="w-5 h-5 text-muted hover:text-secondary" />
+                    </div>
                     )}
+                    {/* Selection highlight */}
+                    {selection.selectedIds.has(file.id) && (
+                      <div className="absolute inset-0 border-2 border-info rounded-lg pointer-events-none z-0" />
+                    )}
+                    <ResourceCard
+                      resource={file}
+                      onDownload={fm.handleDownload}
+                      onView={selection.selectionMode ? undefined : fm.handleView}
+                      showMetadata={true}
+                      size={fm.orgSettings.resourceCardSize}
+                      showThumbnails={fm.orgSettings.showThumbnails}
+                    />
                   </div>
-                </div>
-                {/* Selection highlight */}
-                {selection.selectedIds.has(file.id) && (
-                  <div className="absolute inset-0 border-2 border-info rounded-lg pointer-events-none z-0" />
-                )}
-                <ResourceCard
-                  resource={file}
-                  onDownload={fm.handleDownload}
-                  onView={selection.selectionMode ? undefined : fm.handleView}
-                  showMetadata={true}
-                  size={fm.orgSettings.resourceCardSize}
-                  showThumbnails={fm.orgSettings.showThumbnails}
-                />
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {/* Pagination Controls - Bottom */}
-        {filtering.filteredAndSortedFiles.length > 0 && (
-          <Pagination
-            currentPage={fm.page}
-            totalPages={totalPages}
-            totalCount={totalCount}
-            pageSize={fm.pageSize}
-            onPageChange={fm.setPage}
-            itemLabel="file"
-            position="bottom"
-          />
+            {/* Pagination Controls - Bottom */}
+            {files.length > 0 && (
+              <Pagination
+                currentPage={fm.page}
+                totalPages={totalPages}
+                totalCount={totalCount}
+                pageSize={fm.pageSize}
+                onPageChange={fm.setPage}
+                itemLabel="file"
+                position="bottom"
+              />
+            )}
+          </>
         )}
       </div>
 
       {/* Floating Action Bar - appears when items are selected */}
-      {selection.selectedIds.size > 0 && (
+      {canDelete && selection.selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
           <div className="bg-gray-900 text-white rounded-lg shadow-xl px-4 py-3 flex items-center gap-4"> {/* css-check-ignore: floating action bar dark theme */}
             <span className="text-sm font-medium">
@@ -697,15 +756,16 @@ export default function FilesPage() {
             </span>
             <div className="h-4 w-px bg-gray-600" /> {/* css-check-ignore: divider in dark bar */}
             <button
-              onClick={() => selection.setShowDeleteConfirm(true)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition-colors" // css-check-ignore: danger button in dark bar
+              onClick={selection.handleDeleteSelected}
+              disabled={selection.isDeleting}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-sm font-medium transition-colors disabled:opacity-50" // css-check-ignore: danger button in dark bar
             >
               <Trash2 className="w-4 h-4" />
               Delete
             </button>
             <button
               onClick={selection.handleCancelSelection}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm font-medium transition-colors" // css-check-ignore: button in dark bar
+              className="btn-cancel flex items-center gap-2 text-sm"
             >
               <X className="w-4 h-4" />
               Cancel
@@ -714,66 +774,11 @@ export default function FilesPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={selection.showDeleteConfirm}
-        onClose={() => { selection.setShowDeleteConfirm(false); selection.setDeleteError(null); }}
-        title={`Delete ${selection.selectedIds.size} ${selection.selectedIds.size === 1 ? 'file' : 'files'}?`}
-        size="sm"
-      >
-        <div className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-danger-subtle flex items-center justify-center flex-shrink-0">
-              <AlertTriangle className="w-5 h-5 text-danger" />
-            </div>
-            <div className="flex-1">
-              <p className="mt-2 text-sm text-secondary">
-                This will permanently delete the selected files and their associated thumbnails. This action cannot be undone.
-              </p>
-              {selection.deleteError && (
-                <div className="mt-3 p-2 bg-danger-subtle border border-danger rounded text-sm text-danger">
-                  {selection.deleteError}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => {
-                selection.setShowDeleteConfirm(false);
-                selection.setDeleteError(null);
-              }}
-              disabled={selection.isDeleting}
-              className="px-4 py-2 text-sm font-medium text-secondary bg-card hover:bg-input rounded-md transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={selection.handleDeleteSelected}
-              disabled={selection.isDeleting}
-              className="btn-danger flex items-center gap-2 disabled:opacity-50"
-            >
-              {selection.isDeleting ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="w-4 h-4" />
-                  Delete
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
       {/* File Viewer Modal */}
       {fm.viewingResource && (
         <FileViewerModal
           resource={fm.viewingResource}
-          resources={filtering.filteredAndSortedFiles}
+          resources={files}
           onClose={() => fm.setViewingResource(null)}
           onDownload={fm.handleDownload}
           onNavigate={(resource) => fm.setViewingResource(resource)}

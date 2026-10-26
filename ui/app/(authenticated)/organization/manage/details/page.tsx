@@ -7,6 +7,8 @@ import { useState, useEffect } from 'react';
 import { getOrganization, updateOrganization } from '@/shared/api';
 import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
+import { formatDate } from '@/shared/lib/dateFormatter';
+import { ActionButton } from '@/shared/ui';
 
 export default function OrganizationDetailsPage() {
   const { user } = useUser();
@@ -97,9 +99,8 @@ export default function OrganizationDetailsPage() {
       const currentTagline = organization.settings?.branding?.tagline || '';
 
       if (formData.shortName !== currentShortName || formData.tagline !== currentTagline) {
-        // Merge into existing settings, preserving colors, logo, etc.
+        // Sends only the branding section, preserving colors, logo, etc.
         updates.settings = {
-          ...organization.settings,
           branding: {
             ...organization.settings?.branding,
             short_name: formData.shortName || undefined,
@@ -172,12 +173,9 @@ export default function OrganizationDetailsPage() {
             </h2>
           </div>
           {!editMode ? (
-            <button
-              onClick={handleEdit}
-              className="btn-primary"
-            >
+            <ActionButton variant="change" onClick={handleEdit}>
               Edit
-            </button>
+            </ActionButton>
           ) : (
             <div className="flex space-x-2">
               <button
@@ -190,7 +188,7 @@ export default function OrganizationDetailsPage() {
               <button
                 onClick={handleCancel}
                 disabled={saving}
-                className="py-2 px-4 border border-primary text-secondary font-medium rounded-md shadow-sm hover:bg-surface focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                className="btn-cancel"
               >
                 Cancel
               </button>
@@ -311,7 +309,7 @@ export default function OrganizationDetailsPage() {
                   ? 'bg-success-subtle text-success'
                   : 'bg-danger-subtle text-danger'
               }`}>
-                {organization.is_active ? 'Active' : 'Inactive'}
+                {organization.is_active ? 'active' : 'inactive'}
               </span>
             </div>
           </div>
@@ -322,7 +320,7 @@ export default function OrganizationDetailsPage() {
               Created
             </label>
             <p className="px-4 py-2 bg-card rounded-md text-primary border border-primary">
-              {new Date(organization.created_at).toLocaleDateString()}
+              {formatDate(organization.created_at)}
             </p>
           </div>
 
@@ -332,7 +330,7 @@ export default function OrganizationDetailsPage() {
               Last Updated
             </label>
             <p className="px-4 py-2 bg-card rounded-md text-primary border border-primary">
-              {new Date(organization.updated_at).toLocaleDateString()}
+              {formatDate(organization.updated_at)}
             </p>
           </div>
         </div>

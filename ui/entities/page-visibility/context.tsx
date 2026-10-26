@@ -16,7 +16,6 @@ export interface PageVisibility {
   privacy: boolean;
   support: boolean;
   terms: boolean;
-  // Note: pricing visibility is controlled by useBillingAvailable (whether plans exist)
 }
 
 interface PageVisibilityContextType {

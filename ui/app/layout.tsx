@@ -11,6 +11,7 @@ import { BrandingProvider } from '@/entities/organization';
 import { PageVisibilityProvider } from '@/entities/page-visibility';
 import { OrgSettingsProvider } from '@/entities/organization';
 import { ToastProvider } from '@/features/toast';
+import { ConfirmProvider } from '@/shared/ui/ConfirmDialog';
 import { NotificationSocketProvider } from '@/features/notifications';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { dashboardColorScript } from '@/shared/lib/dashboard-colors';
@@ -70,9 +71,11 @@ export default function RootLayout({
                   <PageVisibilityProvider>
                     <PreferencesProvider>
                       <ToastProvider>
-                        <NotificationSocketProvider>
-                          {children}
-                        </NotificationSocketProvider>
+                        <ConfirmProvider>
+                          <NotificationSocketProvider>
+                            {children}
+                          </NotificationSocketProvider>
+                        </ConfirmProvider>
                       </ToastProvider>
                     </PreferencesProvider>
                   </PageVisibilityProvider>

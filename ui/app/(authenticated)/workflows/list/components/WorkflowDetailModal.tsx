@@ -137,7 +137,7 @@ export function WorkflowDetailModal({
               {/* Steps */}
               {detail.steps.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-semibold text-primary mb-2">Steps ({detail.steps.length})</h4>
+                  <h4 className="text-sm font-semibold text-primary mb-2">Nodes ({detail.steps.length})</h4>
                   <div className="space-y-2">
                     {detail.steps.map((s) => (
                       <div key={s.id} className="bg-surface rounded-md p-3 text-sm">

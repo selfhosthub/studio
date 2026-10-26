@@ -114,9 +114,9 @@ export default function ProfilePage() {
     try {
       setIsSubmitting(true);
       await updateCurrentUserProfile({
-        first_name: formData.first_name || undefined,
-        last_name: formData.last_name || undefined,
-        email: formData.email || undefined,
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
       });
 
       toast({ title: 'Profile updated successfully', variant: 'success' });

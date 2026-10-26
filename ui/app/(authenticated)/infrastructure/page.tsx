@@ -9,31 +9,18 @@ import {
   HardDrive,
   Activity,
   RefreshCw,
-  CheckCircle,
-  XCircle,
   Briefcase,
 } from 'lucide-react';
-import { useInfrastructureData } from './hooks/useInfrastructureData';
+import { REFRESH_INTERVALS, useInfrastructureData } from './hooks/useInfrastructureData';
 import { MessagingTabPanel } from './components/MessagingTabPanel';
 import { QueueTabPanel } from './components/QueueTabPanel';
 import { WorkersTabPanel } from './components/WorkersTabPanel';
 import { WorkerEnrollmentPanel } from './components/WorkerEnrollmentPanel';
 import { StorageTabPanel } from './components/StorageTabPanel';
 import { DatabaseTabPanel } from './components/DatabaseTabPanel';
-
-const REFRESH_INTERVALS = [
-  { label: 'Off', value: 0 },
-  { label: '5s', value: 5000 },
-  { label: '10s', value: 10000 },
-  { label: '30s', value: 30000 },
-  { label: '1m', value: 60000 },
-  { label: '5m', value: 300000 },
-];
-
-const StatusIcon = ({ status }: { status: boolean }) => {
-  if (status) return <CheckCircle className="w-5 h-5 text-success" />;
-  return <XCircle className="w-5 h-5 text-danger" />;
-};
+import { PROBE_LABELS, ProbeStatusIcon } from './components/ProbeStatus';
+import { formatDate } from '@/shared/lib/dateFormatter';
+import { plural } from '@/shared/lib/format-utils';
 
 function InfrastructureContent() {
   const data = useInfrastructureData();
@@ -50,6 +37,9 @@ function InfrastructureContent() {
       </>
     );
   }
+
+  const jobStats = data.health?.job_stats;
+  const flaggedJobs = jobStats ? jobStats.long_running_total + jobStats.jobs_without_worker_total : 0;
 
   return (
     <>
@@ -74,7 +64,7 @@ function InfrastructureContent() {
               </select>
             </div>
             <button
-              onClick={data.fetchHealth}
+              onClick={data.refresh}
               disabled={data.loading}
               className="btn-secondary inline-flex items-center disabled:opacity-50"
             >
@@ -115,9 +105,9 @@ function InfrastructureContent() {
                       </p>
                     </div>
                   </div>
-                  {data.health.job_stats && (data.health.job_stats.long_running_jobs.length > 0 || data.health.job_stats.jobs_without_worker.length > 0) && (
+                  {flaggedJobs > 0 && (
                     <span className="badge-orange">
-                      {data.health.job_stats.long_running_jobs.length + data.health.job_stats.jobs_without_worker.length}
+                      {flaggedJobs}
                     </span>
                   )}
                 </div>
@@ -143,20 +133,18 @@ function InfrastructureContent() {
                 onClick={() => data.setActiveTab('storage')}
                 className={`infra-card infra-card-purple text-left transition-all ${data.activeTab === 'storage' ? 'infra-card-active' : ''}`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <HardDrive className="w-8 h-8 text-purple" />
-                    <div className="ml-3">
-                      <p className="infra-card-title">Storage</p>
-                      <p className="infra-card-value">
-                        {data.health.storage.total_size_formatted}
-                        {data.health.storage.capacity_formatted && (
-                          <span className="text-sm font-normal text-muted"> / {data.health.storage.capacity_formatted}</span>
-                        )}
-                      </p>
-                    </div>
+                <div className="flex items-center min-w-0">
+                  <HardDrive className="w-8 h-8 text-purple flex-shrink-0" />
+                  <div className="ml-3 min-w-0">
+                    <p className="infra-card-title">Storage</p>
+                    <p className="infra-card-value whitespace-nowrap">{data.health.storage.total_size_formatted}</p>
+                    <p className="text-xs text-muted flex flex-wrap gap-x-1">
+                      {data.health.storage.capacity_formatted && (
+                        <span className="whitespace-nowrap">of {data.health.storage.capacity_formatted} ·</span>
+                      )}
+                      <span className="whitespace-nowrap">{data.health.storage.total_files.toLocaleString()} files</span>
+                    </p>
                   </div>
-                  <span className="section-subtitle">{data.health.storage.total_files} files</span>
                 </div>
               </button>
 
@@ -164,15 +152,15 @@ function InfrastructureContent() {
                 onClick={() => data.setActiveTab('database')}
                 className={`infra-card infra-card-blue text-left transition-all ${data.activeTab === 'database' ? 'infra-card-active' : ''}`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Database className="w-8 h-8 text-info" />
-                    <div className="ml-3">
-                      <p className="infra-card-title">Database</p>
-                      <p className="infra-card-value">{data.health.database_connected ? 'Healthy' : 'Unhealthy'}</p>
-                    </div>
+                <div className="flex items-center min-w-0">
+                  <Database className="w-8 h-8 text-info flex-shrink-0" />
+                  <div className="ml-3 min-w-0">
+                    <p className="infra-card-title flex items-center gap-1">
+                      Database <ProbeStatusIcon status={data.health.database.status} />
+                    </p>
+                    <p className="infra-card-value">{PROBE_LABELS[data.health.database.status]}</p>
+                    <p className="text-xs text-muted break-words">{data.health.database.message}</p>
                   </div>
-                  <StatusIcon status={data.health.database_connected} />
                 </div>
               </button>
 
@@ -180,22 +168,29 @@ function InfrastructureContent() {
                 onClick={() => data.setActiveTab('messaging')}
                 className={`infra-card infra-card-red text-left transition-all ${data.activeTab === 'messaging' ? 'infra-card-active' : ''}`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Activity className="w-8 h-8 text-danger" />
-                    <div className="ml-3">
-                      <p className="infra-card-title">Messaging</p>
-                      <p className="infra-card-value">{data.health.websocket?.total_connections ?? 0} connections</p>
-                    </div>
+                <div className="flex items-center min-w-0">
+                  <Activity className="w-8 h-8 text-danger flex-shrink-0" />
+                  <div className="ml-3 min-w-0">
+                    <p className="infra-card-title flex items-center gap-1">
+                      Messaging <ProbeStatusIcon status={data.health.messaging.status} />
+                    </p>
+                    <p className="infra-card-value">
+                      {data.health.websocket?.total_connections ?? 0}
+                      <span className="text-sm font-normal text-muted whitespace-nowrap">
+                        {` ${plural(data.health.websocket?.total_connections ?? 0, 'connection')} now`}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted break-words">
+                      {PROBE_LABELS[data.health.messaging.status]}: {data.health.messaging.message}
+                    </p>
                   </div>
-                  <CheckCircle className="w-5 h-5 text-success" />
                 </div>
               </button>
             </div>
 
             {/* Tabs Navigation */}
             <div className="border-b border-primary">
-              <nav className="-mb-px flex space-x-6">
+              <nav className="-mb-px flex flex-wrap gap-x-6">
                 <button
                   onClick={() => data.setActiveTab('queue')}
                   className={`flex items-center gap-2 py-3 px-1 border-b-2 text-sm font-medium transition-colors ${
@@ -206,9 +201,9 @@ function InfrastructureContent() {
                 >
                   <Briefcase className="w-4 h-4" />
                   Queue
-                  {data.health.job_stats && (data.health.job_stats.long_running_jobs.length > 0 || data.health.job_stats.jobs_without_worker.length > 0) && (
+                  {flaggedJobs > 0 && (
                     <span className="ml-1 badge-orange">
-                      {data.health.job_stats.long_running_jobs.length + data.health.job_stats.jobs_without_worker.length}
+                      {flaggedJobs}
                     </span>
                   )}
                 </button>
@@ -284,12 +279,12 @@ function InfrastructureContent() {
                   storageSortBy={data.storageSortBy}
                   storageSortOrder={data.storageSortOrder}
                   onSort={data.handleStorageSort}
-                  onPageChange={(p, ps) => data.fetchStorageData(p, ps)}
+                  onPageChange={(p, ps) => data.fetchStorageData(p, ps, data.storageSortBy, data.storageSortOrder)}
                   onPageSizeChange={(size) => {
                     data.setStoragePageSize(size);
-                    data.fetchStorageData(1, size);
+                    data.fetchStorageData(1, size, data.storageSortBy, data.storageSortOrder);
                   }}
-                  onRefresh={() => data.fetchStorageData(data.storagePage, data.storagePageSize)}
+                  onRefresh={() => data.fetchStorageData(data.storagePage, data.storagePageSize, data.storageSortBy, data.storageSortOrder)}
                 />
               )}
               {data.activeTab === 'database' && (
@@ -299,7 +294,7 @@ function InfrastructureContent() {
 
             {/* Last Updated */}
             <div className="text-center text-sm text-muted">
-              Last updated: {new Date(data.health.timestamp).toLocaleString()}
+              Last updated: {formatDate(data.health.timestamp)}
             </div>
           </div>
         ) : null}

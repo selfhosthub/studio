@@ -17,6 +17,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useUser } from "@/entities/user";
+import { canRunWorkflow } from "@/entities/workflow";
 import {
   createInstance,
   getWorkflow,
@@ -71,11 +72,12 @@ export default function RunWorkflowPage() {
   const handleSubmit = async (formValues: Record<string, unknown>) => {
     setSubmitting(true);
     try {
-      const instance = await createInstance(workflowId, formValues, {
+      const hasFormValues = formValues && Object.keys(formValues).length > 0;
+      // Form values are stored once, by submitFormAndStart under form_values
+      const instance = await createInstance(workflowId, hasFormValues ? null : formValues, {
         source: "run_page",
       });
 
-      const hasFormValues = formValues && Object.keys(formValues).length > 0;
       if (hasFormValues) {
         await submitFormAndStart(instance.id, formValues);
       } else {
@@ -128,11 +130,10 @@ export default function RunWorkflowPage() {
     );
   }
 
-  // Super-admins curate/publish workflows but never run them; only active
-  // workflows can be run (missing status defaults to active).
+  // Super-admins curate/publish workflows but never run them.
   const blockedReason = isSuperAdmin
     ? "Super-admins cannot run workflows."
-    : ((workflow.status as string) ?? "active") !== "active" // defaults-ok
+    : !canRunWorkflow(workflow, user?.id)
       ? "This workflow is not active and cannot be run."
       : null;
   if (blockedReason) {

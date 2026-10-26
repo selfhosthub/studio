@@ -9,6 +9,7 @@ import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
 import { ChevronDown, ChevronRight, Eye, X } from 'lucide-react';
 import { Modal } from '@/shared/ui';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 // Collapsible Section Component
 function CollapsibleSection({
@@ -61,6 +62,7 @@ export default function ServiceConfigPage({
   const router = useRouter();
   const { user } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,12 +142,16 @@ export default function ServiceConfigPage({
     e.preventDefault();
 
     // Confirm system-wide change
-    const confirmed = window.confirm(
-      '⚠️ WARNING: System-Wide Change\n\n' +
-      'This service configuration is shared across ALL organizations.\n\n' +
-      'Any changes you make will immediately affect all users and workflows using this service.\n\n' +
-      'Are you sure you want to save these changes?'
-    );
+    const confirmed = await confirm({
+      title: 'Save service for all organizations',
+      message:
+        '⚠️ WARNING: System-Wide Change\n\n' +
+        'This service configuration is shared across ALL organizations.\n\n' +
+        'Any changes you make will immediately affect all users and workflows using this service.\n\n' +
+        'Are you sure you want to save these changes?',
+      confirmLabel: 'Save',
+      variant: 'warning',
+    });
 
     if (!confirmed) {
       return;
@@ -216,13 +222,16 @@ export default function ServiceConfigPage({
   // Reset form to package defaults (reads original values from disk)
   const handleResetToDefaults = async () => {
     // Confirm with warning about system-wide impact
-    const confirmed = window.confirm(
-      '⚠️ Reset to Package Defaults\n\n' +
-      'This will reset the form to the original values from the provider package.\n\n' +
-      'Note: This only updates the form. You must click "Save Changes" to apply the reset, ' +
-      'which will affect ALL organizations using this service.\n\n' +
-      'Continue?'
-    );
+    const confirmed = await confirm({
+      title: 'Reset to package defaults',
+      message:
+        '⚠️ Reset to Package Defaults\n\n' +
+        'This will reset the form to the original values from the provider package.\n\n' +
+        'Note: This only updates the form. You must click "Save Changes" to apply the reset, ' +
+        'which will affect ALL organizations using this service.\n\n' +
+        'Continue?',
+      confirmLabel: 'Reset',
+    });
 
     if (!confirmed) {
       return;
@@ -561,7 +570,7 @@ export default function ServiceConfigPage({
                 type="button"
                 onClick={() => router.push(`/providers/${providerId}`)}
                 disabled={saving}
-                className="btn-secondary"
+                className="btn-cancel"
               >
                 Cancel
               </button>
@@ -570,7 +579,7 @@ export default function ServiceConfigPage({
                 disabled={saving}
                 className="btn-primary"
               >
-                {saving ? 'Saving...' : 'Save Changes'}
+                {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
           )}

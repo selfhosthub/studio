@@ -20,6 +20,15 @@ export const INITIAL_FORM_VALUES: CredentialFormValues = {
   expires_at: '',
 };
 
+const KEY_AUTH_TYPES = new Set(['api_key', 'header', 'custom_header', 'bearer']);
+
+/** Credential type stored for a schema credential, from the provider's auth type */
+export function schemaCredentialType(authType: string | undefined): string {
+  if (authType && KEY_AUTH_TYPES.has(authType)) return 'api_key';
+  if (authType === 'basic' || authType === 'basic_auth') return 'basic_auth';
+  return 'custom';
+}
+
 /** Provider credential schema from client_metadata */
 export interface CredentialSchema {
   properties: Record<string, CredentialSchemaField>;
@@ -80,6 +89,7 @@ export interface ProviderInfo {
   name: string;
   config?: {
     oauth_provider?: string;
+    auth?: { type?: string };
   };
   client_metadata?: {
     credential_schema?: CredentialSchema;

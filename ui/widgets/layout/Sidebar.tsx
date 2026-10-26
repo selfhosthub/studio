@@ -6,8 +6,6 @@ import {
   Bell,
   Bot,
   Building2,
-  ChevronDown,
-  ChevronRight,
   FileImage,
   Home,
   ImagePlay,
@@ -26,7 +24,38 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { useUser } from "@/entities/user";
 import { usePageVisibility } from "@/entities/page-visibility";
-import { TIMEOUTS } from "@/shared/lib/constants";
+
+type TooltipPosition = { top: number; left: number };
+
+const useCollapsedTooltip = (isCollapsed: boolean) => {
+  const [position, setPosition] = useState<TooltipPosition | null>(null);
+
+  const show = (e: React.SyntheticEvent<HTMLElement>) => {
+    if (!isCollapsed) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPosition({ top: rect.top + rect.height / 2, left: rect.right + 8 });
+  };
+  const hide = () => setPosition(null);
+  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key === "Escape") hide();
+  };
+
+  return {
+    position: isCollapsed ? position : null,
+    handlers: { onMouseEnter: show, onFocus: show, onMouseLeave: hide, onBlur: hide, onKeyDown },
+  };
+};
+
+const CollapsedTooltip = ({ label, position }: { label: string; position: TooltipPosition | null }) =>
+  position ? (
+    <span
+      role="tooltip"
+      style={{ top: position.top, left: position.left }} // css-check-ignore -- anchored to the hovered icon
+      className="fixed z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white shadow-lg pointer-events-none" // css-check-ignore -- tooltip surface
+    >
+      {label}
+    </span>
+  ) : null;
 
 type NavItemProps = {
   href: string;
@@ -34,10 +63,7 @@ type NavItemProps = {
   label: string;
   isActive?: boolean;
   isCollapsed?: boolean;
-  hasSubmenu?: boolean;
-  isSubmenuOpen?: boolean;
   isDarkMode?: boolean;
-  onClick?: () => void;
   prefetch?: boolean;
 };
 
@@ -47,48 +73,20 @@ const NavItem = ({
   label,
   isActive,
   isCollapsed = false,
-  hasSubmenu = false,
-  isSubmenuOpen = false,
   isDarkMode = false,
-  onClick,
   prefetch,
 }: NavItemProps) => {
-  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    const sidebarElement = document.getElementById('sidebar-container');
-    const isInCollapsedMode = sidebarElement?.getAttribute('data-collapsed') === 'true';
-
-    const isHoverExpanded = isInCollapsedMode && sidebarElement &&
-      (window.getComputedStyle(sidebarElement).width !== '64px' &&
-       window.getComputedStyle(sidebarElement).width !== '4rem');
-
-    if (hasSubmenu && onClick && (!isInCollapsedMode || isHoverExpanded)) {
-      e.preventDefault();
-      onClick();
-      return;
-    }
-
-    if (isInCollapsedMode && isHoverExpanded && href !== '#') {
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('sidebar-close-submenus'));
-      }, TIMEOUTS.SUBMENU_CLOSE);
-      return;
-    }
-
-    if (isInCollapsedMode && href !== '#') {
-      if (hasSubmenu && !isHoverExpanded) {
-        e.preventDefault();
-        return;
-      }
-    }
-  };
+  const tooltip = useCollapsedTooltip(isCollapsed);
 
   return (
+    <>
     <Link
       href={href}
-      onClick={handleClick}
       prefetch={prefetch}
+      aria-label={isCollapsed ? label : undefined}
+      {...tooltip.handlers}
       className={`
-        group flex items-center gap-x-3 px-3 py-2.5 rounded-md text-sm font-medium relative
+        flex items-center gap-x-3 px-3 py-2.5 rounded-md text-sm font-medium relative
         ${
           isActive
             ? isDarkMode
@@ -99,23 +97,15 @@ const NavItem = ({
               : "text-secondary hover:bg-surface"
         }
         ${isCollapsed ? "justify-center py-3" : ""}
-        ${isCollapsed && hasSubmenu ? "hover:bg-opacity-80" : ""}
       `}
     >
       <div className={`${isCollapsed ? "text-center w-6" : ""}`}>{icon}</div>
-      <div className={`flex-1 flex items-center justify-between ${isCollapsed ? "hidden group-hover:flex" : ""}`}>
+      <div className={`flex-1 flex items-center justify-between ${isCollapsed ? "hidden" : ""}`}>
         <span>{label}</span>
-        {hasSubmenu && (
-          <div className="text-muted">
-            {isSubmenuOpen ? (
-              <ChevronDown size={16} />
-            ) : (
-              <ChevronRight size={16} />
-            )}
-          </div>
-        )}
       </div>
     </Link>
+    <CollapsedTooltip label={label} position={tooltip.position} />
+    </>
   );
 };
 
@@ -135,7 +125,7 @@ const Sidebar = ({
   const pathname = usePathname() || "";
   const { user, status } = useUser();
   const { isPageVisible } = usePageVisibility();
-  const [isHoverExpanded, setIsHoverExpanded] = useState(false);
+  const docsTooltip = useCollapsedTooltip(isCollapsed);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   const toggleSidebar = () => {
@@ -143,6 +133,21 @@ const Sidebar = ({
       setIsCollapsed(!isCollapsed);
     }
   };
+
+  // While the mobile menu is open, Escape closes it and the page behind it does not scroll
+  useEffect(() => {
+    if (!isMobileOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMobileOpen?.(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMobileOpen, setIsMobileOpen]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -162,15 +167,26 @@ const Sidebar = ({
   }, []);
 
   return (
+    <>
+    {isMobileOpen && (
+      <div
+        data-testid="sidebar-backdrop"
+        aria-hidden="true"
+        onClick={() => setIsMobileOpen?.(false)}
+        className="fixed inset-x-0 bottom-0 top-12 z-30 bg-black/50 md:hidden"
+      />
+    )}
     <div
       data-collapsed={isCollapsed}
       id="sidebar-container"
-      onMouseEnter={() => isCollapsed && setIsHoverExpanded(true)}
-      onMouseLeave={() => isCollapsed && setIsHoverExpanded(false)}
+      onClick={(e) => {
+        // A tapped link navigates; close the mobile drawer so the page shows
+        if ((e.target as HTMLElement).closest('a')) setIsMobileOpen?.(false);
+      }}
       className={`
         ${isDarkMode ? 'bg-card border-secondary' : 'bg-card border-primary'}
         border-r flex flex-col fixed top-12 h-[calc(100%-3rem)] overflow-x-hidden z-30
-        ${isCollapsed ? "w-16 group hover:w-64" : "w-64"}
+        ${isCollapsed ? "w-16" : "w-64"}
         ${isMobileOpen ? "block z-40" : "hidden md:block"}
         transition-all duration-300 ease-in-out
       `}
@@ -179,6 +195,8 @@ const Sidebar = ({
         <button
           data-testid="sidebar-collapse-toggle"
           onClick={toggleSidebar}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!isCollapsed}
           className={`p-1.5 rounded-md ${
             isDarkMode
               ? 'text-muted hover:text-muted hover:bg-surface'
@@ -384,8 +402,10 @@ const Sidebar = ({
         <Link
           href="/docs"
           prefetch={false}
+          aria-label={isCollapsed ? "Documentation" : undefined}
+          {...docsTooltip.handlers}
           className={`
-            group flex items-center gap-x-3 px-3 py-2.5 rounded-md text-sm font-medium
+            flex items-center gap-x-3 px-3 py-2.5 rounded-md text-sm font-medium
             ${isDarkMode
               ? "text-muted hover:bg-surface"
               : "text-secondary hover:bg-surface"
@@ -396,12 +416,14 @@ const Sidebar = ({
           <div className={`${isCollapsed ? "text-center w-6" : ""}`}>
             <BookOpen size={20} />
           </div>
-          <span className={`${isCollapsed ? "hidden group-hover:inline" : ""}`}>
+          <span className={`${isCollapsed ? "hidden" : ""}`}>
             Documentation
           </span>
         </Link>
+        <CollapsedTooltip label="Documentation" position={docsTooltip.position} />
       </div>
     </div>
+    </>
   );
 };
 

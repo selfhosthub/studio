@@ -11,7 +11,10 @@ import {
   type MintedJoinToken,
   type WorkerEnrollment,
 } from '@/shared/api';
+import { ResourceTable } from '@/shared/ui';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 import { WorkerEnrollmentRequests } from './WorkerEnrollmentRequests';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 const DEFAULT_TTL_SECONDS = 900;
 
@@ -21,7 +24,7 @@ function formatQueues(queues: string[]): string {
 
 function formatWhen(value: string | null): string {
   if (!value) return 'never';
-  return new Date(value).toLocaleString();
+  return formatDate(value);
 }
 
 interface WorkerEnrollmentPanelProps {
@@ -36,6 +39,7 @@ export function WorkerEnrollmentPanel({ refreshSignal }: WorkerEnrollmentPanelPr
   const [minted, setMinted] = useState<MintedJoinToken | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const confirm = useConfirm();
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +73,13 @@ export function WorkerEnrollmentPanel({ refreshSignal }: WorkerEnrollmentPanelPr
   };
 
   const handleRevoke = async (enrollment: WorkerEnrollment) => {
+    const confirmed = await confirm({
+      title: 'Revoke credential',
+      message: `Revoke the credential for "${enrollment.label}"?`,
+      confirmLabel: 'Revoke',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     setError(null);
     try {
       await revokeWorkerEnrollment(enrollment.id);
@@ -134,53 +145,62 @@ export function WorkerEnrollmentPanel({ refreshSignal }: WorkerEnrollmentPanelPr
           </div>
         )}
 
-        {enrollments.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-theme">
-              <thead className="bg-card">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-muted uppercase">Worker</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-muted uppercase">Queues</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-muted uppercase">Last used</th>
-                  <th className="px-4 py-2 text-center text-xs font-medium text-muted uppercase">Status</th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-theme">
-                {enrollments.map((e) => (
-                  <tr key={e.id}>
-                    <td className="px-4 py-2 text-sm">{e.label}</td>
-                    <td className="px-4 py-2 text-sm text-muted">{formatQueues(e.queues)}</td>
-                    <td className="px-4 py-2 text-sm text-muted">{formatWhen(e.last_used_at)}</td>
-                    <td className="px-4 py-2 text-sm text-center">
-                      {e.revoked_at ? (
-                        <span className="text-muted">Revoked</span>
-                      ) : (
-                        <span className="text-success">Active</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {!e.revoked_at && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          aria-label={`Revoke ${e.label}`}
-                          onClick={() => void handleRevoke(e)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-sm text-muted">
-            No enrolled workers. Every worker is using the fleet shared secret.
-          </p>
-        )}
+        <ResourceTable
+          data={enrollments}
+          getItemId={(e) => e.id}
+          tieBreaker="worker"
+          prefPage="infra-enrollment"
+          pagination={{ itemLabel: 'credential' }}
+          containerClassName="mb-0"
+          emptyState={
+            <p className="text-sm text-muted">
+              No enrolled workers. Every worker is using the fleet shared secret.
+            </p>
+          }
+          columns={[
+            { key: 'worker', header: 'Worker', headerClassName: 'text-muted', sortValue: (e) => e.label, render: (e) => e.label },
+            { key: 'queues', header: 'Queues', headerClassName: 'text-muted', cellClassName: 'text-muted', sortValue: (e) => e.queues.join(', '), render: (e) => formatQueues(e.queues) },
+            {
+              key: 'last_used',
+              header: 'Last used',
+              headerClassName: 'text-muted',
+              cellClassName: 'text-muted',
+              sortValue: (e) => (e.last_used_at ? new Date(e.last_used_at) : null),
+              render: (e) => formatWhen(e.last_used_at),
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              align: 'center',
+              headerClassName: 'text-muted',
+              sortValue: (e) => (e.revoked_at ? 'Revoked' : 'Active'),
+              render: (e) => (
+                e.revoked_at ? (
+                  <span className="text-muted">Revoked</span>
+                ) : (
+                  <span className="text-success">Active</span>
+                )
+              ),
+            },
+            {
+              key: 'actions',
+              header: '',
+              align: 'right',
+              render: (e) => (
+                !e.revoked_at && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    aria-label={`Revoke ${e.label}`}
+                    onClick={() => void handleRevoke(e)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   );

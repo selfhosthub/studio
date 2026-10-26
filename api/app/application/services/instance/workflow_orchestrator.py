@@ -71,7 +71,7 @@ class WorkflowOrchestrator:
         if step_failed:
             return NextAction(
                 action=OrchestrationAction.FAIL,
-                error_message=error_message or f"Step {completed_step_id} failed",
+                error_message=error_message or f"Node {completed_step_id} failed",
             )
 
         # Isolated re-execution overrides the dead-end FAIL branch - debugging one
@@ -153,8 +153,8 @@ class WorkflowOrchestrator:
                 return NextAction(
                     action=OrchestrationAction.FAIL,
                     error_message=(
-                        "Workflow cannot continue: remaining steps are "
-                        "cancelled or failed. Rerun the affected steps to "
+                        "Workflow cannot continue: remaining nodes are "
+                        "cancelled or failed. Rerun the affected nodes to "
                         "resume."
                     ),
                 )

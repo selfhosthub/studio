@@ -37,6 +37,7 @@ export function ResourceGrid({
   onDownloadResource,
   onDeleteResources,
   onRegenerateResources,
+  canControlRun = true,
 }: ResourceGridProps) {
   // Stable callback refs - use primitive IDs as deps so callbacks don't recreate
   // when parent re-renders with new object references but same logical values
@@ -56,7 +57,7 @@ export function ResourceGrid({
     }
   }, [stepId, jobId, onRegenerateResources]);
 
-  const canAct = selectedStep?.status === "completed";
+  const canAct = canControlRun && selectedStep?.status === "completed";
 
   const handleView = useCallback((r: OrgFile) => {
     setViewingResource({ resource: r, allResources: orderedResourcesRef.current });
@@ -84,10 +85,11 @@ export function ResourceGrid({
         if (aIter !== bIter) return aIter - bIter;
         return a.display_order - b.display_order;
       });
-  // Flat view never reorders iteration steps — iterations are the unit of
+  // Flat view never reorders iteration steps - iterations are the unit of
   // order, reordered only in grouped view. Drag is enabled only for
   // non-iteration steps (a plain N-file batch).
-  const canReorder = selectedStep?.status === "completed"
+  const canReorder = canControlRun
+    && selectedStep?.status === "completed"
     && !hasIterations
     && !!selectedStepExecution?.id
     && !isReordering;

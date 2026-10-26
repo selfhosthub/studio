@@ -35,12 +35,15 @@ from app.domain.organization_secret.repository import OrganizationSecretReposito
 from app.infrastructure.repositories.marketplace_catalog_repository import (
     SQLAlchemyMarketplaceCatalogRepository,
 )
+from app.application.services.provider_service import ProviderService
+from app.domain.common.exceptions import BusinessRuleViolation
 from app.presentation.api.dependencies import (
     NamespacedId,
     get_adapter_registry,
     get_marketplace_catalog_repository,
     get_organization_secret_repository,
     get_package_management_service,
+    get_provider_service,
     require_super_admin,
     validate_safe_package_name,
 )
@@ -739,6 +742,61 @@ async def reinstall_package(
         provider_id=str(provider["id"]),
         services_installed=services,
     )
+
+
+class RemoveResponse(BaseModel):
+    """Response from removing a deactivated provider."""
+
+    success: bool
+    message: str
+
+
+@router.post(
+    "/{namespace}/{slug}/remove",
+    response_model=RemoveResponse,
+    summary="Remove a deactivated provider",
+    description="Deletes every row of a deactivated provider so the catalog lists it as available again.",
+)
+async def remove_package(
+    package_name: NamespacedId,
+    current_user: Dict[str, Any] = Depends(require_super_admin),
+    pkg_service: PackageManagementService = Depends(get_package_management_service),
+    provider_service: ProviderService = Depends(get_provider_service),
+) -> RemoveResponse:
+    """Delete a deactivated provider and its services; 409 while it is active or in use."""
+    rows = await pkg_service.list_provider_rows(package_name)
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No provider found with slug '{package_name}'.",
+        )
+    if any(row["status"] == OperationalStatus.ACTIVE for row in rows):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Deactivate the provider before removing it.",
+        )
+
+    workflow_count = 0
+    for row in rows:
+        workflow_count += (await pkg_service.get_provider_usage(str(row["id"])))["workflow_count"]
+    if workflow_count:
+        noun = "workflow" if workflow_count == 1 else "workflows"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot remove provider: it is used by {workflow_count} {noun}. "
+                "Remove its nodes from those workflows first."
+            ),
+        )
+
+    try:
+        for row in rows:
+            await provider_service.delete_provider(row["id"])
+    except BusinessRuleViolation as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=safe_error_message(e))
+
+    logger.info(f"Removed provider '{package_name}'")
+    return RemoveResponse(success=True, message=f"Provider '{package_name}' removed")
 
 
 @router.get(

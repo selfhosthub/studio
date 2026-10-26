@@ -4,13 +4,14 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 
-from app.domain.common.exceptions import EntityNotFoundError
+from app.domain.common.exceptions import DuplicateEntityError, EntityNotFoundError
 from app.domain.common.value_objects import (
     ActivationMethod,
     Email,
@@ -28,6 +29,12 @@ from app.infrastructure.persistence.models import (
     InstanceModel,
     WorkflowModel,
 )
+
+
+def _violated_constraint(exc: IntegrityError) -> str:
+    """Name of the constraint or index an asyncpg IntegrityError violated."""
+    driver_error = getattr(exc.orig, "__cause__", None)
+    return getattr(driver_error, "constraint_name", None) or ""
 
 
 class SQLAlchemyOrganizationRepository(OrganizationRepository):
@@ -88,7 +95,17 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
         )
 
         self.session.add(org_model)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if "organizations_slug" in _violated_constraint(exc):
+                raise DuplicateEntityError(
+                    entity_type="Organization",
+                    field="slug",
+                    value=organization.slug,
+                ) from exc
+            raise
         await self.session.refresh(org_model)
 
         return self._to_domain(org_model)
@@ -178,8 +195,14 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
 
         return [self._to_domain(org_model) for org_model in org_models]
 
-    async def list_all(self) -> List[Organization]:
+    async def list_all(self, search: Optional[str] = None) -> List[Organization]:
         stmt = select(OrganizationModel).order_by(OrganizationModel.name)
+        if search:
+            search_pattern = f"%{search}%"
+            stmt = stmt.where(
+                (OrganizationModel.name.ilike(search_pattern))
+                | (OrganizationModel.slug.ilike(search_pattern))
+            )
         result = await self.session.execute(stmt)
         org_models = result.scalars().all()
 
@@ -374,6 +397,13 @@ class SQLAlchemyUserRepository(UserRepository):
 
         return self._to_domain(user_model)
 
+    async def get_by_ids(self, user_ids: Sequence[uuid.UUID]) -> List[User]:
+        if not user_ids:
+            return []
+        stmt = select(UserModel).where(UserModel.id.in_(user_ids))
+        result = await self.session.execute(stmt)
+        return [self._to_domain(m) for m in result.scalars().all()]
+
     async def get_by_email(self, email: str) -> Optional[User]:
         stmt = select(UserModel).where(UserModel.email == email)
         result = await self.session.execute(stmt)
@@ -432,7 +462,11 @@ class SQLAlchemyUserRepository(UserRepository):
         if only_active:
             stmt = stmt.where(UserModel.is_active == True)
 
-        stmt = stmt.offset(skip).limit(limit)
+        stmt = (
+            stmt.order_by(func.lower(UserModel.username), UserModel.id)
+            .offset(skip)
+            .limit(limit)
+        )
 
         result = await self.session.execute(stmt)
         user_models = result.scalars().all()

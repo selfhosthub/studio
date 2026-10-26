@@ -3,7 +3,7 @@
 """System-actor runtime for non-HTTP workflow triggers (schedule + event).
 
 Both the schedule tick and the instance-completion event hook need to create
-workflow instances outside any HTTP request — as a trusted system actor, spanning
+workflow instances outside any HTTP request - as a trusted system actor, spanning
 all orgs (non-RLS). This module centralizes the InstanceService assembly and the
 event-chaining fan-out so those two callers stay in sync.
 """
@@ -27,8 +27,12 @@ from app.infrastructure.repositories.instance_repository import (
 from app.infrastructure.repositories.iteration_execution_repository import (
     SQLAlchemyIterationExecutionRepository,
 )
+from app.infrastructure.repositories.notification_repository import (
+    SQLAlchemyNotificationRepository,
+)
 from app.infrastructure.repositories.organization_repository import (
     SQLAlchemyOrganizationRepository,
+    SQLAlchemyUserRepository,
 )
 from app.infrastructure.repositories.prompt_repository import SQLAlchemyPromptRepository
 from app.infrastructure.repositories.provider_repository import (
@@ -101,6 +105,8 @@ def build_system_instance_service(
         status_publisher=status_publisher,
         iteration_execution_repository=iteration_execution_repo,
         step_execution_repository=step_execution_repo,
+        notification_repository=SQLAlchemyNotificationRepository(session),
+        user_repository=SQLAlchemyUserRepository(session),
     )
     return InstanceService(
         instance_repository=SQLAlchemyInstanceRepository(session),

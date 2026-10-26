@@ -2,36 +2,63 @@
 
 """Postgres-backed OAuth CSRF state store. Any API instance can validate callbacks."""
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert
 
 from app.infrastructure.persistence.database import db
+from app.infrastructure.persistence.models import OAuthStateModel
+from app.infrastructure.persistence.stored_secret_guard import is_ciphertext, named_secret_paths
+from app.infrastructure.security.credential_encryption import get_credential_encryption
 
 logger = logging.getLogger(__name__)
 
 
+def seal_state(data: str) -> str:
+    """State JSON with each top-level value the stored-secret guard names secret encrypted."""
+    state = json.loads(data)
+    if not isinstance(state, dict):
+        return data
+    secret = {path[0] for path in named_secret_paths(state) if len(path) == 1}
+    encrypt = get_credential_encryption().encrypt
+    return json.dumps({k: encrypt(v) if k in secret else v for k, v in state.items()})
+
+
+def open_state(data: str) -> str:
+    """State JSON with every encrypted top-level value decrypted; text that is not a JSON object as is."""
+    try:
+        state = json.loads(data)
+    except ValueError:
+        return data
+    if not isinstance(state, dict):
+        return data
+    decrypt = get_credential_encryption().decrypt
+    return json.dumps(
+        {k: decrypt(v) if isinstance(v, str) and is_ciphertext(v) else v for k, v in state.items()}
+    )
+
+
 async def set_state(key: str, data: str, ttl: int) -> None:
-    """Store state with TTL (seconds). Upserts so retried authorize calls don't error."""
+    """Store state JSON, its secret values encrypted, with TTL (seconds). Upserts so retried authorize calls don't error."""
     expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
+    statement = insert(OAuthStateModel).values(key=key, data=seal_state(data), expires_at=expires_at)
+    statement = statement.on_conflict_do_update(
+        index_elements=[OAuthStateModel.key],
+        set_={"data": statement.excluded.data, "expires_at": statement.excluded.expires_at},
+    )
     async with db.get_session_factory()() as session:
-        await session.execute(
-            text(
-                "INSERT INTO oauth_states (key, data, expires_at) "
-                "VALUES (:key, :data, :expires_at) "
-                "ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, expires_at = EXCLUDED.expires_at"
-            ),
-            {"key": key, "data": data, "expires_at": expires_at},
-        )
+        await session.execute(statement)
         # Lazily purge expired rows on every write - cheap at OAuth-flow volume
         await session.execute(text("DELETE FROM oauth_states WHERE expires_at < now()"))
         await session.commit()
 
 
 async def get_state(key: str) -> Optional[str]:
-    """Return state data if the key exists and hasn't expired; None otherwise."""
+    """Return state data, secret values decrypted, if the key exists, hasn't expired and opens; None otherwise."""
     async with db.get_session_factory()() as session:
         result = await session.execute(
             text(
@@ -41,7 +68,13 @@ async def get_state(key: str) -> Optional[str]:
             {"key": key},
         )
         row = result.fetchone()
-        return row[0] if row else None
+    if not row:
+        return None
+    try:
+        return open_state(row[0])
+    except ValueError:
+        logger.warning("OAuth state could not be decrypted")
+        return None
 
 
 async def delete_state(key: str) -> None:

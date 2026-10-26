@@ -6,18 +6,12 @@ import React, { Suspense } from "react";
 import {
   ActionButton,
   StatusBadge,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
   SearchInput,
-  Pagination,
   LoadingState,
-  ErrorState,
   EmptyState,
+  ResourceTable,
+  type ResourceColumnConfig,
+  type SortState,
 } from "@/shared/ui";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -30,32 +24,110 @@ import {
 import { useUser } from "@/entities/user";
 import { useRoleAccess } from "@/features/roles";
 import {
-  ChevronUp,
-  ChevronDown,
   Users,
   Workflow,
   HardDrive,
   RefreshCw,
   Building2,
 } from "lucide-react";
-import { PAGE_SIZE_OPTIONS, getStoredPageSize } from '@/shared/lib/pagination';
+import { getStoredPageSize } from '@/shared/lib/pagination';
 import { listPageSizeKey } from '@/shared/lib/constants';
+import { useListPref, oneOf } from '@/shared/hooks/useListPref';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 const PAGE_SIZE_KEY = listPageSizeKey('organizations');
 
 type FilterType = 'all' | 'active' | 'inactive';
-type SortField = 'name' | 'created_at' | 'member_count' | 'workflow_count' | 'storage';
+type SortField = NonNullable<GetOrganizationStatsParams['sort_by']>;
 type SortOrder = 'asc' | 'desc';
 
-// Hoisted out of the parent component (react-hooks/static-components): defining a
-// component inside another remounts it on every render. Sort state is passed in.
-function SortIndicator({ field, sortBy, sortOrder }: { field: SortField; sortBy: SortField | null; sortOrder: SortOrder }) {
-  if (sortBy !== field) return null;
-  return sortOrder === 'asc' ? (
-    <ChevronUp className="w-4 h-4 inline ml-1" />
-  ) : (
-    <ChevronDown className="w-4 h-4 inline ml-1" />
-  );
+const SORT_FIELDS: readonly SortField[] = ['name', 'created_at', 'member_count', 'workflow_count', 'storage'];
+const SORT_ORDERS: readonly SortOrder[] = ['asc', 'desc'];
+const isSortField = oneOf<string>(['', 'status', 'plan_name', ...SORT_FIELDS]);
+
+const COLUMNS: ResourceColumnConfig<OrganizationStats>[] = [
+  {
+    key: 'name',
+    header: 'Name',
+    sortValue: (org) => org.name,
+    render: (org) => (
+      <div className="flex flex-wrap items-center gap-2">
+        <div>
+          <Link
+            href={`/organizations/${org.id}`}
+            className="text-sm font-medium link hover:underline"
+          >
+            {org.name}
+          </Link>
+          <div className="text-muted text-xs">
+            {org.slug}
+          </div>
+        </div>
+        {org.is_system && (
+          <span className="badge badge-info whitespace-nowrap shrink-0">
+            System
+          </span>
+        )}
+      </div>
+    ),
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    align: 'center',
+    sortValue: (org) => org.is_active,
+    render: (org) => (
+      <StatusBadge
+        status={org.is_active ? 'active' : 'inactive'}
+        variant={org.is_active ? 'success' : 'default'}
+      />
+    ),
+  },
+  {
+    key: 'member_count',
+    header: <><Users className="w-4 h-4 mr-1" />Users</>,
+    align: 'center',
+    sortValue: (org) => org.member_count,
+    render: (org) => <span className="text-sm">{org.member_count}</span>,
+  },
+  {
+    key: 'workflow_count',
+    header: <><Workflow className="w-4 h-4 mr-1" />Workflows</>,
+    align: 'center',
+    sortValue: (org) => org.workflow_count,
+    render: (org) => <span className="text-sm">{org.workflow_count}</span>,
+  },
+  {
+    key: 'storage',
+    header: <><HardDrive className="w-4 h-4 mr-1" />Storage</>,
+    align: 'center',
+    sortValue: (org) => org.storage.size_bytes,
+    render: (org) => (
+      <div className="text-sm">
+        <div>{org.storage.size_formatted}</div>
+        <div className="text-muted text-xs">
+          {org.storage.files} files
+        </div>
+      </div>
+    ),
+  },
+  {
+    key: 'created_at',
+    header: 'Created',
+    align: 'center',
+    sortValue: (org) => org.created_at,
+    render: (org) => (
+      <span className="text-muted">
+        {org.created_at
+          ? formatDate(org.created_at)
+          : '-'}
+      </span>
+    ),
+  },
+];
+
+function isServerSortField(field: string | null): field is SortField {
+  return field !== null && (SORT_FIELDS as readonly string[]).includes(field);
 }
 
 function OrganizationsListContent() {
@@ -80,9 +152,10 @@ function OrganizationsListContent() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(() => getStoredPageSize(PAGE_SIZE_KEY));
 
-  // Sort state
-  const [sortBy, setSortBy] = useState<SortField | null>(null);
-  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
+  // Sort state; the API sorts its own fields, Status and Plan sort within the loaded page
+  const [sortField, setSortField] = useListPref<string>('organizations', 'sortField', '', isSortField);
+  const [sortOrder, setSortOrder] = useListPref<SortOrder>('organizations', 'sortDirection', 'asc', oneOf(SORT_ORDERS));
+  const sortBy = isServerSortField(sortField) ? sortField : null;
 
   // Fetch organizations with current params
   const fetchOrganizations = useCallback(async () => {
@@ -131,20 +204,11 @@ function OrganizationsListContent() {
     setPage(0);
   }
 
-  // Handle column sort click
-  const handleSort = (field: SortField) => {
-    if (sortBy === field) {
-      // Toggle order if same field
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('asc');
-    }
-    setPage(0); // Reset to first page on sort change
+  const handleSort = (next: SortState) => {
+    setSortField(next.field ?? '');
+    setSortOrder(next.direction);
+    setPage(0);
   };
-
-  // Calculate pagination
-  const totalPages = Math.ceil(total / pageSize) || 1;
 
   if (authLoading) {
     return (
@@ -226,204 +290,79 @@ function OrganizationsListContent() {
           </div>
         </div>
 
-        {/* Search and Pagination Controls */}
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <SearchInput
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="Search organizations..."
-          />
-          <Pagination
-            currentPage={page + 1}
-            totalPages={totalPages}
-            totalCount={total}
-            pageSize={pageSize}
-            onPageChange={(p) => setPage(p - 1)}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPage(0);
-              localStorage.setItem(PAGE_SIZE_KEY, String(size));
-            }}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            position="top"
-          />
-        </div>
-
-        {/* Loading State */}
-        {loading && (
-          <LoadingState message="Loading organizations..." />
-        )}
-
-        {/* Error State */}
-        {!loading && error && (
-          <ErrorState
-            title="Error Loading Organizations"
-            message={error}
-            onRetry={fetchOrganizations}
-            retryLabel="Try Again"
-          />
-        )}
-
-        {/* Content */}
-        {!loading && !error && (
-          <>
-            {/* Table */}
-            <TableContainer>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHeaderCell>
-                      <button
-                        onClick={() => handleSort('name')}
-                        className="flex items-center hover:text-info"
-                      >
-                        Name <SortIndicator field="name" sortBy={sortBy} sortOrder={sortOrder} />
-                      </button>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="center">Status</TableHeaderCell>
-                    <TableHeaderCell align="center">
-                      <button
-                        onClick={() => handleSort('member_count')}
-                        className="flex items-center justify-center w-full hover:text-info"
-                      >
-                        <Users className="w-4 h-4 mr-1" />
-                        Members <SortIndicator field="member_count" sortBy={sortBy} sortOrder={sortOrder} />
-                      </button>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="center">
-                      <button
-                        onClick={() => handleSort('workflow_count')}
-                        className="flex items-center justify-center w-full hover:text-info"
-                      >
-                        <Workflow className="w-4 h-4 mr-1" />
-                        Workflows <SortIndicator field="workflow_count" sortBy={sortBy} sortOrder={sortOrder} />
-                      </button>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="center">
-                      <button
-                        onClick={() => handleSort('storage')}
-                        className="flex items-center justify-center w-full hover:text-info"
-                      >
-                        <HardDrive className="w-4 h-4 mr-1" />
-                        Storage <SortIndicator field="storage" sortBy={sortBy} sortOrder={sortOrder} />
-                      </button>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="center">Plan</TableHeaderCell>
-                    <TableHeaderCell align="center">
-                      <button
-                        onClick={() => handleSort('created_at')}
-                        className="flex items-center justify-center w-full hover:text-info"
-                      >
-                        Created <SortIndicator field="created_at" sortBy={sortBy} sortOrder={sortOrder} />
-                      </button>
-                    </TableHeaderCell>
-                    <TableHeaderCell align="center">Actions</TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {organizations.map((org) => (
-                    <TableRow key={org.id} className={`${!org.is_active ? 'opacity-60' : ''} ${org.is_system ? 'bg-info-subtle/50' : ''}`}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div>
-                            <Link
-                              href={`/organizations/${org.id}`}
-                              className="text-sm font-medium link hover:underline"
-                            >
-                              {org.name}
-                            </Link>
-                            <div className="text-muted text-xs">
-                              {org.slug}
-                            </div>
-                          </div>
-                          {org.is_system && (
-                            <span className="badge badge-info">
-                              System
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell align="center">
-                        <StatusBadge
-                          status={org.is_active ? 'active' : 'inactive'}
-                          variant={org.is_active ? 'success' : 'default'}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <span className="text-sm">{org.member_count}</span>
-                      </TableCell>
-                      <TableCell align="center">
-                        <span className="text-sm">{org.workflow_count}</span>
-                      </TableCell>
-                      <TableCell align="center">
-                        <div className="text-sm">
-                          <div>{org.storage.size_formatted}</div>
-                          <div className="text-muted text-xs">
-                            {org.storage.files} files
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell align="center">
-                        <span className="text-sm">
-                          {org.plan_name || <span className="text-muted">-</span>}
-                        </span>
-                      </TableCell>
-                      <TableCell align="center">
-                        <span className="text-muted">
-                          {org.created_at
-                            ? new Date(org.created_at).toLocaleDateString()
-                            : '-'}
-                        </span>
-                      </TableCell>
-                      <TableCell align="center">
-                        <div className="flex justify-center space-x-2">
-                          <ActionButton
-                            variant="navigate"
-                            onClick={() => router.push(`/organizations/${org.id}`)}
-                          >
-                            View
-                          </ActionButton>
-                          <ActionButton
-                            variant="change"
-                            onClick={() => router.push(`/organizations/${org.id}/users`)}
-                          >
-                            Users
-                          </ActionButton>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            {/* Empty State */}
-            {organizations.length === 0 && (
-              <EmptyState
-                icon={<Building2 className="h-12 w-12" />}
-                title="No organizations found"
-                description={
-                  searchTerm || activeFilter !== 'all'
-                    ? 'Try adjusting your search or filters.'
-                    : 'Create your first organization to get started.'
-                }
-              />
-            )}
-
-            {/* Pagination - Bottom */}
-            {organizations.length > 0 && (
-              <Pagination
-                currentPage={page + 1}
-                totalPages={totalPages}
-                totalCount={total}
-                pageSize={pageSize}
-                onPageChange={(p) => setPage(p - 1)}
-                itemLabel="organization"
-                position="bottom"
-              />
-            )}
-          </>
-        )}
+        <ResourceTable
+          data={organizations}
+          getItemId={(org) => org.id}
+          columns={[
+            ...COLUMNS,
+            {
+              key: 'actions',
+              header: 'Actions',
+              align: 'center',
+              render: (org) => (
+                <div className="flex justify-center gap-2 items-center max-md:flex-col max-md:items-stretch">
+                  <ActionButton
+                    variant="navigate"
+                    onClick={() => router.push(`/organizations/${org.id}`)}
+                  >
+                    View
+                  </ActionButton>
+                  <ActionButton
+                    variant="change"
+                    onClick={() => router.push(`/organizations/${org.id}/users`)}
+                  >
+                    Users
+                  </ActionButton>
+                </div>
+              ),
+            },
+          ]}
+          prefPage="organizations"
+          sort={{
+            field: sortField || null,
+            direction: sortOrder,
+            onChange: handleSort,
+            server: sortBy !== null,
+          }}
+          pagination={{
+            itemLabel: 'organization',
+            server: {
+              currentPage: page + 1,
+              totalCount: total,
+              pageSize,
+              onPageChange: (p) => setPage(p - 1),
+              onPageSizeChange: (size) => {
+                setPageSize(size);
+                setPage(0);
+                localStorage.setItem(PAGE_SIZE_KEY, String(size));
+              },
+            },
+          }}
+          toolbar={
+            <SearchInput
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Search organizations..."
+            />
+          }
+          loading={loading}
+          loadingMessage="Loading organizations..."
+          error={error}
+          errorTitle="Error Loading Organizations"
+          onRetry={fetchOrganizations}
+          rowClassName={(org) => `${!org.is_active ? 'opacity-60' : ''} ${org.is_system ? 'bg-info-subtle/50' : ''}`}
+          emptyState={
+            <EmptyState
+              icon={<Building2 className="h-12 w-12" />}
+              title="No organizations found"
+              description={
+                searchTerm || activeFilter !== 'all'
+                  ? 'Try adjusting your search or filters.'
+                  : 'Create your first organization to get started.'
+              }
+            />
+          }
+        />
       </div>
     </>
   );

@@ -43,8 +43,8 @@ export async function serverFetch(path: string, init?: RequestInit): Promise<Res
 
 export async function getPageVisibility(): Promise<PageVisibility> {
   const response = await serverFetch(`${API_VERSION}/public/page-visibility`, {
-    next: { revalidate: 60 },
-  } as RequestInit);
+    cache: 'no-store',
+  });
 
   if (response) {
     const data = await response.json();

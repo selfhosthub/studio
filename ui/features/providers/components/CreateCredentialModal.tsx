@@ -34,6 +34,7 @@ export function CreateCredentialModal({
   const [credentialSchema, setCredentialSchema] = useState<CredentialSchema | undefined>(undefined);
   const [providerName, setProviderName] = useState('');
   const [oauthProviderKey, setOauthProviderKey] = useState<string | null>(null);
+  const [providerAuthType, setProviderAuthType] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
 
   // Fetch provider metadata (schema + OAuth key) when opened for a provider.
@@ -50,6 +51,7 @@ export function CreateCredentialModal({
         setCredentialSchema(schema);
         setProviderName(provider.name || '');
         setOauthProviderKey((provider.config?.oauth_provider as string) || null);
+        setProviderAuthType((provider.config?.auth as { type?: string } | undefined)?.type);
       } catch {
         if (!cancelled) {
           setCredentialSchema(undefined);
@@ -72,6 +74,7 @@ export function CreateCredentialModal({
     providerId,
     credentialSchema,
     hasCredentialSchema,
+    providerAuthType,
     // handleCreateCredential calls this with the appended list; surface the new credential.
     setCredentials: ((updater) => {
       const next =
@@ -97,7 +100,7 @@ export function CreateCredentialModal({
 
   if (loading) {
     return (
-      <Modal isOpen onClose={onClose} title="Add Provider Credential" size="md">
+      <Modal isOpen onClose={onClose} title="Add Credential" size="md">
         <div className="p-6 text-sm text-muted">Loading provider…</div>
       </Modal>
     );
@@ -116,7 +119,7 @@ export function CreateCredentialModal({
           </p>
           <OAuthRedirectUri redirectUri={`${getApiUrl()}/api/v1/oauth/${oauthProviderKey}/callback`} />
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="btn-orange text-sm inline-flex items-center">
+            <button type="button" onClick={onClose} className="btn-cancel text-sm inline-flex items-center">
               Cancel
             </button>
             <Link

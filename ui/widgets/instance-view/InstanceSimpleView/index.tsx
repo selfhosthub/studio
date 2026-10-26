@@ -34,16 +34,19 @@ import {
   calculateDuration,
   groupResourcesByIteration,
   pickInitialSelection,
+  findFailedStep,
 } from "./utils";
 
 // Extracted hooks
 import { useResizablePanel } from "./hooks/useResizablePanel";
 import { useResourceActions } from "./hooks/useResourceActions";
 import { useStepData } from "./hooks/useStepData";
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 export type { InstanceSimpleViewProps, Job, WorkflowStep, SelectedItem };
 
 export default function InstanceSimpleView({
+  canControlRun,
   instance,
   jobs,
   orderedSteps,
@@ -120,6 +123,7 @@ export default function InstanceSimpleView({
   const displayStatus = useMemo(() => {
     if (regeneratingResources) return "processing";
     if (retryingJobs.size > 0) return "processing";
+    if (instance.status === InstanceStatus.Paused || instance.status === InstanceStatus.DebugPaused) return instance.status;
     const hasRunningStep = orderedSteps.some((step) => step.status === "running");
     if (hasRunningStep) return "running";
     return instance.status;
@@ -142,12 +146,15 @@ export default function InstanceSimpleView({
   );
   const hasFormFieldsLoaded = (formSchema?.fields?.length || 0) > 0;
 
+  const failedStep = findFailedStep(orderedSteps, instance.status, instance.failed_step_ids);
+
   const [selectedItem, setSelectedItem] = useState<SelectedItem>(() =>
     pickInitialSelection({
       simpleMode,
       isPreSubmission,
       hasInputs: hasFormFieldsLoaded || hasInstanceInputs,
       orderedSteps,
+      failedStepId: failedStep?.step_id,
     })
   );
 
@@ -277,6 +284,15 @@ export default function InstanceSimpleView({
             </button>
           );
         })()}
+        {/* Failed step link */}
+        {failedStep && (
+          <button
+            onClick={() => setSelectedItem({ type: "step", stepId: failedStep.step_id })}
+            className="text-info hover:text-info hover:underline font-medium text-sm"
+          >
+            Failed at {failedStep.name}
+          </button>
+        )}
         {/* Pending trigger step link */}
         {(() => {
           const pendingTriggerStepId = instance.output_data?.pending_trigger?.step_id;
@@ -328,7 +344,7 @@ export default function InstanceSimpleView({
             <div className="h-px bg-input my-2" />
 
             <div className="text-xs font-medium text-secondary px-3 py-1">
-              Steps ({orderedSteps.length})
+              Nodes ({orderedSteps.length})
             </div>
             {orderedSteps.map((step, index) => (
               <ListItem
@@ -371,7 +387,13 @@ export default function InstanceSimpleView({
         <div className="flex-1 overflow-y-auto bg-surface">
           {/* Details Panel */}
           {selectedItem.type === "details" && (
-            <DetailsPanel instance={instance} displayStatus={displayStatus} simpleMode={simpleMode} />
+            <DetailsPanel
+              instance={instance}
+              displayStatus={displayStatus}
+              simpleMode={simpleMode}
+              failedStep={failedStep}
+              onOpenStep={(stepId) => setSelectedItem({ type: "step", stepId })}
+            />
           )}
 
           {/* Inputs Panel */}
@@ -383,12 +405,14 @@ export default function InstanceSimpleView({
               setFormValues={setFormValues}
               onFormSubmit={onFormSubmit}
               isSubmittingForm={isSubmittingForm}
+              canControlRun={canControlRun}
             />
           )}
 
           {/* Step Panel */}
           {selectedItem.type === "step" && selectedStep && (
             <StepPanel
+              canControlRun={canControlRun}
               selectedStep={selectedStep}
               selectedStepExecution={selectedStepExecution}
               jobs={jobs}
@@ -482,10 +506,14 @@ function DetailsPanel({
   instance,
   displayStatus,
   simpleMode = false,
+  failedStep,
+  onOpenStep,
 }: {
   instance: InstanceSimpleViewProps["instance"];
   displayStatus: string;
   simpleMode?: boolean;
+  failedStep?: WorkflowStep;
+  onOpenStep?: (stepId: string) => void;
 }) {
   return (
     <div className="p-4 space-y-4">
@@ -498,6 +526,14 @@ function DetailsPanel({
               <div className="text-sm text-danger mt-1">
                 {instance.error_message || instance.error_data?.error}
               </div>
+              {failedStep && onOpenStep && (
+                <button
+                  onClick={() => onOpenStep(failedStep.step_id)}
+                  className="text-sm text-info hover:text-info hover:underline font-medium mt-2"
+                >
+                  Go to {failedStep.name}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -535,13 +571,13 @@ function DetailsPanel({
           <div>
             <dt className="text-sm font-medium text-secondary">Created</dt>
             <dd className="mt-1 text-sm text-primary">
-              {new Date(instance.created_at).toLocaleString()}
+              {formatDate(instance.created_at)}
             </dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-secondary">Updated</dt>
             <dd className="mt-1 text-sm text-primary">
-              {new Date(instance.updated_at).toLocaleString()}
+              {formatDate(instance.updated_at)}
             </dd>
           </div>
         </dl>

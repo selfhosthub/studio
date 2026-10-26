@@ -5,6 +5,7 @@ import { TIMEOUTS } from '@/shared/lib/constants';
 import { ActionButton } from '@/shared/ui';
 import { isCredentialTypeRevealable } from '@/shared/api';
 import { getApiEndpoint } from '@/shared/lib/config';
+import { formatDate } from '@/shared/lib/dateFormatter';
 import { RefreshCw, ExternalLink, Eye, EyeOff, Copy, Check } from 'lucide-react';
 import type { Credential } from '@/features/providers';
 
@@ -74,10 +75,10 @@ export function CredentialListItem({
           </h3>
           <span className="badge badge-default">{cred.credential_type}</span>
           {!cred.is_active && (
-            <span className="badge">Inactive</span>
+            <span className="badge">inactive</span>
           )}
           {cred.expires_at && new Date(cred.expires_at) < new Date() && (
-            <span className="badge-error">Expired</span>
+            <span className="badge-error">expired</span>
           )}
           {supportsOAuth && credentialNeedsOAuth(cred) && (
             <span className="badge-warning">Needs Authorization</span>
@@ -155,12 +156,12 @@ export function CredentialListItem({
           {cred.expires_at && (
             <div>
               <p className="text-xs font-medium text-muted uppercase tracking-wide">Expires</p>
-              <p className="mt-0.5 text-sm text-primary">{new Date(cred.expires_at).toLocaleDateString()}</p>
+              <p className="mt-0.5 text-sm text-primary">{formatDate(cred.expires_at)}</p>
             </div>
           )}
           <div>
             <p className="text-xs font-medium text-muted uppercase tracking-wide">Created</p>
-            <p className="mt-0.5 text-sm text-primary">{cred.created_at ? new Date(cred.created_at).toLocaleString() : 'N/A'}</p>
+            <p className="mt-0.5 text-sm text-primary">{cred.created_at ? formatDate(cred.created_at) : 'N/A'}</p>
           </div>
         </div>
 

@@ -31,26 +31,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 
 # Copy and install base requirements first (for caching)
-COPY studio_workers/requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+# Pin every dependency to the versions in workers/uv.lock
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --all-extras --no-emit-project --no-hashes -q -o constraints.txt
 
-# Copy and install audio-specific requirements
-# Then remove gradio (transitive dep from chatterbox-tts - worker has no web UI)
-# and pre-commit with its virtualenv (s3tokenizer declares pre-commit as a runtime dep)
+COPY studio_workers/requirements.txt .
+RUN uv pip install --system --no-cache -r requirements.txt -c constraints.txt
+
+# Copy and install audio-specific requirements without gradio (declared by chatterbox-tts, never imported)
 COPY studio_workers/engines/audio/requirements.txt requirements.audio.txt
-RUN uv pip install --system --no-cache -r requirements.audio.txt && \
-    pip uninstall -y gradio gradio-client pre-commit virtualenv 2>/dev/null || true
+RUN echo gradio > excludes.txt && \
+    uv pip install --system --no-cache -r requirements.audio.txt -c constraints.txt --excludes excludes.txt
+
+# Remove pre-commit with its virtualenv (s3tokenizer declares pre-commit as a runtime dep)
+RUN pip uninstall -y pre-commit virtualenv 2>/dev/null || true
 
 # resemble-perth needs pkg_resources (removed in setuptools 82, deprecation-warns in 81); >=78.1.1 has
 # the trivy-flagged CVE fixes. Without pkg_resources, PerthImplicitWatermarker
 # silently becomes None and TTS crashes at model init.
-RUN uv pip install --system --no-cache "setuptools>=78.1.1,<81"
+RUN uv pip install --system --no-cache "setuptools>=78.1.1,<81" -c constraints.txt
 
-# Fail the build if the watermarker import chain breaks (no silent None).
-RUN python -c "from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker"
+# Fail the build if the watermarker or either model class the handler loads cannot be imported.
+RUN python -c "from perth.perth_net.perth_net_implicit.perth_watermarker import PerthImplicitWatermarker; from chatterbox.tts import ChatterboxTTS; from chatterbox.tts_turbo import ChatterboxTurboTTS"
 
 # Copy shared contracts package
 COPY studio_workers/contracts/ studio_workers/contracts/

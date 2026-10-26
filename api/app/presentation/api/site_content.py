@@ -165,7 +165,7 @@ class ComplianceSettingsUpdateRequest(BaseModel):
 class DisclosureItem(BaseModel):
     """A single compliance disclosure block."""
 
-    key: str  # Unique identifier (e.g., "twilio_sms")
+    key: str  # Unique identifier (e.g., "sms-consent")
     title: str  # Display title (e.g., "SMS/Messaging Consent")
     enabled: bool = False
     content: str  # Markdown content
@@ -191,7 +191,6 @@ class PageVisibilityUpdateRequest(BaseModel):
     compliance: bool = True
     contact: bool = True
     docs: bool = True
-    pricing: bool = True
     privacy: bool = True
     support: bool = True
     terms: bool = True
@@ -427,11 +426,10 @@ async def update_about_story(
     Super-admin only.
     """
     # Merge all about fields into the page content
-    about_data = {"story": request.story}
-    if request.title is not None:
-        about_data["title"] = request.title
-    if request.subtitle is not None:
-        about_data["subtitle"] = request.subtitle
+    about_data: Dict[str, Any] = {"story": request.story}
+    for field in ("title", "subtitle"):
+        if field in request.model_fields_set:
+            about_data[field] = getattr(request, field)
 
     content = None
     for key, value in about_data.items():
@@ -474,7 +472,6 @@ async def update_page_visibility(
         "compliance": request.compliance,
         "contact": request.contact,
         "docs": request.docs,
-        "pricing": request.pricing,
         "privacy": request.privacy,
         "support": request.support,
         "terms": request.terms,

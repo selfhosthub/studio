@@ -10,8 +10,12 @@ import {
   rruleToRecurrence,
   getBrowserTimezone,
   getTimezoneOptions,
+  utcIsoToZonedInput,
+  zonedInputToUtcIso,
   type RecurrenceChoice,
 } from '@/shared/lib/schedule-utils';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 interface ScheduleConfigSectionProps {
   workflowId: string;
@@ -22,16 +26,6 @@ interface ScheduleConfigSectionProps {
   scheduleNextRunAt: string | null;
   onSaved: (result: { enabled: boolean; next_run_at: string | null; rrule: string | null; dtstart: string | null; timezone: string }) => void;
   onCleared: () => void;
-}
-
-/** Converts a stored ISO datetime to a value usable by <input type="datetime-local">. */
-function isoToLocalInput(iso: string | null): string {
-  if (!iso) return '';
-  // Trim seconds/timezone for the local input control.
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function ScheduleConfigSection({
@@ -45,9 +39,10 @@ export function ScheduleConfigSection({
   onCleared,
 }: ScheduleConfigSectionProps) {
   const { toast } = useToast();
+  const confirm = useConfirm();
 
-  const [dtstart, setDtstart] = useState<string>(isoToLocalInput(scheduleDtstart));
   const [timezone, setTimezone] = useState<string>(scheduleTimezone || getBrowserTimezone());
+  const [dtstart, setDtstart] = useState<string>(() => utcIsoToZonedInput(scheduleDtstart, timezone));
   const timezoneOptions = getTimezoneOptions(timezone);
   const [enabled, setEnabled] = useState<boolean>(scheduleEnabled);
   const [recurrence, setRecurrence] = useState<RecurrenceChoice>(rruleToRecurrence(scheduleRrule));
@@ -59,7 +54,7 @@ export function ScheduleConfigSection({
 
   const handleSave = async () => {
     const rrule = recurrenceToRrule(recurrence, customRrule);
-    const dtstartIso = dtstart ? new Date(dtstart).toISOString() : null;
+    const dtstartIso = dtstart ? zonedInputToUtcIso(dtstart, timezone) : null;
 
     // Form-input guard: a schedule needs at least a start time or a recurrence,
     // and an enabled schedule must have a concrete start time to compute next run.
@@ -95,7 +90,12 @@ export function ScheduleConfigSection({
   };
 
   const handleClear = async () => {
-    if (!confirm('Remove the schedule for this workflow? It will stop running automatically.')) {
+    if (!(await confirm({
+      title: 'Remove schedule',
+      message: 'Remove the schedule for this workflow? It will stop running automatically.',
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    }))) {
       return;
     }
     setSaving(true);
@@ -130,7 +130,7 @@ export function ScheduleConfigSection({
               onChange={(e) => setDtstart(e.target.value)}
               className="form-input mt-1"
             />
-            <p className="form-helper">When the schedule begins (leave empty for now)</p>
+            <p className="form-helper">When the schedule begins, in the selected timezone (leave empty for now)</p>
           </div>
 
           <div>
@@ -204,7 +204,7 @@ export function ScheduleConfigSection({
 
         {nextRunAt && (
           <p className="form-helper">
-            Next run: {new Date(nextRunAt).toLocaleString()}
+            Next run: {formatDate(nextRunAt)}
           </p>
         )}
 

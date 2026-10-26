@@ -113,7 +113,7 @@ export function JsonParseModal({ type, onClose, onParse }: JsonParseModalProps) 
         <div className="flex justify-end space-x-2">
           <button
             onClick={onClose}
-            className="btn-danger text-sm"
+            className="btn-cancel text-sm"
           >
             Cancel
           </button>

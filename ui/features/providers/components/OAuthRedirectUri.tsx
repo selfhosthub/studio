@@ -17,7 +17,7 @@ export function OAuthRedirectUri({ redirectUri }: OAuthRedirectUriProps) {
   const handleCopy = async () => {
     await navigator.clipboard.writeText(redirectUri);
     setCopied(true);
-    setTimeout(() => setCopied(false), TIMEOUTS.COPY_FEEDBACK_SHORT);
+    setTimeout(() => setCopied(false), TIMEOUTS.COPY_FEEDBACK);
   };
 
   return (
@@ -34,11 +34,12 @@ export function OAuthRedirectUri({ redirectUri }: OAuthRedirectUriProps) {
           type="button"
           onClick={handleCopy}
           className="btn-secondary btn-icon flex-shrink-0"
-          aria-label="Copy redirect URI"
-          title="Copy redirect URI"
+          aria-label={copied ? 'Copied' : 'Copy redirect URI'}
+          title={copied ? 'Copied' : 'Copy redirect URI'}
         >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
+          {copied ? <Check size={16} className="text-success" data-testid="copied-icon" /> : <Copy size={16} />}
         </button>
+        <span role="status" className="sr-only">{copied ? 'Redirect URI copied' : ''}</span>
       </div>
     </div>
   );

@@ -14,6 +14,8 @@ interface WebhookCallbackFieldsProps {
   /** The callback routing token; the URL is derived from it. Generate-only. */
   callbackToken: string | null;
   setCallbackToken: (value: string) => void;
+  /** Placeholder for an empty API key field. */
+  keyPlaceholder?: string;
 }
 
 type Pending = 'key' | 'url' | null;
@@ -31,6 +33,7 @@ export function WebhookCallbackFields({
   setCallbackKey,
   callbackToken,
   setCallbackToken,
+  keyPlaceholder = 'Not generated',
 }: WebhookCallbackFieldsProps) {
   const [copied, setCopied] = useState<Pending>(null);
   const [confirming, setConfirming] = useState<Pending>(null);
@@ -114,7 +117,7 @@ export function WebhookCallbackFields({
             id="webhook_callback_api_key"
             value={callbackKey}
             onChange={(e) => setCallbackKey(e.target.value)}
-            placeholder="Not generated"
+            placeholder={keyPlaceholder}
             className="form-input-mono flex-1 min-w-0"
           />
           <button
@@ -158,7 +161,7 @@ export function WebhookCallbackFields({
               <button type="button" onClick={confirmRegenerate} className="btn-primary">
                 Regenerate
               </button>
-              <button type="button" onClick={() => setConfirming(null)} className="btn-secondary">
+              <button type="button" onClick={() => setConfirming(null)} className="btn-cancel">
                 Cancel
               </button>
             </div>

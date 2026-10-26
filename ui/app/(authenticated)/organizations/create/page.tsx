@@ -9,6 +9,23 @@ import { useUser } from "@/entities/user";
 import { useRoleAccess } from "@/features/roles";
 import { useToast } from "@/features/toast";
 
+const USERNAME_PATTERN = '[A-Za-z0-9_-]+';
+const USERNAME_MIN_LENGTH = 3;
+const PASSWORD_MIN_LENGTH = 8;
+
+/** First admin field rule the form breaks, or null when the admin fields are valid. */
+function adminFieldError(admin: { email: string; username: string; password: string }): string | null {
+  if (!admin.email.trim()) return 'Admin email is required';
+  if (!admin.username.trim()) return 'Admin username is required';
+  if (admin.username.length < USERNAME_MIN_LENGTH) return `Admin username must be at least ${USERNAME_MIN_LENGTH} characters`;
+  if (!new RegExp(`^${USERNAME_PATTERN}$`).test(admin.username)) {
+    return 'Admin username may contain only letters, numbers, hyphens and underscores';
+  }
+  if (!admin.password.trim()) return 'Admin password is required';
+  if (admin.password.length < PASSWORD_MIN_LENGTH) return `Admin password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+  return null;
+}
+
 export default function CreateOrganizationPage() {
   // Restrict access to super_admin only
   const { hasAccess, isLoading: authLoading } = useRoleAccess(['super_admin']);
@@ -17,10 +34,10 @@ export default function CreateOrganizationPage() {
   const { toast } = useToast();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
 
   const [organizationForm, setOrganizationForm] = useState({
     name: '',
-    slug: '',
     description: '',
   });
 
@@ -33,21 +50,6 @@ export default function CreateOrganizationPage() {
   });
 
   const [createAdminUser, setCreateAdminUser] = useState(true);
-
-  // Auto-generate slug from name
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const name = e.target.value;
-    const slug = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-
-    setOrganizationForm({
-      ...organizationForm,
-      name,
-      slug,
-    });
-  };
 
   const handleOrgFieldChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -70,38 +72,32 @@ export default function CreateOrganizationPage() {
     setCreating(true);
     setError(null);
 
+    let orgId = createdOrgId;
     try {
       // Validate required fields
       if (!organizationForm.name.trim()) {
         throw new Error('Organization name is required');
       }
-      if (!organizationForm.slug.trim()) {
-        throw new Error('Organization slug is required');
-      }
 
       if (createAdminUser) {
-        if (!adminForm.email.trim()) {
-          throw new Error('Admin email is required');
-        }
-        if (!adminForm.username.trim()) {
-          throw new Error('Admin username is required');
-        }
-        if (!adminForm.password.trim()) {
-          throw new Error('Admin password is required');
-        }
+        const adminError = adminFieldError(adminForm);
+        if (adminError) throw new Error(adminError);
       }
 
-      // Create organization
-      const newOrg = await createOrganization({
-        name: organizationForm.name,
-        slug: organizationForm.slug,
-        description: organizationForm.description || null,
-      });
+      // Create organization once; a retry after an admin failure reuses it
+      if (!orgId) {
+        const newOrg = await createOrganization({
+          name: organizationForm.name,
+          description: organizationForm.description || null,
+        });
+        orgId = newOrg.id;
+        setCreatedOrgId(orgId);
+      }
 
       // Create admin user if requested
       if (createAdminUser) {
         await createAndInviteUser(
-          newOrg.id,
+          orgId,
           adminForm.email,
           adminForm.password,
           'admin',
@@ -112,7 +108,7 @@ export default function CreateOrganizationPage() {
       }
 
       toast({ title: 'Organization created', description: 'Organization created successfully!', variant: 'success' });
-      router.push(`/organizations/${newOrg.id}`);
+      router.push(`/organizations/${orgId}`);
     } catch (err: unknown) {
       let errorMessage = 'Failed to create organization';
       if (err instanceof Error) {
@@ -123,10 +119,13 @@ export default function CreateOrganizationPage() {
         errorMessage = String((err as { detail: string }).detail);
       }
 
-      setError(errorMessage);
+      setError(orgId ? `Organization created. The admin was not created: ${errorMessage}` : errorMessage);
       setCreating(false);
     }
   };
+
+  const retryLabel = createAdminUser ? 'Create Admin' : 'Open Organization';
+  const submitLabel = createdOrgId ? retryLabel : 'Create Organization';
 
   // Show loading state while checking access
   if (authLoading) {
@@ -198,48 +197,30 @@ export default function CreateOrganizationPage() {
                   id="name"
                   name="name"
                   required
+                  disabled={!!createdOrgId}
                   value={organizationForm.name}
-                  onChange={handleNameChange}
+                  onChange={handleOrgFieldChange}
                   className="form-input"
                   placeholder="e.g., Acme Corporation"
                 />
                 <p className="form-helper">
-                  The display name for your organization
-                </p>
-              </div>
-
-              <div>
-                <label htmlFor="slug" className="form-label">
-                  Organization Slug *
-                </label>
-                <input
-                  type="text"
-                  id="slug"
-                  name="slug"
-                  required
-                  value={organizationForm.slug}
-                  onChange={handleOrgFieldChange}
-                  pattern="[a-z0-9-]+"
-                  className="form-input-mono"
-                  placeholder="e.g., acme-corp"
-                />
-                <p className="form-helper">
-                  Unique identifier (lowercase letters, numbers, and hyphens only)
+                  The display name for your organization. A unique slug is generated from it.
                 </p>
               </div>
 
               <div>
                 <label htmlFor="description" className="form-label">
-                  Description
+                  Notes
                 </label>
                 <textarea
                   id="description"
                   name="description"
                   rows={3}
+                  disabled={!!createdOrgId}
                   value={organizationForm.description}
                   onChange={handleOrgFieldChange}
                   className="form-textarea"
-                  placeholder="Optional description of the organization"
+                  placeholder="Internal notes about this organization..."
                 />
               </div>
             </div>
@@ -296,6 +277,9 @@ export default function CreateOrganizationPage() {
                       id="admin_username"
                       name="username"
                       required={createAdminUser}
+                      minLength={USERNAME_MIN_LENGTH}
+                      pattern={USERNAME_PATTERN}
+                      title="Letters, numbers, hyphens and underscores"
                       value={adminForm.username}
                       onChange={handleAdminFieldChange}
                       className="form-input"
@@ -313,13 +297,14 @@ export default function CreateOrganizationPage() {
                     id="admin_password"
                     name="password"
                     required={createAdminUser}
+                    minLength={PASSWORD_MIN_LENGTH}
                     value={adminForm.password}
                     onChange={handleAdminFieldChange}
                     className="form-input"
                     placeholder="Secure password"
                   />
                   <p className="form-helper">
-                    Minimum 8 characters recommended
+                    At least 8 characters
                   </p>
                 </div>
 
@@ -364,7 +349,7 @@ export default function CreateOrganizationPage() {
               type="button"
               onClick={() => router.push('/organizations/list')}
               disabled={creating}
-              className="btn-secondary"
+              className="btn-cancel"
             >
               Cancel
             </button>
@@ -373,7 +358,7 @@ export default function CreateOrganizationPage() {
               disabled={creating}
               className="btn-primary"
             >
-              {creating ? 'Creating...' : 'Create Organization'}
+              {creating ? 'Creating...' : submitLabel}
             </button>
           </div>
         </form>

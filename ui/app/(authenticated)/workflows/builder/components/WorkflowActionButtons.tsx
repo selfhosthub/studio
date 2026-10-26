@@ -16,7 +16,7 @@ export function WorkflowActionButtons({ isSubmitting, cancelHref }: WorkflowActi
     <div className="mt-6 flex justify-end space-x-4">
       <Link
         href={cancelHref}
-        className="inline-flex justify-center py-2 px-4 border border-primary shadow-sm text-sm font-medium rounded-md text-secondary bg-card hover:bg-surface"
+        className="btn-cancel inline-flex justify-center text-sm"
       >
         Cancel
       </Link>

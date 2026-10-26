@@ -220,7 +220,7 @@ export default function MediaPicker({
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="px-4 py-2 text-sm text-secondary hover:text-primary"
+              className="btn-cancel text-sm"
             >
               Cancel
             </button>

@@ -56,6 +56,7 @@ class PromptResponseDTO(BaseModel):
     variables: List[VariableDTO]
     is_enabled: bool
     source: str
+    tier: Optional[str] = None
     slug: str
     created_by: Optional[uuid.UUID] = None
     scope: str = "organization"

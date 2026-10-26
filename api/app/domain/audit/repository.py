@@ -32,6 +32,7 @@ class AuditEventRepository(ABC):
         actor_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
     ) -> List[AuditEvent]: ...
 
     @abstractmethod
@@ -62,6 +63,7 @@ class AuditEventRepository(ABC):
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         include_system_events: bool = True,
+        search: Optional[str] = None,
     ) -> List[AuditEvent]:
         """All audit events (super_admin only)."""
 
@@ -99,8 +101,13 @@ class AuditEventRepository(ABC):
         self,
         organization_id: Optional[UUID] = None,
         resource_type: Optional[str] = None,
+        action: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
+        actor_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-    ) -> int: ...
+        include_system_events: bool = True,
+        search: Optional[str] = None,
+    ) -> int:
+        """Count of the rows list_all_events returns for the same filters."""

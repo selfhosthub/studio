@@ -18,6 +18,7 @@ from app.application.services.dead_letter_replay_service import (
 from app.infrastructure.errors import safe_error_message
 from app.application.services.result_processing.step_result_enrichment import (
     build_step_result_payload,
+    client_error_for_report,
 )
 from app.application.services.instance_notifier import InstanceNotifier
 from app.application.services.webhook_reconcile_sweep_service import (
@@ -81,7 +82,7 @@ def build_cleanup_callback(
         if not job_id:
             # Legacy / already-enriched payloads carry routing fields directly.
             if thin.get("step_id") and thin.get("instance_id"):
-                return thin
+                return {**thin, "error": client_error_for_report(thin)}
             logger.error(
                 "Dead-letter payload has no job_id and no routing fields; "
                 "cannot route"
@@ -108,7 +109,7 @@ def build_cleanup_callback(
             job,
             status=thin.get("status", ""),
             result=thin.get("result"),
-            error=thin.get("error"),
+            error=client_error_for_report(thin),
             webhook_pending=thin.get("webhook_pending", False),
         )
 

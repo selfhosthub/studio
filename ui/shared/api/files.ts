@@ -1,9 +1,9 @@
 // ui/shared/api/files.ts
 
-import { getApiUrl, API_VERSION } from '@/shared/lib/config';
-import { STORAGE_KEYS } from '@/shared/lib/constants';
+import { API_VERSION } from '@/shared/lib/config';
 import { apiRequest, apiFetchBlob } from './core';
 import { getCurrentUser } from './auth';
+import { getOrganizationWorkflows } from './workflows';
 
 export interface FileResource {
   id: string;
@@ -37,11 +37,6 @@ export interface FileResource {
   updated_at?: string;
 }
 
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-}
-
 export interface DashboardStats {
   workflows: number;
   members: number;
@@ -58,22 +53,43 @@ export async function getDashboardStats(orgId?: string): Promise<DashboardStats>
 
   // Members requires admin; swallow that failure so non-admin users still see workflows.
   const [workflows, membersResult] = await Promise.all([
-    apiRequest<Array<{ status: string }>>('/workflows/'),
-    apiRequest<unknown[]>(`/organizations/${effectiveOrgId}/members`).catch(() => null),
+    getOrganizationWorkflows(),
+    apiRequest<Array<{ is_active: boolean }>>(`/organizations/${effectiveOrgId}/members`).catch(() => null),
   ]);
 
-  const activeWorkflows = workflows.filter((w) => w.status === 'active');
-
   return {
-    workflows: activeWorkflows.length,
-    members: membersResult?.length ?? 0,
+    workflows: workflows.length,
+    members: membersResult?.filter((m) => m.is_active).length ?? 0,
     canViewMembers: membersResult !== null,
   };
 }
 
-export async function getFiles(page: number = 1, limit: number = 20): Promise<FileResource[]> {
-  const skip = (page - 1) * limit;
-  return apiRequest<FileResource[]>(`/files?skip=${skip}&limit=${limit}`);
+export interface FileListResponse {
+  items: FileResource[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export type FileSortField = 'name' | 'date' | 'size' | 'type' | 'source' | 'thumb' | 'status';
+
+export interface FileListQuery {
+  search?: string;
+  fileType?: string;
+  source?: string;
+  sortBy?: FileSortField;
+  sortDir?: 'asc' | 'desc';
+}
+
+export async function getFiles(page: number = 1, limit: number = 20, query: FileListQuery = {}): Promise<FileListResponse> {
+  const params = new URLSearchParams({ skip: String((page - 1) * limit), limit: String(limit) });
+  const search = query.search?.trim();
+  if (search) params.set('search', search);
+  if (query.fileType && query.fileType !== 'all') params.set('file_type', query.fileType);
+  if (query.source && query.source !== 'all') params.set('source', query.source);
+  if (query.sortBy) params.set('sort_by', query.sortBy);
+  if (query.sortDir) params.set('sort_dir', query.sortDir);
+  return apiRequest<FileListResponse>(`/files?${params.toString()}`);
 }
 
 export async function getInstanceFiles(instanceId: string, status?: string, source?: string): Promise<FileResource[]> {
@@ -90,6 +106,21 @@ export async function getJobFiles(jobId: string): Promise<FileResource[]> {
 
 export async function downloadFile(fileId: string): Promise<Blob> {
   return apiFetchBlob(`${API_VERSION}/files/${fileId}/download`);
+}
+
+export interface FileRunUsage {
+  instance_id: string;
+  instance_name: string;
+  step_name: string | null;
+  file_count: number;
+}
+
+/** Run steps holding any of the given files; files in no run are absent. */
+export async function getFilesUsage(fileIds: string[]): Promise<FileRunUsage[]> {
+  const params = new URLSearchParams();
+  fileIds.forEach((id) => params.append('ids', id));
+  const usage = await apiRequest<{ runs: FileRunUsage[] }>(`/files/usage?${params.toString()}`);
+  return usage.runs;
 }
 
 /** Admin only. */
@@ -121,48 +152,17 @@ export async function reorderStepFiles(stepId: string, resourceIds: string[]): P
 }
 
 export async function replaceFile(fileId: string, file: File): Promise<FileResource> {
-  const token = getToken();
-  const url = `${getApiUrl()}${API_VERSION}/files/${fileId}/replace`;
-
   const formData = new FormData();
   formData.append('file', file);
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to replace file: ${response.status} ${errorText}`);
-  }
-
-  return response.json();
+  return apiRequest<FileResource>(`/files/${fileId}/replace`, { method: 'POST', body: formData });
 }
 
 export async function uploadFiles(files: File | File[]): Promise<FileResource[]> {
-  const token = getToken();
-  const url = `${getApiUrl()}${API_VERSION}/files/upload`;
-
   const formData = new FormData();
-  const fileArray = Array.isArray(files) ? files : [files];
-  for (const file of fileArray) {
+  for (const file of Array.isArray(files) ? files : [files]) {
     formData.append('files', file);
   }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to upload files: ${response.status} ${errorText}`);
-  }
-
-  return response.json();
+  return apiRequest<FileResource[]>('/files/upload', { method: 'POST', body: formData });
 }
 
 /** Legacy single-file alias for uploadFiles. */
@@ -172,26 +172,14 @@ export async function uploadFile(file: File): Promise<FileResource> {
 }
 
 export async function uploadFilesToStep(instanceId: string, stepId: string, files: File[]): Promise<FileResource[]> {
-  const token = getToken();
-  const url = `${getApiUrl()}${API_VERSION}/instances/${instanceId}/step_executions/${stepId}/upload`;
-
   const formData = new FormData();
   for (const file of files) {
     formData.append('files', file);
   }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to upload files: ${response.status} ${errorText}`);
-  }
-
-  return response.json();
+  return apiRequest<FileResource[]>(
+    `/instances/${instanceId}/step_executions/${stepId}/upload`,
+    { method: 'POST', body: formData },
+  );
 }
 
 export async function addFilesFromLibraryToStep(

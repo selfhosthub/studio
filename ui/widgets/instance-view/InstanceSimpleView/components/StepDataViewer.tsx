@@ -110,7 +110,7 @@ export function StepDataViewer({
         const keys = typeof data === "object" && data !== null ? Object.keys(data) : [];
         const hasContext = keys.length > 0 && !(keys.length === 1 && keys[0] === "parameters");
         if (!hasContext) return null;
-        const inputDescription = "Input Data is built from this step's configuration and outputs of upstream steps before template resolution. See Request Data for the final resolved values sent to the worker.";
+        const inputDescription = "Input Data is built from this node's configuration and outputs of upstream nodes before template resolution. See Request Data for the final resolved values sent to the worker.";
         const inputView = detectOutputView(data as Record<string, unknown>);
         if (dataViewMode === "auto" && inputView) {
           return (

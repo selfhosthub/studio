@@ -6,9 +6,7 @@ import logging
 from typing import Dict, List, Optional
 
 from app.domain.instance.models import Instance
-from app.infrastructure.repositories.provider_repository import (
-    SQLAlchemyProviderServiceRepository,
-)
+from app.domain.provider.repository import ProviderServiceRepository
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +18,7 @@ class ApprovalStepFinder:
         self,
         instance: Instance,
         ready_steps: List[str],
-        provider_service_repo: SQLAlchemyProviderServiceRepository,
+        provider_service_repo: ProviderServiceRepository,
     ) -> Optional[str]:
         logger.debug(f"find_approval_step: ready_steps={ready_steps}")
 
@@ -41,7 +39,7 @@ class ApprovalStepFinder:
         self,
         step_id: str,
         steps: Dict,
-        provider_service_repo: SQLAlchemyProviderServiceRepository,
+        provider_service_repo: ProviderServiceRepository,
     ) -> bool:
         """Check if a single step is an approval step."""
         step_config = steps.get(step_id)
@@ -81,7 +79,7 @@ class ApprovalStepFinder:
         self,
         step_id: str,
         service_id: str,
-        provider_service_repo: SQLAlchemyProviderServiceRepository,
+        provider_service_repo: ProviderServiceRepository,
     ) -> bool:
         """Check if service requires human approval via orchestrator_hints."""
         service = await provider_service_repo.get_by_service_id(

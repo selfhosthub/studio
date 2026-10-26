@@ -16,6 +16,12 @@ from app.domain.instance_step.step_execution_repository import (
     StepExecutionRepository,
 )
 from app.domain.provider.repository import ProviderServiceRepository
+from app.infrastructure.repositories.notification_repository import (
+    SQLAlchemyNotificationRepository,
+)
+from app.infrastructure.repositories.organization_repository import (
+    SQLAlchemyUserRepository,
+)
 from app.infrastructure.repositories.workflow_repository import (
     SQLAlchemyWorkflowRepository,
 )
@@ -38,6 +44,9 @@ from app.application.services.job_enqueue import (
     JobEnqueueService,
     ServiceInactiveError,
     ServiceNotFoundError,
+)
+from app.application.services.job_enqueue.step_parameter_resolver import (
+    resolve_step_job_parameters,
 )
 from app.application.services.prompt_service import PromptService
 from app.infrastructure.repositories.prompt_repository import (
@@ -138,7 +147,7 @@ class ActionExecutor:
         action: NextAction,
         ctx: ActionContext,
     ) -> bool:
-        error_msg = action.error_message or ctx.error or "Step failed"
+        error_msg = action.error_message or ctx.error or "Node failed"
 
         ctx.instance.fail(
             error_message=error_msg,
@@ -234,6 +243,18 @@ class ActionExecutor:
             ctx.instance_id, approval_step_id
         )
         if approval_step_entity:
+            previous_results = await self._get_all_step_results(
+                ctx.step_execution_repo,
+                SQLAlchemyOrgFileRepository(ctx.session),
+                ctx.instance_id,
+                ctx.instance.workflow_snapshot,
+            )
+            approval_step_entity.parameters = resolve_step_job_parameters(
+                ctx.instance.workflow_snapshot or {},
+                approval_step_id,
+                ctx.instance.input_data or {},
+                previous_results,
+            )
             approval_step_entity.wait_for_approval()
             await ctx.step_execution_repo.update(approval_step_entity)
         else:
@@ -436,6 +457,8 @@ class ActionExecutor:
             status_publisher=status_publisher,
             iteration_execution_repository=iteration_execution_repo,
             step_execution_repository=ctx.step_execution_repo,
+            notification_repository=SQLAlchemyNotificationRepository(ctx.session),
+            user_repository=SQLAlchemyUserRepository(ctx.session),
         )
 
         previous_results = await self._get_all_step_results(

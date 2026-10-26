@@ -70,7 +70,7 @@ export default function BaseStepConfig({
   serviceSectionTitle = 'Service',
   inputMappingsSectionTitle = 'Input Mappings',
   outputFieldsSectionTitle = 'Output Fields',
-  stepInputsSectionTitle = 'Step Inputs',
+  stepInputsSectionTitle = 'Node Inputs',
 }: BaseStepConfigProps) {
   return (
     <SharedStepConfigProvider

@@ -74,3 +74,46 @@ export function getTimezoneOptions(ensure?: string | null): string[] {
   if (ensure && !zones.includes(ensure)) zones = [...zones, ensure].sort();
   return zones;
 }
+
+/** Wall-clock parts of an instant in an IANA timezone. */
+function zonedParts(epochMs: number, timeZone: string): number[] {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(epochMs));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return [get('year'), get('month'), get('day'), get('hour'), get('minute'), get('second')];
+}
+
+/** Offset in ms of a timezone from UTC at an instant. */
+function zoneOffsetMs(epochMs: number, timeZone: string): number {
+  const [y, mo, d, h, mi, s] = zonedParts(epochMs, timeZone);
+  return Date.UTC(y, mo - 1, d, h, mi, s) - Math.floor(epochMs / 1000) * 1000;
+}
+
+/** Reads a datetime-local value as wall-clock time in timeZone and returns its UTC ISO string. */
+export function zonedInputToUtcIso(local: string, timeZone: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(local);
+  if (!m) return null;
+  const asUtc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  let result = asUtc - zoneOffsetMs(asUtc, timeZone);
+  const corrected = asUtc - zoneOffsetMs(result, timeZone);
+  if (corrected !== result) result = corrected;
+  return new Date(result).toISOString();
+}
+
+/** Renders a stored instant as a datetime-local value in timeZone. */
+export function utcIsoToZonedInput(iso: string | null, timeZone: string): string {
+  if (!iso) return '';
+  const epoch = new Date(iso).getTime();
+  if (isNaN(epoch)) return '';
+  const [y, mo, d, h, mi] = zonedParts(epoch, timeZone);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}`;
+}

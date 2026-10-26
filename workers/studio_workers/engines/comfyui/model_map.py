@@ -20,13 +20,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from studio_workers.utils.error_codes import ResourceUnavailableError
+
 logger = logging.getLogger(__name__)
 
 # (node class, input name) -> the names ComfyUI accepts for it
 ModelMap = Dict[Tuple[str, str], List[str]]
 
 
-class ModelNotFoundError(Exception):
+class ModelNotFoundError(ResourceUnavailableError):
     """A declared model has no usable name on this ComfyUI host."""
 
 

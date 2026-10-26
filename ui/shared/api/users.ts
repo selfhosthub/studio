@@ -115,6 +115,11 @@ export async function updateUserAsAdmin(userId: string, updates: {
   });
 }
 
+/** Username from an email's local part, lowercased with characters outside letters, digits, _ and - replaced by _. */
+function usernameFromEmail(email: string): string {
+  return email.split('@')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+}
+
 /** Admin only. Username defaults to the email's local part. */
 export async function createAndInviteUser(
   orgId: string,
@@ -129,7 +134,7 @@ export async function createAndInviteUser(
     method: 'POST',
     body: JSON.stringify({
       email,
-      username: username || email.split('@')[0],
+      username: username || usernameFromEmail(email),
       password,
       role,
       ...(firstName ? { first_name: firstName } : {}),

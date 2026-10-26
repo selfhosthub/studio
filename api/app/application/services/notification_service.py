@@ -25,12 +25,12 @@ class NotificationService:
         self.event_bus = event_bus
 
     async def create_notification(
-        self, command: NotificationCreate
+        self, command: NotificationCreate, created_by: uuid.UUID
     ) -> NotificationResponse:
         notification = Notification.create(
             recipient_id=command.recipient_id,
             organization_id=command.organization_id,
-            created_by=command.created_by,
+            created_by=created_by,
             channel_type=command.channel_type,
             channel_id=command.channel_id,
             message=command.message,
@@ -64,6 +64,18 @@ class NotificationService:
         notification = await self.notification_repository.update(notification)
 
         return NotificationResponse.from_domain(notification)
+
+    async def mark_unread(self, notification_id: uuid.UUID) -> NotificationResponse:
+        notification = await self._get_notification_or_raise(notification_id)
+
+        notification.mark_unread()
+
+        notification = await self.notification_repository.update(notification)
+
+        return NotificationResponse.from_domain(notification)
+
+    async def delete_notification(self, notification_id: uuid.UUID) -> bool:
+        return await self.notification_repository.delete_by_id(notification_id)
 
     async def mark_all_read(self, recipient_id: uuid.UUID) -> int:
         return await self.notification_repository.mark_all_read(recipient_id)

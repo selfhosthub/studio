@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useReactFlow } from '@xyflow/react';
-import { MOBILE_BREAKPOINT, FIT_VIEW_DURATION, MOBILE_HEIGHT_THRESHOLD } from '../constants';
+import { MOBILE_BREAKPOINT, MOBILE_HEIGHT_THRESHOLD, fitViewOptions } from '../constants';
 import { TIMEOUTS } from '@/shared/lib/constants';
 import type { Step } from '../types';
 
@@ -75,11 +75,9 @@ export function useFlowLayout({
 
   // Expose fitView and autoArrange to parent via callback refs
   useEffect(() => {
-    const padding = isMobile ? 0.4 : 0.2;
-
     if (onFitViewRef) {
       onFitViewRef(() => {
-        fitView({ padding, duration: FIT_VIEW_DURATION });
+        fitView(fitViewOptions(isMobile));
       });
     }
 
@@ -87,7 +85,7 @@ export function useFlowLayout({
       const layoutedSteps = calculateLayout(stepsRef.current);
       onStepsChangeRef.current?.(layoutedSteps);
       setTimeout(
-        () => fitView({ padding, duration: FIT_VIEW_DURATION }),
+        () => fitView(fitViewOptions(isMobile)),
         TIMEOUTS.LAYOUT_SETTLE,
       );
     };

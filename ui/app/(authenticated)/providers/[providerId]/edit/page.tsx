@@ -9,6 +9,7 @@ import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useReturnTo } from '@/shared/hooks/useReturnTo';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 // Collapsible Section Component
 function CollapsibleSection({
@@ -70,6 +71,7 @@ function EditProviderPageContent({ providerId }: { providerId: string }) {
   const { returnTo } = useReturnTo(`/providers/${providerId}`);
   const { user } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -150,12 +152,16 @@ function EditProviderPageContent({ providerId }: { providerId: string }) {
 
     // Confirm system-wide change for super_admin
     if (isSuperAdmin) {
-      const confirmed = window.confirm(
-        '⚠️ WARNING: System-Wide Change\n\n' +
-        'This provider configuration is shared across ALL organizations.\n\n' +
-        'Any changes you make will immediately affect all users and workflows using this provider.\n\n' +
-        'Are you sure you want to save these changes?'
-      );
+      const confirmed = await confirm({
+        title: 'Save provider for all organizations',
+        message:
+          '⚠️ WARNING: System-Wide Change\n\n' +
+          'This provider configuration is shared across ALL organizations.\n\n' +
+          'Any changes you make will immediately affect all users and workflows using this provider.\n\n' +
+          'Are you sure you want to save these changes?',
+        confirmLabel: 'Save',
+        variant: 'warning',
+      });
 
       if (!confirmed) {
         return;
@@ -227,13 +233,16 @@ function EditProviderPageContent({ providerId }: { providerId: string }) {
   // Reset form to package defaults (reads original values from disk)
   const handleResetToDefaults = async () => {
     // Confirm with warning about system-wide impact
-    const confirmed = window.confirm(
-      '⚠️ Reset to Package Defaults\n\n' +
-      'This will reset the form to the original values from the provider package.\n\n' +
-      'Note: This only updates the form. You must click "Save Changes" to apply the reset, ' +
-      'which will affect ALL organizations using this provider.\n\n' +
-      'Continue?'
-    );
+    const confirmed = await confirm({
+      title: 'Reset to package defaults',
+      message:
+        '⚠️ Reset to Package Defaults\n\n' +
+        'This will reset the form to the original values from the provider package.\n\n' +
+        'Note: This only updates the form. You must click "Save Changes" to apply the reset, ' +
+        'which will affect ALL organizations using this provider.\n\n' +
+        'Continue?',
+      confirmLabel: 'Reset',
+    });
 
     if (!confirmed) {
       return;
@@ -401,7 +410,7 @@ function EditProviderPageContent({ providerId }: { providerId: string }) {
                   className="form-select w-full disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
+                  <option value="inactive">Deactivated</option>
                 </select>
               </div>
 
@@ -530,7 +539,7 @@ function EditProviderPageContent({ providerId }: { providerId: string }) {
                 type="button"
                 onClick={() => router.push(returnTo)}
                 disabled={saving}
-                className="btn-secondary"
+                className="btn-cancel"
               >
                 Cancel
               </button>
@@ -539,7 +548,7 @@ function EditProviderPageContent({ providerId }: { providerId: string }) {
                 disabled={saving}
                 className="btn-primary"
               >
-                {saving ? 'Saving...' : 'Save Changes'}
+                {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
           )}

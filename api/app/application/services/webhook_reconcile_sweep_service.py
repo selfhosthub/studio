@@ -139,7 +139,7 @@ class WebhookReconcileSweepService:
                 title_override="Still Awaiting Provider Callback",
                 message_override=(
                     f"{display} has been waiting for the provider callback on "
-                    f"step '{step.step_key}' longer than expected. The run is "
+                    f"node '{step.step_key}' longer than expected. The run is "
                     "parked, not failed - use Check Status to poll the provider, "
                     "or verify the webhook is configured."
                 ),

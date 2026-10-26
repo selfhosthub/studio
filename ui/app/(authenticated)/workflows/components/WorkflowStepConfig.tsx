@@ -28,14 +28,16 @@ import {
   useStepConfigData,
   useEnhancedSteps,
 } from './hooks';
-import type { ParamConfig } from './hooks';
+import type { ParamConfig, StepUpdateOptions } from './hooks';
 import { IterationToggle } from './IterationToggle';
 import { OutputSchemaDisplay } from './OutputSchemaDisplay';
 import { ProviderDocsSlideOver } from '@/features/provider-docs/ProviderDocsSlideOver';
+import { useUser } from '@/entities/user';
+import { secretPathsUnder } from '@/features/step-config/ConfiguredSecretsNote';
 
 interface WorkflowStepConfigProps {
   step: Step;
-  onUpdate: (updatedStep: Step) => void;
+  onUpdate: (updatedStep: Step, options?: StepUpdateOptions) => void;
   onRemove: () => void;
   previousSteps: Step[];
   allSteps?: Record<string, Step>;  // All steps for dependency management
@@ -61,6 +63,7 @@ export function WorkflowStepConfig({
   // ── Data fetching & state management ──────────────────────────
   const data = useStepConfigData({ step, onUpdate, allSteps });
   const {
+    markEdited,
     name, setName,
     providerType, setProviderType,
     providerId, setProviderId,
@@ -91,6 +94,19 @@ export function WorkflowStepConfig({
   } = data;
 
   const selectedService = services.find((s) => s.service_id === serviceId);
+
+  // Top-level parameters holding a stored secret; a viewer below admin sees them as configured
+  const { user } = useUser();
+  const canManageSecrets = !user || user.role === 'admin' || user.role === 'super_admin';
+  const sealedRecord: unknown = step.client_metadata?.sealed_parameters;
+  const sealedPaths: unknown[][] = Array.isArray(sealedRecord) ? sealedRecord.filter(Array.isArray) : [];
+  const sealedParameterKeys = new Set(sealedPaths.filter((p) => p.length === 1).map((p) => String(p[0])));
+  // Nested keys under a parameter holding a stored secret the viewer cannot read
+  const configuredSecretsUnder = (key: string): string[] =>
+    canManageSecrets ? [] : sealedPaths.filter((p) => p.length === 2 && p[0] === key).map((p) => String(p[1]));
+  // Sealed paths the viewer cannot read, and those inside one parameter relative to it
+  const memberSealedPaths = canManageSecrets ? [] : (sealedPaths as Array<Array<string | number>>);
+  const sealedPathsUnder = (key: string) => secretPathsUnder(memberSealedPaths, key);
 
   // ── System-slot override ────────────────────────────────────
   // When a bound AI Prompt carries system content, fields marked
@@ -326,7 +342,7 @@ export function WorkflowStepConfig({
       return (
         <div key={key} id={`param-field-${key}`} className="p-3 bg-info-subtle border border-info rounded-md transition-all">
           <p className="block text-sm font-medium text-secondary mb-1">{label}</p>
-          <HttpHeadersEditor headers={parameters[key] || {}} onChange={(headers) => handleParameterChange(key, headers)} />
+          <HttpHeadersEditor headers={parameters[key] || {}} onChange={(headers) => handleParameterChange(key, headers)} configuredSecrets={configuredSecretsUnder(key)} />
         </div>
       );
     }
@@ -358,6 +374,8 @@ export function WorkflowStepConfig({
           instanceFormFields={instanceFormFields}
           currentStepId={step.id}
           arrayMappingNotice={serviceMetadata?.array_mapping_notice}
+          secretConfigured={!canManageSecrets && sealedParameterKeys.has(key)}
+          configuredSecretPaths={sealedPathsUnder(key)}
         />
         {inlineChildren.map(({ key: childKey, config: childConfig }) => {
           const childLabel = childConfig.title || childKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -474,6 +492,10 @@ export function WorkflowStepConfig({
       data-step-id={step.id}
       data-provider-id={providerId}
       data-service-id={serviceId}
+      onPointerDownCapture={markEdited}
+      onKeyDownCapture={markEdited}
+      onDropCapture={markEdited}
+      onChangeCapture={markEdited}
     >
       <div className="bg-card shadow-sm rounded-lg border p-6">
         <div className="space-y-6">
@@ -481,7 +503,7 @@ export function WorkflowStepConfig({
           {/* Step Configuration Section */}
           <div className="mb-6">
             <div className="bg-input shadow-sm rounded-t-lg p-3 border border-primary">
-              <h2 className="text-lg font-semibold text-primary">Step Configuration</h2>
+              <h2 className="text-lg font-semibold text-primary">Node Configuration</h2>
             </div>
             <div className="@container bg-card shadow-sm rounded-b-lg p-4 border border-t-0 border-primary">
               <div className="space-y-4">
@@ -489,8 +511,8 @@ export function WorkflowStepConfig({
                 <div className="flex flex-col @sm:flex-row gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <label htmlFor="step-name" className="form-label whitespace-nowrap">Step Name</label>
-                      <code className="text-xs text-muted font-mono truncate ml-2" title="Step ID">{step.id}</code>
+                      <label htmlFor="step-name" className="form-label whitespace-nowrap">Node Name</label>
+                      <code className="text-xs text-muted font-mono truncate ml-2" title="Node ID">{step.id}</code>
                     </div>
                     <input id="step-name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="block w-full border border-primary rounded-md shadow-sm p-2 bg-card text-primary" placeholder="Enter step name" />
                   </div>
@@ -511,7 +533,7 @@ export function WorkflowStepConfig({
 
                 {(step.execution_mode === 'skip' || step.execution_mode === 'stop') && (
                   <div className={`text-xs p-2 rounded ${step.execution_mode === 'skip' ? 'bg-card/50 text-secondary' : 'bg-danger-subtle text-danger'}`}>
-                    {step.execution_mode === 'skip' ? 'This step will be skipped. Data flows through but no action is taken.' : 'Workflow execution will stop at this step.'}
+                    {step.execution_mode === 'skip' ? 'This node will be skipped. Data flows through but no action is taken.' : 'Workflow execution will stop at this node.'}
                   </div>
                 )}
 
@@ -526,7 +548,7 @@ export function WorkflowStepConfig({
                   </button>
                 </div>
                 {step.trigger_type === 'manual' && (
-                  <div className="text-xs p-2 rounded bg-info-subtle text-info">Workflow will pause before this step. You can review inputs and trigger execution from the instance detail page.</div>
+                  <div className="text-xs p-2 rounded bg-info-subtle text-info">Workflow will pause before this node. You can review inputs and trigger execution from the instance detail page.</div>
                 )}
 
                 {/* Service Type / Provider / Service Selection */}
@@ -537,7 +559,7 @@ export function WorkflowStepConfig({
                       <option value="">Select Service Type</option>
                       {SERVICE_TYPES.map((type) => (<option key={type} value={type}>{SERVICE_TYPE_LABELS[type]}</option>))}
                     </select>
-                    {!providerType && <p className="mt-1 text-xs text-secondary">Choose what category of service this step needs (e.g., AI, Storage, Core)</p>}
+                    {!providerType && <p className="mt-1 text-xs text-secondary">Choose what category of service this node needs (e.g., AI, Storage, Core)</p>}
                   </div>
                 )}
                 {providerTypeWarning && (
@@ -655,9 +677,16 @@ export function WorkflowStepConfig({
                     }
                   />
                   {serviceId === 'shs/core.set_fields' ? (
-                    <SetFieldsEditor parameters={parameters} onParametersChange={setParameters} onOutputFieldsChange={setOutputFields} />
+                    <SetFieldsEditor parameters={parameters} onParametersChange={setParameters} onOutputFieldsChange={setOutputFields} configuredSecrets={memberSealedPaths} />
                   ) : serviceId === 'shs/core.webhook_wait' && workflowId ? (
-                    <WebhookWaitEditor workflowId={workflowId} stepId={step.id} parameters={parameters} onParametersChange={setParameters} />
+                    <WebhookWaitEditor
+                      workflowId={workflowId}
+                      stepId={step.id}
+                      parameters={parameters}
+                      onParametersChange={setParameters}
+                      clientMetadata={step.client_metadata}
+                      onClientMetadataChange={(cm) => onUpdate({ ...step, client_metadata: cm })}
+                    />
                   ) : paramSchema && paramSchema.properties ? (
                     <div className="space-y-4">{sortedSectionNames.map(sectionName => renderSection(sectionName, sectionedParams[sectionName]))}</div>
                   ) : (
@@ -710,7 +739,7 @@ export function WorkflowStepConfig({
           {/* Buttons */}
           <div className="mt-6 flex justify-between">
             <div className="space-x-2">
-              <button onClick={onRemove} className="btn-danger text-sm">Remove Step</button>
+              <button onClick={onRemove} className="btn-danger text-sm">Delete Node</button>
               {onDuplicate && <button onClick={onDuplicate} className="btn-secondary text-sm">Duplicate</button>}
             </div>
           </div>

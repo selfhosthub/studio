@@ -89,9 +89,9 @@ export function MappedFieldSelector({
           onChange={(e) => handleStepChange(e.target.value)}
           className="p-2 border rounded text-sm"
         >
-          <option value="">Select step...</option>
+          <option value="">Select node...</option>
           {instanceFormFields && Object.keys(instanceFormFields).some(k => !instanceFormFields[k]._owning_step_ids?.includes(currentStepId || '')) && (
-            <option value="__instance_form__" className="font-semibold">Instance Form</option>
+            <option value="__instance_form__" className="font-semibold">Form</option>
           )}
           {reversedSteps.map((step) => (
             <option key={step.id} value={step.id}>{step.name || step.id}</option>

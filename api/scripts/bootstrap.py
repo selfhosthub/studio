@@ -49,8 +49,8 @@ def _read_dotenv_keys(path: str) -> dict[str, str]:
 
 
 def _append_to_dotenv(path: str, key: str, value: str):
-    """Append a key=value to the .env file."""
-    with open(path, "a") as f:
+    """Append a key=value to the .env file, creating it owner-only (0600) when absent."""
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a") as f:
         f.write(f"\n{key}={value}\n")  # codeql[py/clear-text-storage-sensitive-data]
 
 
@@ -259,7 +259,7 @@ def _check_major_version_compatibility(
 
     Compatible  : db_revision is in the current chain (known_revisions).
     Prior-major : db_revision exactly matches a historical major baseline marker.
-    Unknown     : db_revision is neither — newer version or corrupted stamp.
+    Unknown     : db_revision is neither - newer version or corrupted stamp.
     """
     if _baselines is None:
         _baselines = _discover_major_baselines()

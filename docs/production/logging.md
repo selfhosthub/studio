@@ -224,7 +224,7 @@ The `JSONFormatter` reads `RequestContext` to populate user/org/correlation fiel
 - **Token redaction** (API): `TokenRedactionFilter` strips JWTs from all log output - query params, Authorization headers, and standalone JWT patterns. Always active, cannot be disabled.
 - **URL redaction** (Workers): `redact_url()` strips S3 signed URL query parameters before logging. Applied at call sites, not as a filter.
 - **WebSocket auth**: UI sends auth tokens via `Sec-WebSocket-Protocol` header instead of query params to prevent tokens from appearing in access logs.
-- **Sensitive key redaction** (Workers): Result publisher redacts keys matching `secret`, `password`, `api_key`, `token`, `authorization`, `credential_id`, `access_token`, `refresh_token`, `private_key`, `client_secret`, `aws_secret`, `signing_key` before storing results. This is storage redaction, not log redaction.
+- **Sensitive key redaction** (Workers): Result publisher redacts keys matching `secret`, `password`, `api_key`, `token`, `authorization`, `credential_id`, `access_token`, `refresh_token`, `private_key`, `client_secret`, `aws_secret`, `signing_key`, `code_verifier` before storing results. This is storage redaction, not log redaction.
 
 ## Gaps
 

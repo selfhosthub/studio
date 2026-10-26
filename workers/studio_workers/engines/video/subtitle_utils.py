@@ -18,14 +18,14 @@ try:
     import torch  # pragma: no cover
 
     TORCH_AVAILABLE = True  # pragma: no cover
-except ImportError:
+except ImportError:  # pragma: no cover
     TORCH_AVAILABLE = False
 
 try:
     import whisper  # pragma: no cover
 
     WHISPER_AVAILABLE = True  # pragma: no cover
-except ImportError:
+except ImportError:  # pragma: no cover
     WHISPER_AVAILABLE = False
 
 try:

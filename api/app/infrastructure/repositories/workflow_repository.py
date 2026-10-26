@@ -6,12 +6,13 @@ import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.common.exceptions import EntityNotFoundError
+from app.domain.common.value_objects import OperationalStatus
 from app.domain.common.json_serialization import deserialize_steps, serialize_steps
 from app.domain.workflow.models import (
     PublishStatus,
@@ -22,8 +23,22 @@ from app.domain.workflow.models import (
 from app.domain.workflow.repository import WorkflowRepository
 from app.infrastructure.persistence.models import (
     InstanceModel,
+    ProviderModel,
+    ProviderServiceModel,
     WorkflowModel,
     WorkflowVersionModel,
+)
+from app.infrastructure.security.step_secrets import (
+    hash_step_webhook_token,
+    mark_step_secrets,
+    open_step_secrets,
+    seal_step_secrets,
+    step_service_id,
+)
+from app.infrastructure.security.webhook_tokens import (
+    hash_webhook_token,
+    open_webhook_token,
+    seal_webhook_token,
 )
 
 
@@ -99,7 +114,7 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         else:
             steps_dict = getattr(model, "steps", None) or {}
             trigger_schema = getattr(model, "trigger_input_schema", None)
-        steps = deserialize_steps(steps_dict)
+        steps = deserialize_steps(open_step_secrets(steps_dict))
 
         metadata_dict = model.client_metadata or {}
 
@@ -127,7 +142,7 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             publish_status=model.publish_status,
             visibility=model.visibility,
             max_concurrent_instances=model.max_concurrent_instances,
-            webhook_token=model.webhook_token,
+            webhook_token=open_webhook_token(model.webhook_token),
             webhook_method=model.webhook_method,
             webhook_auth_type=model.webhook_auth_type,
             webhook_auth_header_name=model.webhook_auth_header_name,
@@ -185,6 +200,31 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             for model in models
         ]
 
+    async def parameter_schemas(
+        self, service_ids: Iterable[str]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Parameter schemas of every ACTIVE service named in service_ids, by service id."""
+        ids = set(service_ids)
+        if not ids:
+            return {}
+        result = await self.session.execute(
+            select(ProviderServiceModel.service_id, ProviderServiceModel.parameter_schema)
+            .join(ProviderModel, ProviderModel.id == ProviderServiceModel.provider_id)
+            .where(
+                ProviderServiceModel.service_id.in_(ids),
+                ProviderModel.operational_status == OperationalStatus.ACTIVE,
+            )
+        )
+        schemas: Dict[str, List[Dict[str, Any]]] = {}
+        for service_id, schema in result.all():
+            schemas.setdefault(service_id, []).append(schema or {})
+        return schemas
+
+    async def _mark_secrets(self, steps: Dict[str, Any]) -> Dict[str, Any]:
+        """Steps recording the parameter paths their ACTIVE service schemas mark secret."""
+        service_ids = {sid for sid in map(step_service_id, steps.values()) if sid}
+        return mark_step_secrets(steps, await self.parameter_schemas(service_ids))
+
     async def _persist_new_version(
         self,
         workflow: Workflow,
@@ -192,6 +232,7 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         trigger_input_schema: Optional[Dict[str, Any]],
     ) -> None:
         """Insert a new workflow_versions row unless its structural hash matches the most recent version (no-op save dedup)."""
+        steps_serialized = await self._mark_secrets(steps_serialized)
         new_hash = _compute_structural_hash(steps_serialized, trigger_input_schema)
         latest = await self._load_latest_version(workflow.id)
         if latest is not None and latest.structural_hash == new_hash:
@@ -203,14 +244,32 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             workflow_id=workflow.id,
             organization_id=workflow.organization_id,
             version=next_version,
-            steps=steps_serialized,
+            steps=seal_step_secrets(steps_serialized),
             trigger_input_schema=trigger_input_schema,
             structural_hash=new_hash,
             created_by=workflow.created_by,
         )
         self.session.add(version_row)
 
+    async def _free_slug(self, organization_id: uuid.UUID, slug: str) -> str:
+        """First slug of "<slug>", "<slug>-2", ... not taken in the org."""
+        result = await self.session.execute(
+            select(WorkflowModel.slug).where(
+                WorkflowModel.organization_id == organization_id,
+                or_(WorkflowModel.slug == slug, WorkflowModel.slug.like(f"{slug}-%")),
+            )
+        )
+        taken = set(result.scalars().all())
+        candidate = slug
+        counter = 2
+        while candidate in taken:
+            candidate = f"{slug}-{counter}"
+            counter += 1
+        return candidate
+
     async def create(self, workflow: Workflow) -> Workflow:
+        workflow.slug = await self._free_slug(workflow.organization_id, workflow.slug)
+        sealed_token, token_hash = seal_webhook_token(workflow.webhook_token)
         workflow_model = WorkflowModel(
             id=workflow.id,
             name=workflow.name,
@@ -225,7 +284,8 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             max_concurrent_instances=workflow.max_concurrent_instances or 1,
             instance_count=workflow.instance_count,
             last_instance_at=workflow.last_instance_at,
-            webhook_token=workflow.webhook_token,
+            webhook_token=sealed_token,
+            webhook_token_hash=token_hash,
             webhook_method=workflow.webhook_method,
             webhook_auth_type=workflow.webhook_auth_type,
             webhook_auth_header_name=workflow.webhook_auth_header_name,
@@ -256,14 +316,16 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         self.session.add(workflow_model)
         await self.session.flush()
 
-        steps_serialized = serialize_steps(workflow.steps) if workflow.steps else {}
+        steps_serialized = await self._mark_secrets(
+            serialize_steps(workflow.steps) if workflow.steps else {}
+        )
         # First-time create: no prior version row to dedupe against, write 1.0.0 directly
         # so this path doesn't need the dedup lookup unit tests would have to mock.
         initial_version = WorkflowVersionModel(
             workflow_id=workflow.id,
             organization_id=workflow.organization_id,
             version="1.0.0",
-            steps=steps_serialized,
+            steps=seal_step_secrets(steps_serialized),
             trigger_input_schema=workflow.trigger_input_schema,
             structural_hash=_compute_structural_hash(
                 steps_serialized, workflow.trigger_input_schema
@@ -299,7 +361,12 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         workflow_model.max_concurrent_instances = workflow.max_concurrent_instances or 1
         workflow_model.instance_count = workflow.instance_count
         workflow_model.last_instance_at = workflow.last_instance_at
-        workflow_model.webhook_token = workflow.webhook_token
+        if workflow_model.webhook_token_hash != (
+            hash_webhook_token(workflow.webhook_token) if workflow.webhook_token else None
+        ):
+            workflow_model.webhook_token, workflow_model.webhook_token_hash = (
+                seal_webhook_token(workflow.webhook_token)
+            )
         workflow_model.webhook_method = workflow.webhook_method
         workflow_model.webhook_auth_type = workflow.webhook_auth_type
         workflow_model.webhook_auth_header_name = workflow.webhook_auth_header_name
@@ -489,6 +556,16 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             self._to_domain(m, await self._load_latest_version(m.id)) for m in models
         ]
 
+    async def list_by_event_source(
+        self, source_workflow_id: uuid.UUID
+    ) -> List[Workflow]:
+        """Every workflow bound to source_workflow_id as its event source."""
+        stmt = select(WorkflowModel).where(
+            WorkflowModel.event_source_workflow_id == source_workflow_id
+        )
+        result = await self.session.execute(stmt)
+        return await self._models_to_domain(list(result.scalars().all()))
+
     async def search(
         self,
         query: str,
@@ -651,16 +728,10 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
         return await self._models_to_domain(list(result.scalars().all()))
 
     async def get_by_webhook_token(self, token: str) -> Optional[Workflow]:
-        """
-        Get a workflow by its webhook token.
-
-        Args:
-            token: The webhook token
-
-        Returns:
-            The workflow if found, None otherwise
-        """
-        stmt = select(WorkflowModel).where(WorkflowModel.webhook_token == token)
+        """Workflow whose stored webhook token hash matches token, or None."""
+        stmt = select(WorkflowModel).where(
+            WorkflowModel.webhook_token_hash == hash_webhook_token(token)
+        )
         result = await self.session.execute(stmt)
         workflow_model = result.scalars().first()
 
@@ -672,7 +743,7 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
     async def get_by_step_webhook_token(
         self, token: str
     ) -> Optional[tuple[Workflow, str]]:
-        """Search active workflows' latest version for a step whose `client_metadata.webhook_token` matches; returns the workflow + step id."""
+        """Search active workflows' latest version for a step whose stored token hash matches; returns the workflow + step id."""
         # Steps live in workflow_versions now. Latest version = most recent created_at.
         stmt = text(
             """
@@ -687,12 +758,14 @@ class SQLAlchemyWorkflowRepository(WorkflowRepository):
             ) wv ON TRUE
             CROSS JOIN jsonb_each(wv.steps) AS s(key, value)
             WHERE w.status = 'ACTIVE'
-              AND s.value -> 'client_metadata' ->> 'webhook_token' = :token
+              AND s.value -> 'client_metadata' ->> 'webhook_token_hash' = :token_hash
             LIMIT 1
             """
         )
 
-        result = await self.session.execute(stmt, {"token": token})
+        result = await self.session.execute(
+            stmt, {"token_hash": hash_step_webhook_token(token)}
+        )
         row = result.first()
 
         if not row:

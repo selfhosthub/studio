@@ -2,13 +2,15 @@
 
 "use client";
 
-import { PlusCircle, Users, Activity, HardDrive, Server, CheckCircle, XCircle, Building2, Play, Database } from "lucide-react";
-import { STORAGE_KEYS } from '@/shared/lib/constants';
+import { PlusCircle, Users, Activity, HardDrive, Server, Building2, Play, Database } from "lucide-react";
+import { STORAGE_KEYS, POLLING } from '@/shared/lib/constants';
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, Suspense } from 'react';
 import { getDashboardStats, DashboardStats, getSystemHealth, SystemHealthResponse } from "@/shared/api";
 import { useUser } from "@/entities/user";
+import { PROBE_LABELS, ProbeStatusIcon } from "../infrastructure/components/ProbeStatus";
+import { plural } from '@/shared/lib/format-utils';
 
 function DashboardContent() {
   const router = useRouter();
@@ -17,8 +19,22 @@ function DashboardContent() {
   const [health, setHealth] = useState<SystemHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
-  // Handle authentication and fetch stats
+  // Refetch on an interval and on return to the tab, while the tab is visible.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === 'visible') setRefreshTick((t) => t + 1);
+    };
+    const interval = setInterval(tick, POLLING.DEFAULT);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
+
+  // Handle authentication and fetch stats; a background refresh keeps the last good numbers on error
   useEffect(() => {
     // Check if localStorage is available (client-side only)
     if (typeof window !== 'undefined') {
@@ -35,12 +51,13 @@ function DashboardContent() {
           setError(null);
         })
         .catch((err) => {
+          if (refreshTick > 0) return;
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
           setError(`Failed to load dashboard data: ${errorMessage}`);
         })
         .finally(() => setLoading(false));
     }
-  }, [router]);
+  }, [router, refreshTick]);
 
   // Fetch system health for super_admins
   useEffect(() => {
@@ -53,7 +70,7 @@ function DashboardContent() {
           // Don't set error - this is supplementary data
         });
     }
-  }, [user]);
+  }, [user, refreshTick]);
 
   return (
     <>
@@ -82,7 +99,7 @@ function DashboardContent() {
                 <p className="mt-1 text-sm text-danger">{error}</p>
                 <button
                   onClick={() => window.location.reload()}
-                  className="mt-3 px-4 py-2 bg-danger text-white rounded-md hover:bg-danger focus:outline-none focus:ring-2 focus:ring-offset-2 text-sm"
+                  className="mt-3 btn-primary text-sm"
                 >
                   Refresh Page
                 </button>
@@ -97,7 +114,7 @@ function DashboardContent() {
             <div className="stat-card stat-card-blue">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="stat-card-title">Active Workflows</h3>
+                  <h3 className="stat-card-title">Organization Workflows</h3>
                   <p className="stat-card-value">{stats.workflows}</p>
                 </div>
                 <div className="stat-icon stat-icon-blue">
@@ -105,7 +122,7 @@ function DashboardContent() {
                 </div>
               </div>
               <div className="mt-4">
-                <Link href="/workflows/list" className="stat-card-link">
+                <Link href="/workflows/list?tab=organization" className="stat-card-link">
                   View all workflows
                 </Link>
               </div>
@@ -115,17 +132,17 @@ function DashboardContent() {
               <div className="stat-card stat-card-green">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="stat-card-title">Team Members</h3>
+                    <h3 className="stat-card-title">Users</h3>
                     <p className="stat-card-value">{stats.members}</p>
                   </div>
                   <div className="stat-icon stat-icon-green">
                     <Users className="h-6 w-6" />
                   </div>
                 </div>
-                {user?.org_id && user?.role === 'admin' && (
+                {user?.role === 'admin' && (
                   <div className="mt-4">
-                    <Link href={`/organizations/${user.org_id}/users`} className="stat-card-link">
-                      Manage team
+                    <Link href="/organization/manage/users" className="stat-card-link">
+                      Manage users
                     </Link>
                   </div>
                 )}
@@ -167,7 +184,7 @@ function DashboardContent() {
               </div>
               <div className="mt-4">
                 <span className="text-muted">
-                  Last 30 minutes
+                  {`Last ${health.platform.active_users_window_minutes} ${plural(health.platform.active_users_window_minutes, 'minute')}`}
                 </span>
               </div>
             </div>
@@ -184,7 +201,7 @@ function DashboardContent() {
               </div>
               <div className="mt-4">
                 <span className="text-muted">
-                  Across all orgs
+                  Across all organizations
                 </span>
               </div>
             </div>
@@ -205,17 +222,15 @@ function DashboardContent() {
                   <div className="flex items-center">
                     <Database className="w-8 h-8 text-info" />
                     <div className="ml-3">
-                      <p className="infra-card-title">Database</p>
-                      <p className="infra-card-value">
-                        {health.database_connected ? 'Healthy' : 'Unhealthy'}
+                      <p className="infra-card-title flex items-center gap-1">
+                        Database <ProbeStatusIcon status={health.database.status} />
                       </p>
+                      <p className="infra-card-value">
+                        {PROBE_LABELS[health.database.status]}
+                      </p>
+                      <p className="text-xs text-muted break-words">{health.database.message}</p>
                     </div>
                   </div>
-                  {health.database_connected ? (
-                    <CheckCircle className="w-5 h-5 text-success" />
-                  ) : (
-                    <XCircle className="w-5 h-5 text-danger" />
-                  )}
                 </div>
               </Link>
 
@@ -266,17 +281,22 @@ function DashboardContent() {
                 href="/infrastructure?tab=messaging"
                 className="infra-card infra-card-red transition-all"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Activity className="w-8 h-8 text-danger" />
-                    <div className="ml-3">
-                      <p className="infra-card-title">Messaging</p>
-                      <p className="infra-card-value">
-                        {health.websocket.total_connections} connections
-                      </p>
-                    </div>
+                <div className="flex items-center min-w-0">
+                  <Activity className="w-8 h-8 text-danger flex-shrink-0" />
+                  <div className="ml-3 min-w-0">
+                    <p className="infra-card-title flex items-center gap-1">
+                      Messaging <ProbeStatusIcon status={health.messaging.status} />
+                    </p>
+                    <p className="infra-card-value">
+                      {health.websocket.total_connections}
+                      <span className="text-sm font-normal text-muted whitespace-nowrap">
+                        {` ${plural(health.websocket.total_connections, 'connection')} now`}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted break-words">
+                      {PROBE_LABELS[health.messaging.status]}: {health.messaging.message}
+                    </p>
                   </div>
-                  <CheckCircle className="w-5 h-5 text-success" />
                 </div>
               </Link>
             </div>

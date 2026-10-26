@@ -10,4 +10,4 @@ export {
   getFilename,
 } from './helpers';
 
-export { pickInitialSelection } from './selection';
+export { pickInitialSelection, findFailedStep } from './selection';

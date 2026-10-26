@@ -6,6 +6,10 @@ import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
 import type { OutputViewConfig, ColumnConfig } from './OutputViewRenderer';
 import { TIMEOUTS } from '@/shared/lib/constants';
+import { ResourceTable, type ColumnConfig as ResourceColumn, type SortValue } from './ResourceTable';
+import { formatDate } from '@/shared/lib/dateFormatter';
+
+type IndexedRow = { row: any; index: number };
 
 interface TableOutputViewProps {
   id: string;
@@ -67,6 +71,9 @@ export function TableOutputView({
     return cols;
   }, [columns, outputView.id_field]);
 
+  // Pairs each row with its original position so cell ids stay stable across sorts
+  const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows]);
+
   const handleCopyCell = async (value: string, cellId: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -76,6 +83,44 @@ export function TableOutputView({
       console.error('Failed to copy:', err);
     }
   };
+
+  const tableColumns: ResourceColumn<IndexedRow>[] = allColumns.map((col) => ({
+    key: col.key,
+    header: col.label,
+    // Output records keep every field in view at every width
+    priority: 'primary',
+    cellClassName: 'text-primary group relative',
+    sortValue: ({ row }) => sortValueOf(getNestedValue(row, col.key)),
+    render: ({ row, index }) => {
+      const value = getNestedValue(row, col.key);
+      const displayValue = formatValue(value, col.format);
+      const cellId = `${id}-${index}-${col.key}`;
+
+      return (
+        <div className="flex items-center gap-1">
+          <span className="truncate max-w-xs" title={String(displayValue)}>
+            {displayValue}
+          </span>
+          {value && typeof value === 'string' && value.length > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopyCell(String(value), cellId);
+              }}
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-input rounded transition-opacity"
+              title="Copy value"
+            >
+              {copiedCell === cellId ? (
+                <Check className="w-3 h-3 text-success" />
+              ) : (
+                <Copy className="w-3 h-3 text-muted" />
+              )}
+            </button>
+          )}
+        </div>
+      );
+    },
+  }));
 
   if (rows.length === 0) {
     return (
@@ -106,65 +151,13 @@ export function TableOutputView({
 
       {/* Table */}
       {isExpanded && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-surface border-b border-primary">
-              <tr>
-                {allColumns.map((col) => (
-                  <th
-                    key={col.key}
-                    className="px-3 py-2 text-left text-xs font-medium text-secondary uppercase tracking-wider"
-                  >
-                    {col.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-primary">
-              {rows.map((row, rowIndex) => (
-                <tr
-                  key={row[outputView.id_field || 'id'] || rowIndex}
-                  className="hover:bg-surface /50"
-                >
-                  {allColumns.map((col) => {
-                    const value = getNestedValue(row, col.key);
-                    const displayValue = formatValue(value, col.format);
-                    const cellId = `${id}-${rowIndex}-${col.key}`;
-
-                    return (
-                      <td
-                        key={col.key}
-                        className="px-3 py-2 text-primary group relative"
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className="truncate max-w-xs" title={String(displayValue)}>
-                            {displayValue}
-                          </span>
-                          {value && typeof value === 'string' && value.length > 0 && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCopyCell(String(value), cellId);
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-input rounded transition-opacity"
-                              title="Copy value"
-                            >
-                              {copiedCell === cellId ? (
-                                <Check className="w-3 h-3 text-success" />
-                              ) : (
-                                <Copy className="w-3 h-3 text-muted" />
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResourceTable
+          data={indexedRows}
+          getItemId={(item) => String(item.index)}
+          columns={tableColumns}
+          pagination={{ itemLabel: 'record' }}
+          containerClassName="mb-0"
+        />
       )}
     </div>
   );
@@ -186,6 +179,15 @@ function getNestedValue(obj: any, path: string): any {
 }
 
 /**
+ * Sort key for a cell: primitives as is, objects by their JSON text.
+ */
+function sortValueOf(value: any): SortValue {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'object') return JSON.stringify(value);
+  return value;
+}
+
+/**
  * Format a key into a human-readable label.
  */
 function formatLabel(key: string): string {
@@ -202,7 +204,8 @@ function formatValue(value: any, format?: string): string {
   if (value === null || value === undefined) return '-';
 
   if (format === 'date' && typeof value === 'string') {
-    return new Date(value).toLocaleString();
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? value : formatDate(date);
   }
 
   if (format === 'number' && typeof value === 'number') {

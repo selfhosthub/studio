@@ -7,42 +7,29 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ActionButton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
+  ResourceTable,
   SearchInput,
-  Pagination,
-  LoadingState,
-  ErrorState,
   EmptyState,
   StatusBadge,
 } from '@/shared/ui';
+import type { ResourceColumnConfig } from '@/shared/ui';
 import type { Prompt } from '@/shared/types/prompt';
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
 import { useCurrentUrl, withReturnTo } from '@/shared/hooks/useReturnTo';
+import {
+  formatPromptCategory,
+  promptCategoryOptions,
+  promptSourceLabel,
+} from '@/shared/lib/prompt-labels';
 
-const PAGE_SIZE_KEY = 'prompt-templates-pageSize';
+const CATEGORY_OPTIONS = [{ value: '', label: 'All Categories' }, ...promptCategoryOptions()];
 
-const CATEGORY_OPTIONS = [
-  { value: '', label: 'All Categories' },
-  { value: 'general', label: 'General' },
-  { value: 'story_generation', label: 'Story Generation' },
-  { value: 'scene_description', label: 'Scene Description' },
-  { value: 'summarization', label: 'Summarization' },
-  { value: 'classification', label: 'Classification' },
-  { value: 'extraction', label: 'Extraction' },
-  { value: 'rewriting', label: 'Rewriting' },
-];
+const SOURCE_BADGE_VARIANT = { Plus: 'warning', Community: 'default', Yours: 'info', Custom: 'info' } as const;
 
 interface PromptsOrganizationTabProps {
   loading: boolean;
   error: string | null;
+  currentUserId?: string | null;
   filteredPrompts: Prompt[];
-  paginatedPrompts: Prompt[];
   searchTerm: string;
   onSearchChange: (term: string) => void;
   categoryFilter: string;
@@ -50,11 +37,6 @@ interface PromptsOrganizationTabProps {
   statusFilter: "all" | "pending" | "published";
   onStatusChange: (status: "all" | "pending" | "published") => void;
   pendingCount: number;
-  currentPage: number;
-  totalPages: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
   isAdmin: boolean;
   isSuperAdmin: boolean;
   onDelete: (prompt: Prompt) => void;
@@ -71,8 +53,8 @@ interface PromptsOrganizationTabProps {
 export function PromptsOrganizationTab({
   loading,
   error,
+  currentUserId,
   filteredPrompts,
-  paginatedPrompts,
   searchTerm,
   onSearchChange,
   categoryFilter,
@@ -80,11 +62,6 @@ export function PromptsOrganizationTab({
   statusFilter,
   onStatusChange,
   pendingCount,
-  currentPage,
-  totalPages,
-  pageSize,
-  onPageChange,
-  onPageSizeChange,
   isAdmin,
   isSuperAdmin,
   onDelete,
@@ -100,207 +77,201 @@ export function PromptsOrganizationTab({
   const router = useRouter();
   const from = useCurrentUrl();
 
-  if (loading) return <LoadingState message="Loading prompts..." />;
-  if (error) return <ErrorState title="Error" message={error} onRetry={onRetry} />;
+  const columns: ResourceColumnConfig<Prompt>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      sortValue: (prompt) => prompt.name,
+      render: (prompt) => (
+        <div>
+          {isAdmin ? (
+            <Link
+              href={withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from)}
+              className="text-sm font-medium link hover:underline"
+            >
+              {prompt.name}
+            </Link>
+          ) : (
+            <span className="text-sm font-medium">
+              {prompt.name}
+            </span>
+          )}
+          {prompt.description && (
+            <div className="text-muted line-clamp-2">
+              {prompt.description}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      cellClassName: 'wrap-anywhere',
+      sortValue: (prompt) => formatPromptCategory(prompt.category),
+      render: (prompt) => (
+        <span className="text-sm text-secondary">
+          {formatPromptCategory(prompt.category)}
+        </span>
+      ),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      sortValue: (prompt) => promptSourceLabel(prompt, currentUserId),
+      render: (prompt) => {
+        const label = promptSourceLabel(prompt, currentUserId);
+        return <StatusBadge status={label} variant={SOURCE_BADGE_VARIANT[label]} />;
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'center',
+      render: (prompt) => (
+        <div className="flex justify-center items-center gap-2 max-md:flex-col max-md:items-stretch">
+          {isSuperAdmin && onSetVisibility && (
+            <select
+              aria-label="Marketplace visibility"
+              className="form-input text-xs py-1"
+              value={prompt.visibility || 'private'} // defaults-ok
+              onChange={(e) =>
+                onSetVisibility(
+                  prompt,
+                  e.target.value as 'private' | 'staging' | 'public',
+                )
+              }
+            >
+              <option value="private">Private</option>
+              <option value="staging">Staging</option>
+              <option value="public">Public</option>
+            </select>
+          )}
+          {isAdmin && (
+            <>
+              {prompt.publish_status === 'pending' ? (
+                <>
+                  <ActionButton
+                    variant="active"
+                    onClick={() => onApprovePublish(prompt)}
+                    disabled={publishingId === prompt.id}
+                  >
+                    Approve
+                  </ActionButton>
+                  <ActionButton
+                    variant="warning"
+                    onClick={() => onRejectPublish(prompt)}
+                    disabled={publishingId === prompt.id}
+                  >
+                    Reject
+                  </ActionButton>
+                </>
+              ) : (
+                <>
+                  <ActionButton
+                    variant="change"
+                    onClick={() =>
+                      router.push(withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from))
+                    }
+                  >
+                    Edit
+                  </ActionButton>
+                  <ActionButton
+                    variant="active"
+                    onClick={() => onCopy(prompt)}
+                    disabled={copyingId === prompt.id}
+                  >
+                    Copy to My Prompts
+                  </ActionButton>
+                  <ActionButton
+                    variant="destructive"
+                    onClick={() => onDelete(prompt)}
+                    disabled={deletingId === prompt.id}
+                  >
+                    Delete
+                  </ActionButton>
+                </>
+              )}
+            </>
+          )}
+          {!isAdmin && (
+            <ActionButton
+              variant="active"
+              onClick={() => onCopy(prompt)}
+              disabled={copyingId === prompt.id}
+            >
+              Copy to My Prompts
+            </ActionButton>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <>
-      {/* Search + Category Filter + Pagination */}
-      <div className="mb-6 flex flex-wrap gap-3 items-center">
-        <div className="w-full sm:w-auto sm:flex-1">
-          <SearchInput
-            value={searchTerm}
-            onChange={onSearchChange}
-            placeholder="Search prompts..."
-          />
-        </div>
-        <select
-          value={categoryFilter}
-          onChange={(e) => onCategoryChange(e.target.value)}
-          className="form-select text-sm w-auto"
-        >
-          {CATEGORY_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        {isAdmin && (
+    <ResourceTable
+      data={filteredPrompts}
+      getItemId={(prompt) => prompt.id}
+      columns={columns}
+      prefPage="prompts"
+      pagination={{ itemLabel: 'prompt' }}
+      pageResetKey={`${searchTerm}|${categoryFilter}|${statusFilter}`}
+      loading={loading}
+      loadingMessage="Loading prompts..."
+      error={error}
+      onRetry={onRetry}
+      toolbar={
+        <>
+          <div className="w-full sm:w-auto sm:flex-1">
+            <SearchInput
+              value={searchTerm}
+              onChange={onSearchChange}
+              placeholder="Search prompts..."
+            />
+          </div>
           <select
-            value={statusFilter}
-            onChange={(e) => onStatusChange(e.target.value as typeof statusFilter)}
+            value={categoryFilter}
+            onChange={(e) => onCategoryChange(e.target.value)}
             className="form-select text-sm w-auto"
           >
-            <option value="all">All Statuses</option>
-            <option value="pending">Awaiting approval ({pendingCount})</option>
-            <option value="published">Published</option>
+            {CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
-        )}
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          totalCount={filteredPrompts.length}
-          pageSize={pageSize}
-          onPageChange={onPageChange}
-          onPageSizeChange={(size) => {
-            onPageSizeChange(size);
-            localStorage.setItem(PAGE_SIZE_KEY, String(size));
-          }}
-          pageSizeOptions={PAGE_SIZE_OPTIONS}
-          position="top"
-          itemLabel="prompt"
-        />
-      </div>
-
-      {filteredPrompts.length === 0 ? (
+          {isAdmin && (
+            <select
+              value={statusFilter}
+              onChange={(e) => onStatusChange(e.target.value as typeof statusFilter)}
+              className="form-select text-sm w-auto"
+            >
+              <option value="all">All Statuses</option>
+              <option value="pending">Pending ({pendingCount})</option>
+              <option value="published">Published</option>
+            </select>
+          )}
+        </>
+      }
+      emptyState={
         <EmptyState
           title="No prompts"
           description={
-            searchTerm || categoryFilter
+            searchTerm
+              ? `No results for "${searchTerm}".`
+              : categoryFilter
               ? 'No prompts match your filters.'
               : isSuperAdmin
                 ? 'Upload your own custom prompts.'
                 : 'Create your first prompt or install one from the Marketplace.'
           }
+          action={searchTerm ? (
+            <button type="button" className="btn-secondary" onClick={() => onSearchChange('')}>
+              Clear search
+            </button>
+          ) : undefined}
         />
-      ) : (
-        <>
-          <TableContainer>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Category</TableHeaderCell>
-                  <TableHeaderCell>Source</TableHeaderCell>
-                  <TableHeaderCell align="center">Actions</TableHeaderCell>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedPrompts.map((prompt) => (
-                  <TableRow key={prompt.id}>
-                    <TableCell>
-                      <div>
-                        {isAdmin ? (
-                          <Link
-                            href={withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from)}
-                            className="text-sm font-medium link hover:underline"
-                          >
-                            {prompt.name}
-                          </Link>
-                        ) : (
-                          <span className="text-sm font-medium">
-                            {prompt.name}
-                          </span>
-                        )}
-                        {prompt.description && (
-                          <div className="text-muted line-clamp-2">
-                            {prompt.description}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-secondary">
-                        {prompt.category.replace(/_/g, ' ')}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={prompt.source} />
-                    </TableCell>
-                    <TableCell align="center">
-                      <div className="flex justify-center items-center space-x-2">
-                        {isSuperAdmin && onSetVisibility && (
-                          <select
-                            aria-label="Marketplace visibility"
-                            className="form-input text-xs py-1"
-                            value={prompt.visibility || 'private'} // defaults-ok
-                            onChange={(e) =>
-                              onSetVisibility(
-                                prompt,
-                                e.target.value as 'private' | 'staging' | 'public',
-                              )
-                            }
-                          >
-                            <option value="private">Private</option>
-                            <option value="staging">Staging</option>
-                            <option value="public">Public</option>
-                          </select>
-                        )}
-                        {isAdmin && (
-                          <>
-                            {prompt.publish_status === 'pending' ? (
-                              <>
-                                <ActionButton
-                                  variant="active"
-                                  onClick={() => onApprovePublish(prompt)}
-                                  disabled={publishingId === prompt.id}
-                                >
-                                  Approve
-                                </ActionButton>
-                                <ActionButton
-                                  variant="warning"
-                                  onClick={() => onRejectPublish(prompt)}
-                                  disabled={publishingId === prompt.id}
-                                >
-                                  Reject
-                                </ActionButton>
-                              </>
-                            ) : (
-                              <>
-                                <ActionButton
-                                  variant="change"
-                                  onClick={() =>
-                                    router.push(withReturnTo(`/ai-prompts/prompts/${prompt.id}/edit`, from))
-                                  }
-                                >
-                                  Edit
-                                </ActionButton>
-                                <ActionButton
-                                  variant="active"
-                                  onClick={() => onCopy(prompt)}
-                                  disabled={copyingId === prompt.id}
-                                >
-                                  Copy
-                                </ActionButton>
-                                <ActionButton
-                                  variant="destructive"
-                                  onClick={() => onDelete(prompt)}
-                                  disabled={deletingId === prompt.id}
-                                >
-                                  Delete
-                                </ActionButton>
-                              </>
-                            )}
-                          </>
-                        )}
-                        {!isAdmin && (
-                          <ActionButton
-                            variant="active"
-                            onClick={() => onCopy(prompt)}
-                            disabled={copyingId === prompt.id}
-                          >
-                            Copy
-                          </ActionButton>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalCount={filteredPrompts.length}
-            pageSize={pageSize}
-            onPageChange={onPageChange}
-            itemLabel="prompt"
-            position="bottom"
-          />
-        </>
-      )}
-    </>
+      }
+    />
   );
 }

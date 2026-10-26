@@ -14,6 +14,7 @@ import { InstanceStatus } from "@/shared/types/api";
 
 import { StepHeaderActionsProps } from "../types";
 import { StepModeBadges } from "./StepModeBadges";
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 export function StepHeaderActions({
   selectedStep,
@@ -34,11 +35,12 @@ export function StepHeaderActions({
   onRerunAndContinue,
   onRerunStepOnly,
   onCheckWebhookStatus,
+  canControlRun = true,
 }: StepHeaderActionsProps) {
   return (
     <div className="bg-card rounded-lg border border-primary p-4">
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+        <div className="flex items-center gap-3 min-w-0">
           {getStatusIcon(getDisplayStatus(selectedStep), "w-6 h-6")}
           <div>
             <div className="flex items-center gap-2">
@@ -47,7 +49,7 @@ export function StepHeaderActions({
               </h3>
               <StepModeBadges triggerType={selectedStep.trigger_type} executionMode={selectedStep.execution_mode} />
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
               <StatusBadge status={getDisplayStatus(selectedStep)} />
               {(() => {
                 const jobs = stepJobs.length > 0 ? stepJobs : (selectedStepExecution ? [selectedStepExecution] : []);
@@ -77,13 +79,13 @@ export function StepHeaderActions({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {selectedStep.status === "waiting_for_approval" && (
+        <div className="flex flex-wrap items-center gap-2">
+          {canControlRun && selectedStep.status === "waiting_for_approval" && (
             <>
               <button
                 onClick={() => onApprove(false)}
                 disabled={approving}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-danger text-white text-sm rounded-md hover:bg-danger disabled:opacity-50"
+                className="btn-warning flex items-center gap-1.5 px-3! py-1.5! text-sm"
               >
                 <XCircle className="w-4 h-4" />
                 <span>{approving ? "..." : "Reject"}</span>
@@ -99,47 +101,47 @@ export function StepHeaderActions({
             </>
           )}
 
-          {selectedStep.status === "waiting_for_manual_trigger" && (
+          {canControlRun && selectedStep.status === "waiting_for_manual_trigger" && (
             <button
               onClick={() => onTrigger(selectedStep.step_id)}
               disabled={triggering}
               className="btn-primary text-sm flex items-center gap-1.5 px-3 py-1.5"
             >
               <Play className="w-4 h-4" />
-              <span>{triggering ? "Triggering..." : "Run Step"}</span>
+              <span>{triggering ? "Triggering..." : "Run Node"}</span>
             </button>
           )}
 
-          {selectedStep.status === "waiting_for_webhook" && selectedStep.can_check_status && (
+          {canControlRun && selectedStep.status === "waiting_for_webhook" && selectedStep.can_check_status && (
             <button
               onClick={() => onCheckWebhookStatus(instance.id, selectedStep.step_id)}
               disabled={runningSteps.has(selectedStep.step_id)}
               className="btn-primary text-sm flex items-center gap-1.5 px-3 py-1.5"
-              title="Poll the provider now for this step's pending generations"
+              title="Poll the provider now for this node's pending generations"
             >
               <RefreshCw className={`w-4 h-4 ${runningSteps.has(selectedStep.step_id) ? "animate-spin" : ""}`} />
               <span>{runningSteps.has(selectedStep.step_id) ? "Checking..." : "Check Status"}</span>
             </button>
           )}
 
-          {selectedStep.status === "stopped" && (
+          {canControlRun && selectedStep.status === "stopped" && (
             <button
               onClick={() => onRunStoppedStep(selectedStep.step_id)}
               disabled={runningSteps.has(selectedStep.step_id)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-success text-white text-sm rounded-md hover:bg-success disabled:opacity-50"
             >
               <Play className={`w-4 h-4 ${runningSteps.has(selectedStep.step_id) ? "animate-spin" : ""}`} />
-              <span>{runningSteps.has(selectedStep.step_id) ? "Running..." : "Run Step"}</span>
+              <span>{runningSteps.has(selectedStep.step_id) ? "Running..." : "Run Node"}</span>
             </button>
           )}
 
-          {selectedStepExecution && ["completed", "failed", "cancelled"].includes(selectedStepExecution.status) && ![InstanceStatus.Pending, InstanceStatus.Processing].includes(instance.status as InstanceStatus) && (
+          {canControlRun && selectedStepExecution && ["completed", "failed", "cancelled"].includes(selectedStepExecution.status) && ![InstanceStatus.Pending, InstanceStatus.Processing].includes(instance.status as InstanceStatus) && (
             <>
               <button
                 onClick={() => onRerunAndContinue(selectedStepExecution.id)}
                 disabled={retryingJobs.has(selectedStepExecution.id)}
                 className="btn-primary text-sm flex items-center gap-1.5 px-3 py-1.5"
-                title="Rerun this step and all downstream steps"
+                title="Rerun this node and all downstream nodes"
               >
                 <RotateCw className={`w-4 h-4 ${retryingJobs.has(selectedStepExecution.id) ? "animate-spin" : ""}`} />
                 <span>Rerun</span>
@@ -148,15 +150,27 @@ export function StepHeaderActions({
                 onClick={() => onRerunStepOnly(instance.id, selectedStep.step_id)}
                 disabled={runningSteps.has(selectedStep.step_id)}
                 className="btn-success text-sm flex items-center gap-1.5 px-3 py-1.5"
-                title="Rerun this step only (does not trigger downstream steps)"
+                title="Rerun this node only (does not trigger downstream nodes)"
               >
                 <RotateCw className={`w-4 h-4 ${runningSteps.has(selectedStep.step_id) ? "animate-spin" : ""}`} />
-                <span>Rerun Step Only</span>
+                <span>Rerun Node Only</span>
               </button>
             </>
           )}
         </div>
       </div>
+
+      {/* Approval request shown to the approver */}
+      {selectedStep.status === "waiting_for_approval" &&
+        typeof selectedStep.parameters?.approval_message === "string" &&
+        selectedStep.parameters.approval_message.trim() !== "" && (
+          <div className="alert alert-info mb-4">
+            <div className="font-medium">Approval requested</div>
+            <div className="text-sm mt-1 whitespace-pre-wrap">
+              {selectedStep.parameters.approval_message}
+            </div>
+          </div>
+        )}
 
       {/* Error Message */}
       {selectedStepExecution?.error_message && (
@@ -176,9 +190,9 @@ export function StepHeaderActions({
       {/* Timestamps */}
       {selectedStepExecution?.started_at && (
         <div className="text-sm text-secondary space-x-4">
-          <span>Started: {new Date(selectedStepExecution.started_at).toLocaleString()}</span>
+          <span>Started: {formatDate(selectedStepExecution.started_at)}</span>
           {selectedStepExecution.completed_at && (
-            <span>Completed: {new Date(selectedStepExecution.completed_at).toLocaleString()}</span>
+            <span>Completed: {formatDate(selectedStepExecution.completed_at)}</span>
           )}
         </div>
       )}

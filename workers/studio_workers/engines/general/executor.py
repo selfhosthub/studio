@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 import httpx
-from jsonpath_ng.ext import parse as jsonpath_parse
+from jsonpath_ng.ext.parser import parse as jsonpath_parse
 
 from studio_workers.contracts.webhook_completion import EXECUTION_TOKEN_ROUTING
 

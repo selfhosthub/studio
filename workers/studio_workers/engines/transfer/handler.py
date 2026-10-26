@@ -32,7 +32,10 @@ from studio_workers.utils import (
     create_job_client,
 )
 from studio_workers.utils.result_publisher import ResultPublisher
-from studio_workers.utils.error_codes import classify_error_code
+from studio_workers.utils.error_codes import (
+    classify_error_code,
+    failure_detail,
+)
 from studio_workers.utils.credential_client import CredentialClient
 from studio_workers.utils.redaction import redact_url
 from studio_workers.worker_types import get_worker_config, resolve_queues
@@ -165,7 +168,10 @@ class TransferWorker(WorkerBase):
             )
 
             if not self.result_publisher.publish_step_result(
-                status="FAILED", error=error_msg, error_code=classify_error_code(e)
+                status="FAILED",
+                error=error_msg,
+                error_code=classify_error_code(e),
+                **failure_detail(e),
             ):
                 logger.critical("Failed to publish step result after retries - job will be orphaned")
 

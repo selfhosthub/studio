@@ -8,6 +8,7 @@ import { Modal } from '@/shared/ui';
 import { Step } from '@/entities/workflow';
 import { getProviders, getProviderServices, getProviderService, getProviderCredentials } from '@/shared/api';
 import type { Provider, ProviderServiceResponse, ProviderCredential } from '@/shared/api/providers';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 type Service = ProviderServiceResponse;
 type Credential = ProviderCredential;
@@ -185,7 +186,7 @@ export default function ConfigureStepModal({
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <h3 className="text-lg font-semibold leading-6 text-primary">
-            Configure Step: {step.name}
+            Configure Node: {step.name}
           </h3>
           <button
             onClick={onClose}
@@ -285,13 +286,13 @@ export default function ConfigureStepModal({
                     {credentials.map((credential) => (
                       <option key={credential.id} value={credential.id}>
                         {credential.name}
-                        {credential.expires_at && ` (expires: ${new Date(credential.expires_at).toLocaleDateString()})`}
+                        {credential.expires_at && ` (expires: ${formatDate(credential.expires_at, { time: false })})`}
                       </option>
                     ))}
                   </select>
                   {credentials.length === 0 && !loadingCredentials && (
                     <p className="mt-1 text-xs text-warning">
-                      No credentials found. You can configure the step and add credentials later.
+                      No credentials found. You can configure the node and add credentials later.
                     </p>
                   )}
                 </>
@@ -345,8 +346,8 @@ export default function ConfigureStepModal({
             <div className={`p-3 rounded-md ${isFullyConfigured ? 'bg-success-subtle' : 'bg-warning-subtle'}`}>
               <p className={`text-sm ${isFullyConfigured ? 'text-success' : 'text-warning'}`}>
                 {isFullyConfigured
-                  ? '✓ Step fully configured. You can now map fields to other steps.'
-                  : '⚠️ Step partially configured. Add a credential to complete configuration.'}
+                  ? '✓ Node fully configured. You can now map fields to other nodes.'
+                  : '⚠️ Node partially configured. Add a credential to complete configuration.'}
               </p>
             </div>
           )}
@@ -357,7 +358,7 @@ export default function ConfigureStepModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-secondary bg-card border border-primary rounded-md hover:bg-surface"
+            className="btn-cancel text-sm"
           >
             Cancel
           </button>

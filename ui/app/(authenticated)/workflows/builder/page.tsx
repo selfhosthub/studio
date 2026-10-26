@@ -3,6 +3,7 @@
 'use client';
 
 import React, { useState, Suspense, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { FlowEditorWithProvider, StepConfigPanel, EditorSettingsPanel } from '@/widgets/flow-editor';
@@ -11,12 +12,15 @@ import { usePreferences } from '@/entities/preferences';
 import { WorkflowBasicInfoCard } from './components/WorkflowBasicInfoCard';
 import { WorkflowActionButtons } from './components/WorkflowActionButtons';
 import { useWorkflowEditor } from './hooks/useWorkflowEditor';
+import { useFullscreenEscape } from '@/shared/hooks/useFullscreenEscape';
 import { useConnectionHandling } from './hooks/useConnectionHandling';
 
 function WorkflowBuilderContent() {
   const { preferences } = usePreferences();
   const [showEditorSettings, setShowEditorSettings] = useState(false);
   const [isFlowEditorFullscreen, setIsFlowEditorFullscreen] = useState(false);
+  const exitFlowEditorFullscreen = useCallback(() => setIsFlowEditorFullscreen(false), []);
+  useFullscreenEscape(isFlowEditorFullscreen, exitFlowEditorFullscreen);
 
   // Refs to FlowEditor functions
   const [fitViewFn, setFitViewFn] = useState<(() => void) | null>(null);
@@ -106,16 +110,8 @@ function WorkflowBuilderContent() {
 
         {workflow.steps.length > 0 ? (
           <>
-            {isFlowEditorFullscreen && (
-              <div
-                className="fixed inset-0 z-50 bg-card flex flex-col"
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setIsFlowEditorFullscreen(false);
-                  }
-                }}
-                tabIndex={0}
-              >
+            {isFlowEditorFullscreen && createPortal(
+              <div className="fixed inset-0 z-50 bg-card flex flex-col" data-testid="flow-editor-fullscreen">
                 <div className="flex justify-between items-center p-4 border-b border-primary">
                   <div>
                     <h2 className="text-xl font-medium text-primary">
@@ -158,7 +154,8 @@ function WorkflowBuilderContent() {
                     showSettingsActive={showEditorSettings}
                   />
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
 
             <div className="relative bg-card shadow-sm rounded-lg mb-6 p-4 border border-primary">
@@ -167,7 +164,7 @@ function WorkflowBuilderContent() {
                   Workflow Flow - Click nodes to configure
                 </h2>
                 <p className="text-xs text-secondary">
-                  Drag from the right handle (blue circle) of one step to the left handle of another to create connections.
+                  Drag from the right handle (blue circle) of one node to the left handle of another to create connections.
                 </p>
               </div>
 
@@ -203,10 +200,10 @@ function WorkflowBuilderContent() {
           <div className="bg-card shadow-sm rounded-lg mb-6 p-12 border border-primary text-center">
             <div className="max-w-md mx-auto">
               <h3 className="text-lg font-medium text-primary mb-2">
-                No steps yet
+                No nodes yet
               </h3>
               <p className="text-sm text-secondary mb-6">
-                Get started by adding your first step to this workflow.
+                Get started by adding your first node to this workflow.
               </p>
               <button
                 type="button"
@@ -214,7 +211,7 @@ function WorkflowBuilderContent() {
                 className="btn-primary inline-flex items-center px-6 py-3 text-base"
               >
                 <Plus className="h-5 w-5 mr-2" />
-                Add First Step
+                Add First Node
               </button>
             </div>
           </div>

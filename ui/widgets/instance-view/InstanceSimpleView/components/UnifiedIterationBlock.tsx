@@ -41,7 +41,7 @@ interface UnifiedIterationBlockProps {
   onToggleSelect: (resourceId: string) => void;
   onRegenerateIteration: (iterationIndex: number) => void;
   onRegenerateSelected: (resourceIds: string[]) => void;
-  onDeleteSelected: (resourceIds: string[]) => void;
+  onDeleteSelected?: (resourceIds: string[]) => void;
   onSelectVariant: (resourceId: string) => void;
   gridClass: string;
   orgSettings: { resourceCardSize: 'small' | 'medium' | 'large'; showThumbnails: boolean };
@@ -56,6 +56,8 @@ interface UnifiedIterationBlockProps {
   sensors?: SensorDescriptor<SensorOptions>[];
   /** Called with the new ordered resource IDs for this iteration after a drag */
   onReorderWithinIteration?: (newOrderedIds: string[]) => void;
+  /** False hides regenerate and select-variant actions from a user who neither owns the run nor administers it. */
+  canControlRun?: boolean;
 }
 
 export function UnifiedIterationBlock({
@@ -83,6 +85,7 @@ export function UnifiedIterationBlock({
   viewMode = 'tree',
   sensors,
   onReorderWithinIteration,
+  canControlRun = true,
 }: UnifiedIterationBlockProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showParams, setShowParams] = useState(false);
@@ -104,7 +107,7 @@ export function UnifiedIterationBlock({
       setShowVariants(true);
     }
     // Collapse back to the single card (which carries the regenerate action) once
-    // a slot drops to one variant — e.g. after deleting all but one candidate.
+    // a slot drops to one variant - e.g. after deleting all but one candidate.
     if (resources.length <= 1) {
       setShowVariants(false);
     }
@@ -116,7 +119,7 @@ export function UnifiedIterationBlock({
   }, [onRegenerateSelected]);
 
   const handleDelete = useCallback((resourceId: string) => {
-    onDeleteSelected([resourceId]);
+    onDeleteSelected?.([resourceId]);
   }, [onDeleteSelected]);
 
   const handleView = useCallback((r: OrgFile) => {
@@ -127,6 +130,8 @@ export function UnifiedIterationBlock({
     ? Math.max(0, expectedCount - resources.length)
     : 0;
   const canAct = stepStatus === 'completed' || stepStatus === 'failed';
+  const deleteHandler = canAct && onDeleteSelected ? handleDelete : undefined;
+  const canRegenerate = canAct && canControlRun;
 
   // Keep-variants: when the backend flags a selected variant, collapse the slot
   // to the chosen image and let the user expand a strip to pick a different one.
@@ -176,7 +181,7 @@ export function UnifiedIterationBlock({
           {isFailed && canAct && (
             <span className="text-xs text-danger">Failed</span>
           )}
-          {canAct && (
+          {canRegenerate && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -275,8 +280,8 @@ export function UnifiedIterationBlock({
                             resource={resource}
                             onDownload={onDownloadResource}
                             onView={handleView}
-                            onDelete={canAct ? handleDelete : undefined}
-                            onUseVariant={canAct ? onSelectVariant : undefined}
+                            onDelete={deleteHandler}
+                            onUseVariant={canRegenerate ? onSelectVariant : undefined}
                             variantActive={resource.is_selected}
                             size={orgSettings.resourceCardSize}
                             showThumbnails={orgSettings.showThumbnails}
@@ -290,8 +295,8 @@ export function UnifiedIterationBlock({
                         <ResourceCard
                           resource={activeVariant}
                           onDownload={onDownloadResource}
-                          onRegenerate={canAct ? handleRegenerate : undefined}
-                          onDelete={canAct ? handleDelete : undefined}
+                          onRegenerate={canRegenerate ? handleRegenerate : undefined}
+                          onDelete={deleteHandler}
                           onView={handleView}
                           size={orgSettings.resourceCardSize}
                           showThumbnails={orgSettings.showThumbnails}
@@ -327,8 +332,8 @@ export function UnifiedIterationBlock({
                     key={resource.id}
                     resource={resource}
                     onDownload={onDownloadResource}
-                    onRegenerate={canAct ? handleRegenerate : undefined}
-                    onDelete={canAct ? handleDelete : undefined}
+                    onRegenerate={canRegenerate ? handleRegenerate : undefined}
+                    onDelete={deleteHandler}
                     onView={handleView}
                     size={orgSettings.resourceCardSize}
                     showThumbnails={orgSettings.showThumbnails}

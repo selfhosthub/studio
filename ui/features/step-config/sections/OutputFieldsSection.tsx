@@ -144,7 +144,7 @@ const OutputFieldsSection: React.FC<OutputFieldsSectionProps> = ({
             </div>
           ) : (
             <div className="text-sm text-secondary italic">
-              No output fields defined. Add fields to expose data from this step.
+              No output fields defined. Add fields to expose data from this node.
             </div>
           )}
           

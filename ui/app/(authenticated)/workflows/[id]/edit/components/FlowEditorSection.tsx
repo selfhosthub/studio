@@ -2,12 +2,14 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus } from 'lucide-react';
 import type { Step } from '@/entities/workflow';
 import type { FlexibleConnection } from '@/widgets/flow-editor';
 import { FlowEditorWithProvider } from '@/widgets/flow-editor';
 import { usePreferences } from '@/entities/preferences';
+import { useFullscreenEscape } from '@/shared/hooks/useFullscreenEscape';
 import { EditorSettingsPanel } from './EditorSettingsPanel';
 
 interface WorkflowForEditor {
@@ -42,6 +44,8 @@ export function FlowEditorSection({
   const { preferences } = usePreferences();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showEditorSettings, setShowEditorSettings] = useState(false);
+  const exitFullscreen = useCallback(() => setIsFullscreen(false), []);
+  useFullscreenEscape(isFullscreen, exitFullscreen);
 
   const sharedEditorProps = {
     steps: workflow.steps,
@@ -62,10 +66,10 @@ export function FlowEditorSection({
       <div className="bg-card shadow-sm rounded-lg mb-3 p-12 border border-primary text-center">
         <div className="max-w-md mx-auto">
           <h3 className="text-lg font-medium text-primary mb-2">
-            No steps yet
+            No nodes yet
           </h3>
           <p className="text-sm text-muted mb-6">
-            Get started by adding your first step to this workflow.
+            Get started by adding your first node to this workflow.
           </p>
           <button
             type="button"
@@ -73,7 +77,7 @@ export function FlowEditorSection({
             className="btn-primary inline-flex items-center px-6 py-3 text-base"
           >
             <Plus className="h-5 w-5 mr-2" />
-            Add First Step
+            Add First Node
           </button>
         </div>
       </div>
@@ -82,22 +86,16 @@ export function FlowEditorSection({
 
   return (
     <>
-      {/* Fullscreen overlay */}
-      {isFullscreen && (
-        <div
-          className="fixed inset-0 z-50 bg-page flex flex-col"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setIsFullscreen(false);
-          }}
-          tabIndex={0}
-        >
+      {/* Fullscreen overlay, portaled to body to sit above the layout's sidebar and navbar */}
+      {isFullscreen && createPortal(
+        <div className="fixed inset-0 z-50 bg-page flex flex-col" data-testid="flow-editor-fullscreen">
           <div className="flex justify-between items-center p-4 border-b border-primary">
             <div>
               <h2 className="text-xl font-medium text-primary">
                 {workflow.name} - Flow Editor
               </h2>
               <p className="text-sm text-secondary">
-                Use toolbar buttons (bottom-left) for actions. Press ESC to exit fullscreen.
+                Use toolbar buttons (top-left) for actions. Press ESC to exit fullscreen.
               </p>
             </div>
             <button
@@ -120,7 +118,8 @@ export function FlowEditorSection({
               onToggleFullscreen={() => setIsFullscreen(false)}
             />
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Normal embedded view */}
@@ -131,7 +130,7 @@ export function FlowEditorSection({
               Workflow Flow - Click nodes to configure
             </h2>
             <p className="text-xs text-secondary">
-              Drag from the right handle (blue circle) of one step to the left handle of another to create connections.
+              Drag from the right handle (blue circle) of one node to the left handle of another to create connections.
             </p>
           </div>
         </div>

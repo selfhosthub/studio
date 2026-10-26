@@ -19,3 +19,5 @@ export type {
   IterationResult,
   JobExecution,
 } from './types';
+
+export { canRunWorkflow } from './lib/can-run';

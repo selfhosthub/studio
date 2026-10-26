@@ -24,8 +24,6 @@ interface ProviderDocsSlideOverProps {
   fetchContent?: (slug: string) => Promise<{ id: string; title: string; content: string }>;
 }
 
-const PANEL_WIDTH = 480;
-
 export function ProviderDocsSlideOver({ slug, isOpen, onClose, alternateProviders, fetchContent }: ProviderDocsSlideOverProps) {
   const [activeSlug, setActiveSlug] = useState(slug);
   const [content, setContent] = useState<string | null>(null);
@@ -114,8 +112,7 @@ export function ProviderDocsSlideOver({ slug, isOpen, onClose, alternateProvider
 
       {/* Panel */}
       <div
-        className={`fixed top-0 right-0 z-[61] h-screen bg-surface border-l border-info shadow-xl transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ width: PANEL_WIDTH }}
+        className={`fixed top-0 right-0 z-[61] h-screen w-[min(480px,100vw)] bg-surface border-l border-info shadow-xl transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
         data-provider-docs-panel
       >
         {/* Header */}

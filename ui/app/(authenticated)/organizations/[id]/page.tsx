@@ -15,12 +15,15 @@ import {
 } from "@/shared/api";
 import { useUser } from "@/entities/user";
 import { useToast } from "@/features/toast";
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 export default function OrganizationDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const { user } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const orgId = params.id as string;
 
   const [organization, setOrganization] = useState<any>(null);
@@ -102,9 +105,8 @@ export default function OrganizationDetailsPage() {
       const currentTagline = organization.settings?.branding?.tagline || '';
 
       if (formData.shortName !== currentShortName || formData.tagline !== currentTagline) {
-        // Merge into existing settings, preserving colors, logo, etc.
+        // Sends only the branding section, preserving colors, logo, etc.
         updates.settings = {
-          ...organization.settings,
           branding: {
             ...organization.settings?.branding,
             short_name: formData.shortName || undefined,
@@ -151,7 +153,14 @@ export default function OrganizationDetailsPage() {
     const newStatus = !organization.is_active;
     const action = newStatus ? 'activate' : 'deactivate';
 
-    if (!confirm(`Are you sure you want to ${action} this organization?`)) {
+    if (!(await confirm({
+      title: newStatus ? 'Activate organization' : 'Deactivate organization',
+      message: newStatus
+        ? `Are you sure you want to ${action} this organization?`
+        : `Deactivate ${organization.name}? Its users are signed out and cannot sign in until it is reactivated.`,
+      confirmLabel: newStatus ? 'Activate' : 'Deactivate',
+      variant: newStatus ? 'default' : 'warning',
+    }))) {
       return;
     }
 
@@ -244,9 +253,9 @@ export default function OrganizationDetailsPage() {
               <ActionButton variant="active" onClick={handleSaveOrganization} disabled={isSaving}>
                 {isSaving ? 'Saving...' : 'Save'}
               </ActionButton>
-              <ActionButton variant="warning" onClick={handleCancelEdit} disabled={isSaving}>
+              <button type="button" className="btn-cancel px-2! py-1! text-xs" onClick={handleCancelEdit} disabled={isSaving}>
                 Cancel
-              </ActionButton>
+              </button>
             </div>
           )}
         </div>
@@ -417,7 +426,7 @@ export default function OrganizationDetailsPage() {
               Created
             </p>
             <p className="px-4 py-2 bg-card rounded-md text-primary border border-primary">
-              {organization.created_at ? new Date(organization.created_at).toLocaleDateString() : 'N/A'}
+              {organization.created_at ? formatDate(organization.created_at) : 'N/A'}
             </p>
           </div>
         </div>

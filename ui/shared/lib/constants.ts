@@ -52,8 +52,6 @@ export const TIMEOUTS = {
   HIGHLIGHT_RING: 2000,
   /** One paint tick before triggering a mount transition */
   MOUNT_TICK: 10,
-  /** Delay before closing hover-expanded sidebar submenus */
-  SUBMENU_CLOSE: 50,
   /** Brief delay before a post-action redirect */
   REDIRECT_DELAY: 1500,
 } as const;
@@ -110,7 +108,6 @@ export const STORAGE_KEYS = {
   AUTH_TOKEN: 'token',
   REFRESH_TOKEN: 'refreshToken',
   CURRENT_USER: 'workflowUser',
-  FILES_VIEW_MODE: 'files-view-mode',
   PROVIDERS_VIEW_MODE: 'providers-view-mode',
   STEP_CONFIG_PANEL_WIDTH: 'stepConfigPanelWidth',
   STEP_CONFIG_OUTPUTS_PANEL_WIDTH: 'stepConfigOutputsPanelWidth',
@@ -121,11 +118,49 @@ export const STORAGE_KEYS = {
 
 /** Extend this union when adding a new list page - compile-time check enforces consistent localStorage key naming. */
 export type ListPageSizeFeature =
-  | 'workflows'
   | 'instances'
-  | 'providers'
   | 'organizations';
 
 export function listPageSizeKey(feature: ListPageSizeFeature): string {
   return `${feature}-list-pageSize`;
+}
+
+/** Prefix of every per-page list preference key (search, filters, sort, page size). */
+export const LIST_PREF_PREFIX = 'shs:list:';
+
+/** Extend this union when a list page persists its search, filters, sort and page size. */
+export type ListPrefPage =
+  | 'audit'
+  | 'providers'
+  | 'providers-marketplace'
+  | 'workflows'
+  | 'workflows-marketplace'
+  | 'prompts'
+  | 'prompts-my'
+  | 'prompts-marketplace'
+  | 'comfyui-marketplace'
+  | 'comfyui-custom'
+  | 'infrastructure'
+  | 'workflows-my'
+  | 'workflows-templates'
+  | 'instances'
+  | 'step-executions'
+  | 'secrets'
+  | 'secrets-providers'
+  | 'provider-resources'
+  | 'organizations'
+  | 'organization-users'
+  | 'org-users'
+  | 'files'
+  | 'infra-jobs-by-workflow'
+  | 'infra-long-running'
+  | 'infra-stalled'
+  | 'infra-workers'
+  | 'infra-storage'
+  | 'infra-enrollment'
+  | 'infra-enrollment-requests'
+  | 'notifications';
+
+export function listPrefKey(page: ListPrefPage, field: string): string {
+  return `${LIST_PREF_PREFIX}${page}:${field}`;
 }

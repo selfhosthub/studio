@@ -27,7 +27,7 @@ env:
 jobs:
   guard:
     name: Verify VERSION matches tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.check.outputs.version }}
       console_version: ${{ steps.check.outputs.console_version }}
@@ -65,7 +65,7 @@ jobs:
   prepare:
     name: Compute build matrix
     needs: guard
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       build_matrix: ${{ steps.gen.outputs.build_matrix }}
       merge_matrix: ${{ steps.gen.outputs.merge_matrix }}
@@ -169,7 +169,7 @@ jobs:
   merge:
     name: Merge ${{ matrix.image }} manifest
     needs: [guard, prepare, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.merge_matrix) }}
@@ -215,7 +215,7 @@ jobs:
   notes:
     name: Append baked-tool versions to release notes
     needs: [guard, merge]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

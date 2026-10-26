@@ -17,11 +17,28 @@ payload shape the result processor consumes. Callers own job resolution
 """
 
 from datetime import UTC, datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
+
+from app.application.services.result_processing.worker_error_codes import (
+    client_message_for_worker_error,
+)
 
 # Iteration metadata keys copied through verbatim when present on the job's
 # input_data. Top-level on the payload per Contract 1 / invariant I-11.
 _ITERATION_KEYS = ("iteration_index", "iteration_count", "iteration_group_id")
+
+
+def client_error_for_report(report: Mapping[str, Any]) -> Optional[str]:
+    """The server-authored client message for a FAILED worker report, else None; the worker's free-text ``error`` is never used."""
+    if report.get("status") != "FAILED":
+        return None
+    return client_message_for_worker_error(
+        report.get("error_code"),
+        report.get("error_cause"),
+        report.get("error_host"),
+        report.get("error_status"),
+        report.get("error_detail"),
+    )
 
 
 def build_step_result_payload(
@@ -48,7 +65,8 @@ def build_step_result_payload(
         "status": status,
         "result": result,
         "error": error,
-        "input_data": input_data,
+        # Leaves the step's input_data as enqueued; the job envelope is not step input.
+        "input_data": None,
         "request_body": None,
         "webhook_pending": webhook_pending,
         "published_at": datetime.now(UTC).isoformat(),
@@ -61,4 +79,4 @@ def build_step_result_payload(
     return payload
 
 
-__all__ = ["build_step_result_payload"]
+__all__ = ["build_step_result_payload", "client_error_for_report"]

@@ -1,12 +1,11 @@
 // ui/shared/lib/webhook-utils.ts
 
-import { getApiUrl } from './config';
 import type { FormFieldResponse } from '@/shared/api/workflows';
 
 /**
  * Build a sample trigger payload keyed by each field's stable `field_id`
  * (never the internal `{step_id}.{parameter_key}`): the configured default
- * where one exists, otherwise blank (`""`) — no `<required: …>` help text the
+ * where one exists, otherwise blank (`""`) - no `<required: …>` help text the
  * caller would have to delete from the JSON. Firing the snippet verbatim is
  * safe: the backend treats a blank value as not-supplied, so it falls back to
  * the default or returns a clear "missing required field" error. Returns a
@@ -19,16 +18,6 @@ export function buildTriggerSampleBody(fields: FormFieldResponse[]): string {
     body[field.field_id] = def !== undefined && def !== null ? def : '';
   }
   return JSON.stringify(body);
-}
-
-/** Webhooks land on the backend API, not the frontend. */
-export function getWebhookBaseUrl(): string {
-  return getApiUrl();
-}
-
-export function buildWebhookUrl(webhookToken: string | null): string {
-  if (!webhookToken) return '';
-  return `${getWebhookBaseUrl()}/api/v1/webhooks/incoming/${webhookToken}`;
 }
 
 export function buildCurlCommand(

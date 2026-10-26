@@ -55,18 +55,15 @@ export default function OrganizationSettingsPage() {
       setSaving(true);
       setError(null);
 
-      // Merge into existing settings, preserving branding and other settings
-      const updatedSettings = {
-        ...organization.settings,
-        general: {
-          ...organization.settings?.general,
-          show_thumbnails: showThumbnails,
-          resource_card_size: resourceCardSize,
-        }
-      };
-
+      // Sends only the general section; the API keeps every section it omits
       const updated = await updateOrganization(user.org_id, {
-        settings: updatedSettings,
+        settings: {
+          general: {
+            ...organization.settings?.general,
+            show_thumbnails: showThumbnails,
+            resource_card_size: resourceCardSize,
+          },
+        },
       });
 
       setOrganization(updated);
@@ -206,7 +203,7 @@ export default function OrganizationSettingsPage() {
           disabled={saving}
           className="btn-primary"
         >
-          {saving ? 'Saving...' : 'Save Settings'}
+          {saving ? 'Saving...' : 'Save'}
         </button>
       </div>
     </div>

@@ -3,6 +3,7 @@
 import type { User } from '@/shared/types/user';
 import { getApiUrl, API_VERSION } from '@/shared/lib/config';
 import { STORAGE_KEYS } from '@/shared/lib/constants';
+import { formatErrorDetail } from '@/shared/lib/apiErrorDetail';
 
 export interface LoginResponse {
   access_token: string;
@@ -25,7 +26,7 @@ export interface RefreshResponse {
 }
 
 export interface ApiError {
-  detail: string;
+  detail: unknown;
 }
 
 export interface OAuthProviderInfo {
@@ -165,7 +166,7 @@ export async function login(
       const contentType = response.headers.get('content-type') ?? '';
       if (contentType.includes('application/json')) {
         const error: ApiError = await response.json();
-        throw new Error(error.detail || 'Login failed');
+        throw new Error(formatErrorDetail(error.detail) ?? 'Login failed');
       }
       throw new Error(`Login failed (HTTP ${response.status})`);
     }
@@ -204,7 +205,7 @@ export async function register(
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const error: ApiError = await response.json();
-      throw new Error(error.detail || 'Registration failed');
+      throw new Error(formatErrorDetail(error.detail) ?? 'Registration failed');
     }
     throw new Error(`Registration failed (HTTP ${response.status})`);
   }

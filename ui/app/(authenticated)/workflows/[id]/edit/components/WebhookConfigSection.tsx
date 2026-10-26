@@ -2,10 +2,9 @@
 
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Copy, Check, RefreshCw } from 'lucide-react';
 import { Eye, EyeOff, HelpCircle } from 'lucide-react';
-import { TIMEOUTS } from '@/shared/lib/constants';
 
 interface WebhookConfigSectionProps {
   webhook: {
@@ -28,7 +27,7 @@ interface WebhookConfigSectionProps {
     generatingAuth: boolean;
     handleGenerateAuthToken: () => void;
     copiedSigningSecret: boolean;
-    setCopiedSigningSecret: (v: boolean) => void;
+    handleCopySigningSecret: (secret: string) => void;
     setShowHmacHelpModal: (v: boolean) => void;
   };
   webhookToken: string | null;
@@ -46,6 +45,7 @@ export function WebhookConfigSection({
   onGenerateToken,
   onRegenerateToken,
 }: WebhookConfigSectionProps) {
+  const [showWebhookUrl, setShowWebhookUrl] = useState(false);
   return (
     <div className="md:col-span-2 p-3 bg-surface rounded-md border border-primary">
       {!webhookToken ? (
@@ -77,11 +77,19 @@ export function WebhookConfigSection({
               <option value="GET">GET</option>
             </select>
             <input
-              type="text"
+              type={showWebhookUrl ? 'text' : 'password'}
               readOnly
               value={webhook.webhookUrl}
               className="form-input-mono form-input-readonly flex-1 min-w-0 text-xs py-1.5"
             />
+            <button
+              type="button"
+              onClick={() => setShowWebhookUrl(!showWebhookUrl)}
+              className="btn-secondary btn-with-icon p-1.5 flex-shrink-0"
+              title={showWebhookUrl ? 'Hide URL' : 'Show URL'}
+            >
+              {showWebhookUrl ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
             <button
               type="button"
               onClick={webhook.handleCopyWebhookUrl}
@@ -204,11 +212,7 @@ export function WebhookConfigSection({
                   <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(webhookSecret);
-                        webhook.setCopiedSigningSecret(true);
-                        setTimeout(() => webhook.setCopiedSigningSecret(false), TIMEOUTS.COPY_FEEDBACK);
-                      }}
+                      onClick={() => webhook.handleCopySigningSecret(webhookSecret)}
                       className="p-1 icon-muted"
                       title="Copy HMAC secret"
                     >

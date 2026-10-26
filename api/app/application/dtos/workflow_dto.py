@@ -6,13 +6,19 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
+from app.config.settings import settings
 from app.application.defaults import (
     FORM_FIELD_REQUIRED_DEFAULT,
     FORM_FIELD_TYPE_DEFAULT,
 )
 from app.domain.workflow.models import Workflow, WorkflowStatus, WorkflowTriggerType
+
+
+def webhook_incoming_url(token: str) -> str:
+    """Public URL an external system calls to fire a webhook token."""
+    return f"{settings.external_api_base}/api/v1/webhooks/incoming/{token}"
 
 
 class WorkflowBase(BaseModel):
@@ -99,6 +105,12 @@ class WorkflowResponse(WorkflowBase):
     can_be_deleted: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def webhook_url(self) -> Optional[str]:
+        """Public webhook URL for the token, or None when the token is unset or hidden."""
+        return webhook_incoming_url(self.webhook_token) if self.webhook_token else None
 
     @classmethod
     def from_domain(cls, workflow: Workflow) -> "WorkflowResponse":

@@ -28,6 +28,8 @@ interface FieldInputProps {
   label?: string;
   /** When true, required enums display a "Select …" placeholder option. */
   required?: boolean;
+  /** Key-value keys holding a stored secret the viewer cannot read. */
+  configuredKeys?: string[];
 }
 
 const CLASSES: Record<FieldInputSize, {
@@ -166,6 +168,7 @@ export function FieldInput({
   colorFallback,
   label,
   required,
+  configuredKeys,
 }: FieldInputProps) {
   const classes = CLASSES[size];
   const hasEnum = schema.enum && schema.enum.length > 0;
@@ -232,6 +235,7 @@ export function FieldInput({
           keyPlaceholder={schema.ui?.keyPlaceholder}
           valuePlaceholder={schema.ui?.valuePlaceholder}
           addLabel={schema.ui?.addLabel}
+          configuredKeys={configuredKeys}
         />
       );
     }

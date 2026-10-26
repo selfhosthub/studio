@@ -225,7 +225,7 @@ export function OutputForwardingSection({
                 Forward inputs to outputs
               </span>
               <p className="text-muted text-xs">
-                Pass fields from {directPredecessors.map(p => `"${p.name || p.id}"`).join(', ')} through to downstream steps
+                Pass fields from {directPredecessors.map(p => `"${p.name || p.id}"`).join(', ')} through to downstream nodes
               </p>
             </div>
           </label>
@@ -262,7 +262,7 @@ export function OutputForwardingSection({
                   <div className="mt-3 space-y-2 max-h-48 overflow-y-auto scrollbar-stable border border-primary rounded-md p-2">
                     {uniqueFieldNames.length === 0 ? (
                       <p className="text-xs text-secondary italic">
-                        No fields available from previous steps
+                        No fields available from previous nodes
                       </p>
                     ) : (
                       uniqueFieldNames.map((field) => (
@@ -311,7 +311,7 @@ export function OutputForwardingSection({
                     <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" />
                     <div className="text-xs text-warning">
                       <span className="font-medium">Name collision:</span>{' '}
-                      {collisions.map(c => c.name).join(', ')}{' '}will be overwritten by this step&apos;s native output
+                      {collisions.map(c => c.name).join(', ')}{' '}will be overwritten by this node&apos;s native output
                     </div>
                   </div>
                 )}

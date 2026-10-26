@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUser } from '@/entities/user';
 import { useRegistrationSettings } from '@/entities/registration';
+import { usePageVisibility } from '@/entities/page-visibility';
 
 function RegisterContent() {
   const [formData, setFormData] = useState({
@@ -20,6 +21,11 @@ function RegisterContent() {
   });
   const { register, isLoading, error, status, user } = useUser();
   const { allowRegistration, isLoading: regLoading } = useRegistrationSettings();
+  const { visibility, isLoading: visibilityLoading } = usePageVisibility();
+  // The agreement shows only for legal pages that are published
+  const showTerms = !visibilityLoading && visibility.terms;
+  const showPrivacy = !visibilityLoading && visibility.privacy;
+  const legalLabel = [showTerms && 'Terms of Service', showPrivacy && 'Privacy Policy'].filter(Boolean).join(' and ');
   const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
   const router = useRouter();
 
@@ -71,8 +77,8 @@ function RegisterContent() {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (!formData.agreeToTerms) {
-      newErrors.agreeToTerms = 'You must agree to the Terms of Service and Privacy Policy';
+    if (legalLabel && !formData.agreeToTerms) {
+      newErrors.agreeToTerms = `You must agree to the ${legalLabel}`;
     }
 
     setFormErrors(newErrors);
@@ -262,6 +268,7 @@ function RegisterContent() {
                   {formErrors.confirmPassword && <p className="mt-1 text-sm text-danger">{formErrors.confirmPassword}</p>}
                 </div>
 
+                {legalLabel && (
                 <div className="mb-6">
                   <label className={`flex items-start cursor-pointer${formErrors.agreeToTerms ? 'text-danger' : ''}`}>
                     <input
@@ -273,17 +280,22 @@ function RegisterContent() {
                     />
                     <span className="text-sm text-secondary">
                       I agree to the{' '}
-                      <Link href="/terms" className="text-info hover:underline" target="_blank">
-                        Terms of Service
-                      </Link>
-                      {' '}and{' '}
-                      <Link href="/privacy" className="text-info hover:underline" target="_blank">
-                        Privacy Policy
-                      </Link>
+                      {showTerms && (
+                        <Link href="/terms" className="text-info hover:underline" target="_blank">
+                          Terms of Service
+                        </Link>
+                      )}
+                      {showTerms && showPrivacy && ' and '}
+                      {showPrivacy && (
+                        <Link href="/privacy" className="text-info hover:underline" target="_blank">
+                          Privacy Policy
+                        </Link>
+                      )}
                     </span>
                   </label>
                   {formErrors.agreeToTerms && <p className="mt-1 text-sm text-danger">{formErrors.agreeToTerms}</p>}
                 </div>
+                )}
 
                 <button
                   type="submit"

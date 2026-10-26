@@ -115,7 +115,7 @@ export function SaveAsModal({ isOpen, onClose, workflow, onSuccess }: SaveAsModa
           <button
             type="button"
             onClick={onClose}
-            className="btn-secondary"
+            className="btn-cancel"
           >
             Cancel
           </button>

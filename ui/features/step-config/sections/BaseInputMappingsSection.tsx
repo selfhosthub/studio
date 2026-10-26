@@ -33,7 +33,7 @@ export default function BaseInputMappingsSection({ title = 'Input Mappings' }: B
     <div>
       <h3 className="text-lg font-medium mb-2">{title}</h3>
       <p className="text-sm text-secondary mb-4">
-        Connect this step with outputs from previous steps. These mappings will also be reflected as connection lines in the workflow diagram.
+        Connect this node with outputs from previous nodes. These mappings will also be reflected as connection lines in the workflow diagram.
       </p>
       
       <div className="space-y-4">
@@ -110,7 +110,7 @@ export default function BaseInputMappingsSection({ title = 'Input Mappings' }: B
                       }}
                       className="w-full px-3 py-2 border border-primary rounded-md shadow-sm focus:outline-none focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]"
                     >
-                      <option value="mapped">Map from previous step</option>
+                      <option value="mapped">Map from previous node</option>
                       <option value="static">Static value</option>
                       <option value="form">Form input (user provides at runtime)</option>
                     </select>
@@ -121,7 +121,7 @@ export default function BaseInputMappingsSection({ title = 'Input Mappings' }: B
                     <>
                       <div>
                         <label className="block text-sm font-medium mb-1">
-                          Source Step
+                          Source Node
                         </label>
                         <select
                           value={mapping.stepId || mapping.source_step_id || ''}
@@ -136,7 +136,7 @@ export default function BaseInputMappingsSection({ title = 'Input Mappings' }: B
                           }}
                           className="w-full px-3 py-2 border border-primary rounded-md shadow-sm focus:outline-none focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]"
                         >
-                          <option value="">Select Step</option>
+                          <option value="">Select Node</option>
                           {previousSteps.map((step) => (
                             <option key={step.id} value={step.id}>
                               {step.name}
@@ -222,7 +222,7 @@ export default function BaseInputMappingsSection({ title = 'Input Mappings' }: B
           <div className="text-center py-6 text-secondary">
             <p>No input mappings defined yet.</p>
             <p className="mt-2 text-sm">
-              You can add mappings here or create connections directly in the workflow diagram by dragging from one step to another.
+              You can add mappings here or create connections directly in the workflow diagram by dragging from one node to another.
             </p>
           </div>
         )}

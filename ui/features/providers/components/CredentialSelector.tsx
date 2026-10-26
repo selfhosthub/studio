@@ -8,6 +8,7 @@ import { useUser } from '@/entities/user';
 import { Plus } from 'lucide-react';
 import { CreateCredentialModal } from './CreateCredentialModal';
 import type { Credential } from '../credential-types';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 interface CredentialSelectorProps {
   providerId: string;
@@ -61,7 +62,7 @@ export default function CredentialSelector({
   const canManage = user?.role === 'admin' || user?.role === 'super_admin';
 
   // Auto-enable "show all providers" when there's a saved cross-provider credential
-  // (Pattern C: adjust during render keyed on the composite trigger — fires same times as the old effect)
+  // (Pattern C: adjust during render keyed on the composite trigger - fires same times as the old effect)
   const crossProviderKey = `${String(allowCrossProvider)}|${selectedProviderId ?? ''}|${providerId}`;
   const [prevCrossProviderKey, setPrevCrossProviderKey] = useState(crossProviderKey);
   if (crossProviderKey !== prevCrossProviderKey) {
@@ -190,7 +191,7 @@ export default function CredentialSelector({
               .map((cred) => (
                 <option key={cred.id} value={cred.id}>
                   {cred.name}
-                  {cred.expires_at && ` (expires ${new Date(cred.expires_at).toLocaleDateString()})`}
+                  {cred.expires_at && ` (expires ${formatDate(cred.expires_at, { time: false })})`}
                 </option>
               ))}
           </select>
@@ -199,7 +200,7 @@ export default function CredentialSelector({
               type="button"
               onClick={() => setShowCreateModal(true)}
               className={`btn-secondary btn-icon${disabled ? ' opacity-50 cursor-not-allowed' : ''}`}
-              title="Create new credential"
+              title="Add credential"
               disabled={disabled}
             >
               <Plus size={16} />

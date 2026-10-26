@@ -4,7 +4,7 @@
 
 SECURITY:
 - LIST returns names/metadata only - never secret_data.
-- GET (single) decrypts secret_data; rate-limit & audit at caller.
+- GET (single) returns metadata and field names; GET /reveal decrypts and audits.
 - Names are immutable post-create.
 - Never log secret_data or template context.
 """
@@ -16,11 +16,12 @@ from datetime import UTC, datetime
 from typing import Any, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from pydantic import BaseModel, Field, UUID4
+from pydantic import BaseModel, Field, UUID4, field_validator
 from app.infrastructure.repositories.organization_secret_repository import (
     OrganizationSecret,
 )
 from app.domain.organization_secret.repository import OrganizationSecretRepository
+from app.domain.organization_secret.models import SECRET_NAME_PATTERN, SECRET_NAME_RULE
 from app.application.services.audit_service import AuditService
 from app.application.services.workflow_service import WorkflowService
 from app.domain.audit.models import AuditActorType
@@ -60,7 +61,10 @@ def parse_token_with_expiration(token_value: str) -> Tuple[str, Optional[datetim
 
 class SecretCreate(BaseModel):
     name: str = Field(
-        ..., min_length=1, max_length=255, description="Secret name (immutable)"
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Secret name (immutable): letters, digits and underscores, not starting with a digit",
     )
     secret_type: str = Field(
         ...,
@@ -73,6 +77,14 @@ class SecretCreate(BaseModel):
     )
     is_active: bool = Field(True, description="Whether the secret is active on creation")
     expires_at: str | None = Field(None, description="ISO8601 expiration date")
+
+    @field_validator("name")
+    @classmethod
+    def _name_follows_rule(cls, value: str) -> str:
+        """Rejects a name outside SECRET_NAME_PATTERN."""
+        if not re.fullmatch(SECRET_NAME_PATTERN, value):
+            raise ValueError(SECRET_NAME_RULE)
+        return value
 
 
 class SecretUpdate(BaseModel):
@@ -97,10 +109,16 @@ class SecretMetadata(BaseModel):
     updated_at: str
 
 
-class SecretRead(SecretMetadata):
-    """Single-secret response - includes decrypted secret_data."""
+class SecretDetail(SecretMetadata):
+    """Single-secret response: metadata plus the stored field names, no values."""
 
-    secret_data: dict[str, Any]  # SECURITY: only exposed in single-secret GET
+    fields: List[str]
+
+
+class SecretReveal(BaseModel):
+    """Decrypted secret_data, returned only by the reveal endpoint."""
+
+    secret_data: dict[str, Any]
 
 
 class SecretUsageResponse(BaseModel):
@@ -145,58 +163,51 @@ async def list_secrets(
         )
 
 
-@router.get("/secrets/{secret_id}", response_model=SecretRead)
+async def _load_readable_secret(
+    secret_id: UUID4, user: CurrentUser, repo: OrganizationSecretRepository
+) -> OrganizationSecret:
+    """Fetch a secret in the caller's org; 400 without org, 404 missing, 403 protected for non-super_admin."""
+    org_id = user.get("org_id") or user.get("organization_id")
+    if not org_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User does not belong to an organization",
+        )
+
+    secret = await repo.get_by_id(
+        secret_id=uuid.UUID(str(secret_id)),
+        organization_id=uuid.UUID(org_id),
+    )
+
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Secret {secret_id} not found",
+        )
+
+    if secret.is_protected and user.get("role", "user") != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This secret is protected and can only be accessed by super admins",
+        )
+    return secret
+
+
+@router.get("/secrets/{secret_id}", response_model=SecretDetail)
 async def get_secret(
     secret_id: UUID4 = Path(..., description="Secret ID"),
     user: CurrentUser = Depends(require_admin),
     repo: OrganizationSecretRepository = Depends(get_organization_secret_repository),
-    audit_service: AuditService = Depends(get_audit_service),
 ):
-    """Returns DECRYPTED secret_data. Admin-only. Logs a secret_revealed audit event. Protected secrets are super_admin-only."""
+    """Metadata and field names, no values. Admin-only. Protected secrets are super_admin-only."""
     try:
-        org_id = user.get("org_id") or user.get("organization_id")
-        user_role = user.get("role", "user")
-        if not org_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User does not belong to an organization",
-            )
-
-        secret = await repo.get_by_id(
-            secret_id=uuid.UUID(str(secret_id)),
-            organization_id=uuid.UUID(org_id),
-        )
-
-        if not secret:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Secret {secret_id} not found",
-            )
-
-        if secret.is_protected and user_role != "super_admin":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This secret is protected and can only be accessed by super admins",
-            )
-
-        # AUDIT: secret_data was decrypted and returned - must be logged
-        try:
-            await audit_service.log_secret_revealed(
-                actor_id=uuid.UUID(user["id"]),
-                actor_type=AuditActorType(user_role or "user"),
-                organization_id=uuid.UUID(org_id),
-                secret_id=secret.id,
-                secret_name=secret.name,
-            )
-        except Exception as audit_error:
-            logger.warning(f"Failed to log secret reveal audit event: {audit_error}")
-
-        return SecretRead(
+        secret = await _load_readable_secret(secret_id, user, repo)
+        return SecretDetail(
             id=str(secret.id),
             name=secret.name,
             secret_type=secret.secret_type,
             description=secret.description,
-            secret_data=secret.secret_data,
+            fields=list(secret.secret_data or {}),
             is_active=secret.is_active,
             is_protected=secret.is_protected,
             expires_at=secret.expires_at.isoformat() if secret.expires_at else None,
@@ -210,6 +221,41 @@ async def get_secret(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get secret",
+        )
+
+
+@router.get("/secrets/{secret_id}/reveal", response_model=SecretReveal)
+async def reveal_secret(
+    secret_id: UUID4 = Path(..., description="Secret ID"),
+    user: CurrentUser = Depends(require_admin),
+    repo: OrganizationSecretRepository = Depends(get_organization_secret_repository),
+    audit_service: AuditService = Depends(get_audit_service),
+):
+    """Returns DECRYPTED secret_data. Admin-only. Logs a secret_revealed audit event. Protected secrets are super_admin-only."""
+    try:
+        secret = await _load_readable_secret(secret_id, user, repo)
+
+        # AUDIT: secret_data was decrypted and returned - must be logged
+        try:
+            await audit_service.log_secret_revealed(
+                actor_id=uuid.UUID(user["id"]),
+                actor_type=AuditActorType(user.get("role") or "user"),
+                organization_id=secret.organization_id,
+                secret_id=secret.id,
+                secret_name=secret.name,
+                metadata={"secret_type": secret.secret_type},
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to log secret reveal audit event: {safe_error_message(audit_error)}")
+
+        return SecretReveal(secret_data=secret.secret_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reveal secret {mask_id(secret_id)}: {safe_error_message(e)}")  # codeql[py/clear-text-logging-sensitive-data]
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reveal secret",
         )
 
 
@@ -399,7 +445,7 @@ async def get_secret_usage(
     user: CurrentUser = Depends(require_admin),
     workflow_service: WorkflowService = Depends(get_workflow_service),
 ):
-    """Admin only. How many workflows trigger off this secret — feeds the in-use
+    """Admin only. How many workflows trigger off this secret - feeds the in-use
     warning before deletion. Deleting an in-use secret resets those workflows to a
     manual trigger."""
     usage = await workflow_service.get_trigger_secret_usage(uuid.UUID(str(secret_id)))
@@ -433,7 +479,7 @@ async def delete_secret(
         secret_name = secret.name if secret else f"Secret {secret_id}"
 
         # Fall dependent workflows back to manual before the credential vanishes.
-        # Skipped for protected secrets — repo.delete rejects those below anyway.
+        # Skipped for protected secrets - repo.delete rejects those below anyway.
         if secret and secret.can_delete():
             await workflow_service.reset_workflows_for_trigger_secret(
                 uuid.UUID(str(secret_id))

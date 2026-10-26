@@ -136,7 +136,7 @@ export function EditorSettingsPanel({ onClose, showEditorHeight = false }: Edito
               </button>
             ))}
           </div>
-          <p className="form-helper">Blur intensity when editing a step</p>
+          <p className="form-helper">Blur intensity when editing a node</p>
         </div>
 
         {/* Show Grid Toggle */}
@@ -173,7 +173,7 @@ export function EditorSettingsPanel({ onClose, showEditorHeight = false }: Edito
                 { value: 400, label: '400px' },
                 { value: 500, label: '500px' },
                 { value: 600, label: '600px' },
-                { value: 700, label: '700px' },
+                { value: 720, label: '720px' },
                 { value: 850, label: '850px' },
                 { value: 1000, label: '1000px' },
               ].map(({ value, label }) => (

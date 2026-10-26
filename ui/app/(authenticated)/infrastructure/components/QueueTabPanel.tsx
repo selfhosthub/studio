@@ -2,13 +2,58 @@
 
 'use client';
 
-import Link from 'next/link';
 import {
   CheckCircle,
   AlertTriangle,
   HelpCircle,
 } from 'lucide-react';
-import type { SystemHealthResponse } from '@/shared/api';
+import type { JobStats, SystemHealthResponse } from '@/shared/api';
+import { ResourceTable, type ResourceColumnConfig } from '@/shared/ui';
+import { formatDate } from '@/shared/lib/dateFormatter';
+
+type WorkflowRow = { workflow: string } & JobStats['by_workflow'][string];
+type LongRunningRow = JobStats['long_running_jobs'][number] & { id: string };
+type StalledRow = JobStats['jobs_without_worker'][number] & { id: string };
+
+/** Compacts a Jobs by Workflow cell below md and lets its sort icon wrap under the label. */
+const COMPACT_CELL = 'max-md:px-2! max-md:[&>button]:flex-wrap';
+
+/** Shows a short header label below md, keeping the full word as the accessible name. */
+function shortHeader(full: string, short: string) {
+  return (
+    <span title={full}>
+      <span aria-hidden="true" className="md:hidden">{short}</span>
+      <span className="max-md:sr-only">{full}</span>
+    </span>
+  );
+}
+
+const workflowColumns: ResourceColumnConfig<WorkflowRow>[] = [
+  { key: 'workflow', header: shortHeader('Workflow', 'Name'), headerClassName: `text-secondary ${COMPACT_CELL}`, cellClassName: `text-primary ${COMPACT_CELL}`, sortValue: (r) => r.workflow, render: (r) => r.workflow },
+  { key: 'pending', header: shortHeader('Pending', 'Pend'), align: 'right', headerClassName: `text-warning ${COMPACT_CELL}`, cellClassName: `text-warning ${COMPACT_CELL}`, sortValue: (r) => r.pending, render: (r) => r.pending },
+  { key: 'running', header: shortHeader('Running', 'Run'), align: 'right', headerClassName: `text-info ${COMPACT_CELL}`, cellClassName: `text-info ${COMPACT_CELL}`, sortValue: (r) => r.running, render: (r) => r.running },
+  { key: 'completed', header: shortHeader('Completed', 'Done'), align: 'right', headerClassName: `text-success ${COMPACT_CELL}`, cellClassName: `text-success ${COMPACT_CELL}`, sortValue: (r) => r.completed, render: (r) => r.completed },
+  { key: 'failed', header: shortHeader('Failed', 'Fail'), align: 'right', headerClassName: `text-danger ${COMPACT_CELL}`, cellClassName: `text-danger ${COMPACT_CELL}`, sortValue: (r) => r.failed, render: (r) => r.failed },
+];
+
+
+function jobColumns<T extends LongRunningRow | StalledRow>(headerClassName: string): ResourceColumnConfig<T>[] {
+  return [
+    { key: 'organization', header: 'Organization', headerClassName, cellClassName: 'text-primary', sortValue: (j) => j.organization_name, render: (j) => j.organization_name },
+    { key: 'instance', header: 'Instance', headerClassName, cellClassName: 'text-primary', sortValue: (j) => j.instance_name, render: (j) => j.instance_name },
+    { key: 'step', header: 'Node', headerClassName, cellClassName: 'text-secondary', sortValue: (j) => j.step_id, render: (j) => j.step_id },
+  ];
+}
+
+/** Gives each job row an id that stays unique when two rows share an instance and step. */
+function withIds<T extends { instance_id: string; step_id: string }>(jobs: T[]): (T & { id: string })[] {
+  return jobs.map((job, index) => ({ ...job, id: `${job.instance_id}-${job.step_id}-${index}` }));
+}
+
+// "20 of 57" when the API capped the list, otherwise the count
+export function shownOfTotal(shown: number, total: number): string {
+  return total > shown ? `${shown} of ${total}` : `${shown}`;
+}
 
 interface QueueTabPanelProps {
   health: SystemHealthResponse;
@@ -22,6 +67,27 @@ export function QueueTabPanel({ health }: QueueTabPanelProps) {
       <div className="text-center py-8 text-muted">No job statistics available</div>
     );
   }
+
+  const workflowRows: WorkflowRow[] = Object.entries(jobStats.by_workflow).map(([workflow, stats]) => ({ workflow, ...stats }));
+  const longRunningRows = withIds(jobStats.long_running_jobs);
+  const stalledRows = withIds(jobStats.jobs_without_worker);
+  const longRunningHeader = `text-secondary ${jobStats.long_running_jobs.length > 0 ? 'bg-warning-subtle' : ''}`;
+  const stalledHeader = `text-secondary ${jobStats.jobs_without_worker.length > 0 ? 'bg-warning-subtle' : ''}`;
+  const longRunningColumns: ResourceColumnConfig<LongRunningRow>[] = [
+    ...jobColumns<LongRunningRow>(longRunningHeader),
+    { key: 'running', header: 'Running', align: 'right', headerClassName: longRunningHeader, cellClassName: 'text-warning font-medium', sortValue: (j) => j.running_minutes, render: (j) => `${j.running_minutes} min` },
+  ];
+  const stalledColumns: ResourceColumnConfig<StalledRow>[] = [
+    ...jobColumns<StalledRow>(stalledHeader),
+    {
+      key: 'created',
+      header: 'Created',
+      headerClassName: stalledHeader,
+      cellClassName: 'text-secondary whitespace-nowrap',
+      sortValue: (j) => (j.enqueued_at ? new Date(j.enqueued_at) : null),
+      render: (j) => (j.enqueued_at ? formatDate(j.enqueued_at) : '-'),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -71,36 +137,16 @@ export function QueueTabPanel({ health }: QueueTabPanelProps) {
           <h2 className="section-title">Jobs by Workflow</h2>
         </div>
         <div className="detail-section-body">
-          <div className="overflow-x-auto rounded-lg border border-primary">
-            <table className="min-w-full divide-y divide-theme">
-              <thead>
-                <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Workflow</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-warning uppercase">Pending</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-info uppercase">Running</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-success uppercase">Completed</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-danger uppercase">Failed</th>
-                </tr>
-              </thead>
-              <tbody className="bg-page divide-y divide-theme">
-                {Object.keys(jobStats.by_workflow).length > 0 ? (
-                  Object.entries(jobStats.by_workflow).map(([workflow, stats]) => (
-                    <tr key={workflow}>
-                      <td className="px-4 py-2 text-sm text-primary">{workflow}</td>
-                      <td className="px-4 py-2 text-sm text-right text-warning">{stats.pending}</td>
-                      <td className="px-4 py-2 text-sm text-right text-info">{stats.running}</td>
-                      <td className="px-4 py-2 text-sm text-right text-success">{stats.completed}</td>
-                      <td className="px-4 py-2 text-sm text-right text-danger">{stats.failed}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-4 text-sm text-center text-muted">No workflow jobs found</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <ResourceTable
+            data={workflowRows}
+            getItemId={(row) => row.workflow}
+            tieBreaker="workflow"
+            columns={workflowColumns}
+            prefPage="infra-jobs-by-workflow"
+            pagination={{ itemLabel: 'workflow' }}
+            emptyMessage="No workflow jobs found"
+            containerClassName="mb-0"
+          />
         </div>
       </div>
 
@@ -116,40 +162,21 @@ export function QueueTabPanel({ health }: QueueTabPanelProps) {
             <h2 className={`section-title ${jobStats.long_running_jobs.length > 0 ? 'text-warning' : ''}`}>
               Long Running Jobs (&gt;30 min)
             </h2>
-            <span className="text-sm text-muted">({jobStats.long_running_jobs.length})</span>
+            <span className="text-sm text-muted">({shownOfTotal(jobStats.long_running_jobs.length, jobStats.long_running_total)})</span>
           </div>
         </div>
         <div className="detail-section-body">
-          <div className={`overflow-x-auto rounded-lg border ${jobStats.long_running_jobs.length > 0 ? 'border-warning' : 'border-primary'}`}>
-            <table className="min-w-full divide-y divide-theme">
-              <thead className={jobStats.long_running_jobs.length > 0 ? 'bg-warning-subtle' : ''}>
-                <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Organization</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Instance</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Step</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-secondary uppercase">Running</th>
-                </tr>
-              </thead>
-              <tbody className="bg-page divide-y divide-theme">
-                {jobStats.long_running_jobs.length > 0 ? (
-                  jobStats.long_running_jobs.map((job, index) => (
-                    <tr key={`${job.instance_id}-${job.step_id}-${index}`}>
-                      <td className="px-4 py-2 text-sm text-primary">{job.organization_name}</td>
-                      <td className="px-4 py-2 text-sm">
-                        <Link href={`/instances/${job.instance_id}`} className="link">{job.instance_name}</Link>
-                      </td>
-                      <td className="px-4 py-2 text-sm text-secondary">{job.step_id}</td>
-                      <td className="px-4 py-2 text-sm text-right text-warning font-medium">{job.running_minutes} min</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-4 text-sm text-center text-muted">No long-running jobs</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <ResourceTable
+            data={longRunningRows}
+            getItemId={(row) => row.id}
+            tieBreaker="instance"
+            nameColumn="instance"
+            columns={longRunningColumns}
+            prefPage="infra-long-running"
+            pagination={{ itemLabel: 'job' }}
+            emptyMessage="No long-running jobs"
+            containerClassName={`mb-0 ${jobStats.long_running_jobs.length > 0 ? 'border-warning' : 'border-primary'}`}
+          />
         </div>
       </div>
 
@@ -165,42 +192,21 @@ export function QueueTabPanel({ health }: QueueTabPanelProps) {
             <h2 className={`section-title ${jobStats.jobs_without_worker.length > 0 ? 'text-warning' : ''}`}>
               Stalled Jobs (Pending &gt;5 min)
             </h2>
-            <span className="text-sm text-muted">({jobStats.jobs_without_worker.length})</span>
+            <span className="text-sm text-muted">({shownOfTotal(jobStats.jobs_without_worker.length, jobStats.jobs_without_worker_total)})</span>
           </div>
         </div>
         <div className="detail-section-body">
-          <div className={`overflow-x-auto rounded-lg border ${jobStats.jobs_without_worker.length > 0 ? 'border-warning' : 'border-primary'}`}>
-            <table className="min-w-full divide-y divide-theme">
-              <thead className={jobStats.jobs_without_worker.length > 0 ? 'bg-warning-subtle' : ''}>
-                <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Organization</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Instance</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Step</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-secondary uppercase">Created</th>
-                </tr>
-              </thead>
-              <tbody className="bg-page divide-y divide-theme">
-                {jobStats.jobs_without_worker.length > 0 ? (
-                  jobStats.jobs_without_worker.map((job, index) => (
-                    <tr key={`${job.instance_id}-${job.step_id}-${index}`}>
-                      <td className="px-4 py-2 text-sm text-primary">{job.organization_name}</td>
-                      <td className="px-4 py-2 text-sm">
-                        <Link href={`/instances/${job.instance_id}`} className="link">{job.instance_name}</Link>
-                      </td>
-                      <td className="px-4 py-2 text-sm text-secondary">{job.step_id}</td>
-                      <td className="px-4 py-2 text-sm text-secondary whitespace-nowrap">
-                        {job.enqueued_at ? new Date(job.enqueued_at).toLocaleString([], {dateStyle: 'short', timeStyle: 'short'}) : '-'}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-4 text-sm text-center text-muted">No stalled jobs</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <ResourceTable
+            data={stalledRows}
+            getItemId={(row) => row.id}
+            tieBreaker="instance"
+            nameColumn="instance"
+            columns={stalledColumns}
+            prefPage="infra-stalled"
+            pagination={{ itemLabel: 'job' }}
+            emptyMessage="No stalled jobs"
+            containerClassName={`mb-0 ${jobStats.jobs_without_worker.length > 0 ? 'border-warning' : 'border-primary'}`}
+          />
         </div>
       </div>
     </div>

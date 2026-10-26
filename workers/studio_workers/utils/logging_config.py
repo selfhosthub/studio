@@ -34,7 +34,9 @@ import logging
 import traceback
 import contextvars
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
+
+from studio_workers.contracts.redaction import redact_text
 
 # Rich is optional but provides much nicer output
 try:
@@ -42,11 +44,34 @@ try:
     from rich.console import Console
     from rich.theme import Theme
 
+    class RedactingRichHandler(RichHandler):
+        """RichHandler whose formatted text and rendered traceback pass through redact_text."""
+
+        def format(self, record: logging.LogRecord) -> str:
+            return redact_text(super().format(record))
+
+        def render(self, *, record: logging.LogRecord, traceback: Any, message_renderable: Any) -> Any:
+            if traceback is not None:
+                redact_trace(traceback.trace)
+            return super().render(record=record, traceback=traceback, message_renderable=message_renderable)
+
     RICH_AVAILABLE = True
 except (
     ImportError
 ):  # pragma: no cover - optional rich dependency; falls back to stdlib logging when not installed
     RICH_AVAILABLE = False
+
+
+def redact_trace(trace: Any) -> None:
+    """Redact each exception message, note and syntax error line of a Rich trace in place."""
+    for stack in trace.stacks:
+        stack.exc_value = redact_text(stack.exc_value)
+        stack.notes = [redact_text(note) for note in stack.notes]
+        if stack.syntax_error is not None:
+            stack.syntax_error.line = redact_text(stack.syntax_error.line)
+            stack.syntax_error.msg = redact_text(stack.syntax_error.msg)
+        for group in stack.exceptions:
+            redact_trace(group)
 
 
 # Third-party loggers pinned to WARNING by setup_logging(). Parent names only -
@@ -133,8 +158,23 @@ _BUILTIN_LOGRECORD_ATTRS = frozenset(
 )
 
 
+def _redact_log_value(value: object) -> object:
+    """A log argument with secret-class keys and secret-looking text redacted."""
+    from studio_workers.contracts.redaction import redact_sensitive_data, redact_text
+
+    if isinstance(value, (dict, list)):
+        return redact_sensitive_data(value)
+    if isinstance(value, str):
+        return redact_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = str(value)
+    redacted = redact_text(text)
+    return redacted if redacted != text else value
+
+
 class SensitiveDataFilter(logging.Filter):
-    """Scrub sensitive and PII keys from log records at egress.
+    """Scrub sensitive and PII keys and secret-looking message text from log records at egress.
 
     api/ and workers/ share the same authoritative redaction policy; both
     apply equivalent protection over adapter requests, URLs, and job payloads.
@@ -146,15 +186,19 @@ class SensitiveDataFilter(logging.Filter):
             is_pii_key,
             is_sensitive_key,
             redact_sensitive_data,
+            redact_text,
         )
 
+        record.msg = _redact_log_value(record.msg)
         if record.args and isinstance(record.args, tuple):
-            record.args = tuple(
-                redact_sensitive_data(arg) if isinstance(arg, (dict, list)) else arg
-                for arg in record.args
-            )
+            record.args = tuple(_redact_log_value(arg) for arg in record.args)
         elif isinstance(record.args, dict):
             record.args = redact_sensitive_data(record.args)
+
+        if record.exc_info and not record.exc_text:
+            record.exc_text = redact_text(
+                "".join(traceback.format_exception(*record.exc_info)).rstrip("\n")
+            )
 
         for attr_name in list(record.__dict__.keys()):
             if attr_name in _BUILTIN_LOGRECORD_ATTRS or attr_name.startswith("_"):
@@ -363,7 +407,7 @@ class JsonFormatter(logging.Formatter):
 
         # Exception info - unified field name per contracts/log_schema.py
         if record.exc_info:
-            log_data["exception"] = "".join(
+            log_data["exception"] = record.exc_text or "".join(
                 traceback.format_exception(*record.exc_info)
             )
 
@@ -423,7 +467,7 @@ def setup_logging(default_level: str = "INFO") -> None:
             width=console_width,
         )
 
-        handler = RichHandler(
+        handler = RedactingRichHandler(
             console=console,
             show_time=True,
             show_level=True,

@@ -20,6 +20,12 @@ export const DEFAULT_NODE_Y = 100;
 
 // ======== ANIMATION CONSTANTS ========
 export const FIT_VIEW_DURATION = 200;
+export const FIT_VIEW_MAX_ZOOM = 1;
+
+/** Options for every fit-to-view: padding by layout, capped at 100% zoom. */
+export function fitViewOptions(isMobile: boolean) {
+  return { padding: isMobile ? 0.4 : 0.2, duration: FIT_VIEW_DURATION, maxZoom: FIT_VIEW_MAX_ZOOM };
+}
 
 // ======== HISTORY CONSTANTS ========
 export const MAX_HISTORY_ENTRIES = 50;

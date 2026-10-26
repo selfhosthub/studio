@@ -168,7 +168,7 @@ class WorkflowCredentialService:
                     provider_id=str(provider_id),
                     provider_name=provider_name,
                     status="not_selected",
-                    message=f"No credential selected for {provider_name} in this step",
+                    message=f"No credential selected for {provider_name} in this node",
                     action_url=f"/workflows/{workflow_id}/edit",
                 )
 

@@ -10,6 +10,8 @@ import logging.config
 import os
 from typing import Any
 
+from studio_workers.contracts.redaction import redact_text
+
 from app.config.settings import settings
 
 from app.infrastructure.logging.formatters import (
@@ -34,9 +36,32 @@ try:
     from rich.console import Console
     from rich.theme import Theme
 
+    class RedactingRichHandler(RichHandler):
+        """RichHandler whose formatted text and rendered traceback pass through redact_text."""
+
+        def format(self, record: logging.LogRecord) -> str:
+            return redact_text(super().format(record))
+
+        def render(self, *, record: logging.LogRecord, traceback: Any, message_renderable: Any) -> Any:
+            if traceback is not None:
+                redact_trace(traceback.trace)
+            return super().render(record=record, traceback=traceback, message_renderable=message_renderable)
+
     RICH_AVAILABLE = True
 except ImportError:  # pragma: no cover
     RICH_AVAILABLE = False
+
+
+def redact_trace(trace: Any) -> None:
+    """Redact each exception message, note and syntax error line of a Rich trace in place."""
+    for stack in trace.stacks:
+        stack.exc_value = redact_text(stack.exc_value)
+        stack.notes = [redact_text(note) for note in stack.notes]
+        if stack.syntax_error is not None:
+            stack.syntax_error.line = redact_text(stack.syntax_error.line)
+            stack.syntax_error.msg = redact_text(stack.syntax_error.msg)
+        for group in stack.exceptions:
+            redact_trace(group)
 
 
 def suppress_third_party_loggers() -> None:
@@ -65,6 +90,12 @@ def get_base_log_config(
             "log_injection": {
                 "()": LogInjectionFilter,
             },
+            "sensitive_data": {
+                "()": SensitiveDataFilter,
+            },
+            "token_redaction": {
+                "()": TokenRedactionFilter,
+            },
         },
         "formatters": {
             "default": {
@@ -78,7 +109,12 @@ def get_base_log_config(
                 "formatter": "default",
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stdout",
-                "filters": ["worker_polling", "access_log_status"],
+                "filters": [
+                    "sensitive_data",
+                    "token_redaction",
+                    "worker_polling",
+                    "access_log_status",
+                ],
             },
         },
         "loggers": {
@@ -115,7 +151,12 @@ def get_base_log_config(
             "formatter": "access",
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
-            "filters": ["worker_polling", "access_log_status"],
+            "filters": [
+                "sensitive_data",
+                "token_redaction",
+                "worker_polling",
+                "access_log_status",
+            ],
         }
         config["loggers"]["uvicorn.access"] = {
             "handlers": ["access"],
@@ -264,7 +305,7 @@ def setup_rich_logging(
         soft_wrap=True,
     )
 
-    handler = RichHandler(  # type: ignore[possibly-unbound]  - guarded by RICH_AVAILABLE early-return above
+    handler = RedactingRichHandler(  # type: ignore[possibly-unbound]  - guarded by RICH_AVAILABLE early-return above
         console=console,
         show_time=True,
         show_level=True,

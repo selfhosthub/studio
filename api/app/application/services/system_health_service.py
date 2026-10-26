@@ -7,17 +7,20 @@ Absorbs raw DB queries from presentation/api/system_health.py so the
 presentation layer no longer imports ORM models or calls session.execute().
 """
 
+import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Literal, TypedDict
+from uuid import UUID
 
 from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config.settings import settings
 from app.domain.instance_step.step_execution import StepExecutionStatus
-from app.domain.instance.models import InstanceStatus
+from app.domain.instance.models import RUNNING_STATUSES
 from app.infrastructure.persistence.models import (
     InstanceModel,
     StepExecutionModel,
@@ -31,6 +34,19 @@ from app.infrastructure.persistence.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Seconds the database probe waits before reporting down
+DB_PROBE_TIMEOUT_SECONDS = 2.0
+# Probe round trip above this many milliseconds reports degraded
+DB_PROBE_DEGRADED_MS = 500
+
+# Rows returned by the long-running and stalled job lists
+JOB_LIST_CAP = 20
+
+
+class ProbeOutcome(TypedDict):
+    status: Literal["healthy", "degraded", "down"]
+    message: str
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -59,19 +75,25 @@ def format_uptime(seconds: int) -> str:
     return " ".join(parts)
 
 
-def _org_file_totals(org_dir: Path) -> Tuple[int, int]:
-    """File count and bytes under an org's workspace folder, skipping dotfiles."""
-    files = 0
-    size = 0
-    for f in org_dir.rglob("*"):
-        if f.is_file() and not f.name.startswith("."):
-            files += 1
-            size += f.stat().st_size
-    return files, size
+def org_disk_bytes(org_dir: Path) -> int:
+    """Bytes under an org's workspace folder, skipping dotfiles."""
+    return sum(
+        f.stat().st_size
+        for f in org_dir.rglob("*")
+        if f.is_file() and not f.name.startswith(".")
+    )
 
 
-def get_storage_stats() -> dict:
-    """Calculate storage usage statistics from the filesystem."""
+def _disk_bytes_by_org(workspace: Path) -> Dict[str, int]:
+    """Bytes per org folder under the workspace, keyed by folder name."""
+    orgs_dir = workspace / "orgs"
+    if not orgs_dir.exists():
+        return {}
+    return {d.name: org_disk_bytes(d) for d in orgs_dir.iterdir() if d.is_dir()}
+
+
+def get_storage_stats(file_counts: Dict[UUID, int]) -> dict:
+    """Storage usage: file counts from the library, bytes from the filesystem."""
     import shutil
 
     storage_backend = settings.STORAGE_BACKEND
@@ -80,8 +102,6 @@ def get_storage_stats() -> dict:
         raise RuntimeError("WORKSPACE_ROOT environment variable is not set")
     workspace = Path(workspace_path)
 
-    total_files = 0
-    total_size = 0
     by_org: Dict[str, Dict[str, Any]] = {}
 
     capacity_bytes = None
@@ -100,25 +120,20 @@ def get_storage_stats() -> dict:
     except Exception:
         pass
 
-    orgs_dir = workspace / "orgs"
-    if orgs_dir.exists():
-        for org_dir in orgs_dir.iterdir():
-            if org_dir.is_dir():
-                org_id = org_dir.name
-                org_files = 0
-                org_size = 0
+    sizes = _disk_bytes_by_org(workspace)
+    counts = {str(org_id): n for org_id, n in file_counts.items()}
+    for org_id in sorted(set(sizes) | set(counts)):
+        org_files = counts.get(org_id, 0)
+        org_size = sizes.get(org_id, 0)
+        if org_files or org_size:
+            by_org[org_id] = {
+                "files": org_files,
+                "size_bytes": org_size,
+                "size_formatted": format_bytes(org_size),
+            }
 
-                org_files, org_size = _org_file_totals(org_dir)
-
-                if org_files > 0:
-                    by_org[org_id] = {
-                        "files": org_files,
-                        "size_bytes": org_size,
-                        "size_formatted": format_bytes(org_size),
-                    }
-
-                total_files += org_files
-                total_size += org_size
+    total_files = sum(counts.values())
+    total_size = sum(sizes.values())
 
     return {
         "backend": storage_backend,
@@ -133,6 +148,34 @@ def get_storage_stats() -> dict:
     }
 
 
+async def probe_database(
+    session_factory: Callable[[], "async_sessionmaker[AsyncSession]"],
+    timeout_seconds: float = DB_PROBE_TIMEOUT_SECONDS,
+    degraded_ms: int = DB_PROBE_DEGRADED_MS,
+) -> ProbeOutcome:
+    """Run SELECT 1 on its own session and grade the round trip as healthy, degraded or down."""
+
+    async def _select_one() -> None:
+        async with session_factory()() as session:
+            await session.execute(text("SELECT 1"))
+
+    started = time.monotonic()
+    try:
+        await asyncio.wait_for(_select_one(), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        return {
+            "status": "down",
+            "message": f"No answer within {timeout_seconds:g}s",
+        }
+    except Exception as e:
+        logger.error(f"Database probe failed: {e}")
+        return {"status": "down", "message": f"Query failed: {type(e).__name__}"}
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    if elapsed_ms > degraded_ms:
+        return {"status": "degraded", "message": f"Slow answer: {elapsed_ms} ms"}
+    return {"status": "healthy", "message": f"Answered in {elapsed_ms} ms"}
+
+
 class SystemHealthService:
     """Application service for system health / infrastructure monitoring."""
 
@@ -142,6 +185,19 @@ class SystemHealthService:
     # ------------------------------------------------------------------
     # Job stats
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _joined_step_count() -> Any:
+        """Count of step executions joined to instance, workflow and organization like the job lists."""
+        return (
+            select(func.count(StepExecutionModel.id))
+            .join(InstanceModel, StepExecutionModel.instance_id == InstanceModel.id)
+            .join(WorkflowModel, InstanceModel.workflow_id == WorkflowModel.id)
+            .join(
+                OrganizationModel,
+                InstanceModel.organization_id == OrganizationModel.id,
+            )
+        )
 
     async def get_job_stats(self) -> Dict[str, Any]:
         """Get job statistics from the database."""
@@ -153,6 +209,9 @@ class SystemHealthService:
             "total_failed": 0,
             "long_running_jobs": [],
             "jobs_without_worker": [],
+            "long_running_total": 0,
+            "jobs_without_worker_total": 0,
+            "list_cap": JOB_LIST_CAP,
             "by_workflow": {},
         }
 
@@ -176,6 +235,15 @@ class SystemHealthService:
 
             # Long-running jobs (> 30 min)
             cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=30)
+            long_running_where = (
+                StepExecutionModel.status == StepExecutionStatus.RUNNING,
+                StepExecutionModel.started_at < cutoff_time,
+                StepExecutionModel.started_at.isnot(None),
+            )
+            long_running_total = await db.execute(
+                self._joined_step_count().where(*long_running_where)
+            )
+            stats["long_running_total"] = long_running_total.scalar() or 0
             long_running = await db.execute(
                 select(
                     StepExecutionModel,
@@ -193,12 +261,8 @@ class SystemHealthService:
                     OrganizationModel,
                     InstanceModel.organization_id == OrganizationModel.id,
                 )
-                .where(
-                    StepExecutionModel.status == StepExecutionStatus.RUNNING,
-                    StepExecutionModel.started_at < cutoff_time,
-                    StepExecutionModel.started_at.isnot(None),
-                )
-                .limit(20)
+                .where(*long_running_where)
+                .limit(JOB_LIST_CAP)
             )
 
             for row in long_running:
@@ -223,6 +287,14 @@ class SystemHealthService:
 
             # Stalled jobs (PENDING > 5 min)
             stall_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+            stalled_where = (
+                StepExecutionModel.status == StepExecutionStatus.PENDING,
+                StepExecutionModel.created_at < stall_cutoff,
+            )
+            stalled_total = await db.execute(
+                self._joined_step_count().where(*stalled_where)
+            )
+            stats["jobs_without_worker_total"] = stalled_total.scalar() or 0
             stalled_jobs = await db.execute(
                 select(
                     StepExecutionModel,
@@ -240,11 +312,8 @@ class SystemHealthService:
                     OrganizationModel,
                     InstanceModel.organization_id == OrganizationModel.id,
                 )
-                .where(
-                    StepExecutionModel.status == StepExecutionStatus.PENDING,
-                    StepExecutionModel.created_at < stall_cutoff,
-                )
-                .limit(20)
+                .where(*stalled_where)
+                .limit(JOB_LIST_CAP)
             )
 
             for row in stalled_jobs:
@@ -400,6 +469,7 @@ class SystemHealthService:
             logger.error(f"Error computing queue coverage: {e}")
 
         return {
+            "heartbeat_timeout_minutes": settings.WORKER_HEARTBEAT_TIMEOUT_MINUTES,
             "total_registered": online + offline,
             "online": online,
             "offline": offline,
@@ -414,13 +484,13 @@ class SystemHealthService:
     async def get_platform_stats(self) -> Dict[str, Any]:
         """Get platform-wide statistics for super-admin dashboard."""
         db = self._session
+        session_timeout_minutes = settings.ACCESS_TOKEN_EXPIRE_MINUTES
         stats: Dict[str, Any] = {
             "total_organizations": 0,
             "active_users": 0,
             "running_instances": 0,
+            "active_users_window_minutes": session_timeout_minutes,
         }
-
-        session_timeout_minutes = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
         try:
             org_count = await db.execute(
@@ -444,9 +514,7 @@ class SystemHealthService:
 
             running_instances = await db.execute(
                 select(func.count(InstanceModel.id)).where(
-                    InstanceModel.status.in_(
-                        [InstanceStatus.PROCESSING, InstanceStatus.PENDING]
-                    )
+                    InstanceModel.status.in_(sorted(RUNNING_STATUSES))
                 )
             )
             stats["running_instances"] = running_instances.scalar() or 0
@@ -614,35 +682,16 @@ class SystemHealthService:
         per_page: int,
         sort_by: str,
         sort_order: str,
+        file_counts: Dict[UUID, int],
     ) -> Dict[str, Any]:
-        """Get paginated storage usage per organization with limits."""
+        """Paginated storage per organization: file counts from the library, bytes from disk."""
         db = self._session
         workspace_path = settings.WORKSPACE_ROOT
         if not workspace_path:
             raise RuntimeError("WORKSPACE_ROOT environment variable is not set")
-        workspace = Path(workspace_path)
-        orgs_dir = workspace / "orgs"
-
-        # Get storage data from filesystem
-        storage_by_org: Dict[str, Dict[str, Any]] = {}
-        total_files = 0
-        total_size = 0
-
-        if orgs_dir.exists():
-            for org_dir in orgs_dir.iterdir():
-                if org_dir.is_dir():
-                    org_id = org_dir.name
-                    org_files = 0
-                    org_size = 0
-
-                    org_files, org_size = _org_file_totals(org_dir)
-
-                    storage_by_org[org_id] = {
-                        "files": org_files,
-                        "size_bytes": org_size,
-                    }
-                    total_files += org_files
-                    total_size += org_size
+        sizes = _disk_bytes_by_org(Path(workspace_path))
+        total_files = sum(file_counts.values())
+        total_size = sum(sizes.values())
 
         # Query ALL organizations from database (excluding system org)
         result = await db.execute(
@@ -652,16 +701,16 @@ class SystemHealthService:
         items: List[Dict[str, Any]] = []
         for org in result.scalars():
             org_id = str(org.id)
-            storage = storage_by_org.get(org_id, {"files": 0, "size_bytes": 0})
+            size_bytes = sizes.get(org_id, 0)
 
             items.append(
                 {
                     "organization_id": org_id,
                     "organization_name": org.name,
                     "organization_slug": org.slug,
-                    "files": storage["files"],
-                    "size_bytes": storage["size_bytes"],
-                    "size_formatted": format_bytes(storage["size_bytes"]),
+                    "files": file_counts.get(org.id, 0),
+                    "size_bytes": size_bytes,
+                    "size_formatted": format_bytes(size_bytes),
                     "storage_limit_bytes": None,
                     "storage_limit_formatted": None,
                     "usage_percent": None,

@@ -231,7 +231,7 @@ export function SchemaView({
     return (
       <div className="text-center py-8 text-secondary">
         <Database className="mx-auto h-8 w-8 mb-2 opacity-50" />
-        <p className="text-sm">No previous steps</p>
+        <p className="text-sm">No previous nodes</p>
       </div>
     );
   }
@@ -243,7 +243,7 @@ export function SchemaView({
         <div>
           <div className="w-full flex items-center gap-1 py-1 px-1 bg-purple-50 dark:bg-purple-900/20 rounded"> {/* css-check-ignore: no semantic token */}
             <FileInput className="h-3 w-3 text-purple-500 flex-shrink-0" /> {/* css-check-ignore: no semantic token */}
-            <span className="text-xs font-medium text-purple-700 dark:text-purple-300 flex-1">Instance Form</span> {/* css-check-ignore: no semantic token */}
+            <span className="text-xs font-medium text-purple-700 dark:text-purple-300 flex-1">Form</span> {/* css-check-ignore: no semantic token */}
             <span className="text-xs text-muted ml-1">{filteredFormFields.length}</span>
           </div>
           <div className="ml-3 border-l border-purple-200 dark:border-purple-800"> {/* css-check-ignore: no semantic token */}
@@ -257,10 +257,10 @@ export function SchemaView({
                   displayName={fieldName}
                   fieldType={fieldType}
                   isMapped={isFieldMapped('__instance_form__', fieldName, inputMappings)}
-                  dragData={{ stepId: '__instance_form__', stepName: 'Instance Form', fieldName, fieldType }}
-                  onClick={() => onFieldSelect?.(fieldName, '__instance_form__', 'Instance Form')}
+                  dragData={{ stepId: '__instance_form__', stepName: 'Form', fieldName, fieldType }}
+                  onClick={() => onFieldSelect?.(fieldName, '__instance_form__', 'Form')}
                   disabled={isOwnField}
-                  title={isOwnField ? `${fieldName} - owned by this step` : `${fieldDef.description || fieldName} (${fieldType})`}
+                  title={isOwnField ? `${fieldName} - owned by this node` : `${fieldDef.description || fieldName} (${fieldType})`}
                 />
               );
             })}

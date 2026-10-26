@@ -26,16 +26,6 @@ export function buildOAuthSecretData(f: OAuthFieldValues): Record<string, string
   return out;
 }
 
-/** Populate OAuth fields from a revealed/stored secret_data record. */
-export function oauthFieldsFromSecretData(data: Record<string, unknown>): OAuthFieldValues {
-  return {
-    access_token: String(data.access_token ?? ''),
-    refresh_token: String(data.refresh_token ?? ''),
-    client_id: String(data.client_id ?? ''),
-    client_secret: String(data.client_secret ?? ''),
-  };
-}
-
 interface OAuthCredentialFieldsProps {
   values: OAuthFieldValues;
   onChange: (values: OAuthFieldValues) => void;
@@ -59,12 +49,12 @@ export function OAuthCredentialFields({
     <div className="space-y-3 mt-1">
       <div>
         <label htmlFor={`${idPrefix}oauth_access_token`} className="form-label text-xs">
-          Access Token *
+          {isEdit ? 'Access Token' : 'Access Token *'}
         </label>
         <input
           id={`${idPrefix}oauth_access_token`}
           type="text"
-          required
+          required={!isEdit}
           value={values.access_token}
           onChange={set('access_token')}
           className="form-input-mono"

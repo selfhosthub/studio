@@ -3,5 +3,7 @@
 
 # Speech-to-text on CTranslate2; no PyTorch in the tree
 faster-whisper>=1.0.0
+# faster-whisper passes av.open(metadata_errors=), removed in PyAV 19
+av>=11,<19
 
 # Note: FFmpeg is installed via apt in Dockerfile.video

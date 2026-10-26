@@ -2,7 +2,8 @@
 
 import { getApiUrl, API_VERSION } from '@/shared/lib/config';
 import { STORAGE_KEYS } from '@/shared/lib/constants';
-import type { APIError, ValidationError } from '@/shared/types/api';
+import type { APIError } from '@/shared/types/api';
+import { formatErrorDetail } from '@/shared/lib/apiErrorDetail';
 import {
   getAuthHeaders,
   getRefreshToken,
@@ -80,19 +81,7 @@ export async function apiRequest<T>(
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const error = await response.json() as APIError;
-      if (error.detail) {
-        if (typeof error.detail === 'string') {
-          errorMessage = error.detail;
-        } else if (Array.isArray(error.detail)) {
-          // FastAPI validation errors arrive as arrays.
-          errorMessage = (error.detail as ValidationError[]).map((e) => {
-            const field = e.loc ? e.loc.join('.') : 'unknown';
-            return `${field}: ${e.msg}`;
-          }).join(', ');
-        } else if (typeof error.detail === 'object') {
-          errorMessage = JSON.stringify(error.detail);
-        }
-      }
+      errorMessage = formatErrorDetail(error.detail) ?? errorMessage;
     }
 
     const apiError = new Error(errorMessage) as Error & { status: number };

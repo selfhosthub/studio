@@ -3,7 +3,7 @@
 'use client';
 
 import React from 'react';
-import { Handle, Position, useReactFlow } from '@xyflow/react';
+import { Handle, Position, useReactFlow, useStore } from '@xyflow/react';
 import { getStepTypeColor } from './constants';
 import type { CustomNodeData } from './types';
 
@@ -22,6 +22,10 @@ interface CustomNodeProps {
 const CustomNode = ({ data, id }: CustomNodeProps) => {
   const colors = getStepTypeColor(data.type);
   const { deleteElements } = useReactFlow();
+  // Action buttons counter-scale the canvas zoom-out so they keep their on-screen size
+  const zoom = useStore((state) => state.transform[2]);
+  const actionScale = zoom > 0 && zoom < 1 ? 1 / zoom : 1;
+  const serviceLabel = [data.providerName, data.serviceName].filter(Boolean).join(' · ');
 
   const handleDelete = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -99,7 +103,7 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
       data-testid={`workflow-node-${id}`}
       data-step-id={id}
       data-node-selected={data.isSelected ? 'true' : 'false'}
-      style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}
+      style={{ wordWrap: 'break-word', overflowWrap: 'break-word', '--node-action-scale': actionScale } as React.CSSProperties} // css-check-ignore -- runtime zoom value
     >
       {/* Skip mode: Dashed line through the step */}
       {isSkipped && (
@@ -162,7 +166,7 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
       <button
         type="button"
         onClick={handleToggleMode}
-        className={`absolute -top-2 -left-2 rounded-full w-5 h-5 flex items-center justify-center shadow-sm transition-colors opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100 ${
+        className={`flow-node-action origin-bottom-right absolute -top-3 -left-3 rounded-full w-6 h-6 flex items-center justify-center shadow-sm transition-colors opacity-60 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100 ${
           isSkipped
             ? 'bg-gray-400 hover:bg-gray-500 text-white' // css-check-ignore -- step-type visualization
             : isStopped
@@ -174,18 +178,18 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
       >
         {isSkipped ? (
           // Skip icon - forward arrow with line through
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 4l10 8-10 8V4z" />
             <line x1="19" y1="5" x2="19" y2="19" />
           </svg>
         ) : isStopped ? (
           // Stop icon - square
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="6" width="12" height="12" rx="1" />
           </svg>
         ) : (
           // Play/enabled icon - play triangle
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z" />
           </svg>
         )}
@@ -196,13 +200,13 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
         type="button"
         data-testid={`workflow-node-edit-${id}`}
         onClick={handleEdit}
-        className="absolute -top-2 left-1/2 -translate-x-1/2 bg-info text-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm hover:bg-[var(--theme-primary)] transition-colors opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100"
+        className="flow-node-action origin-bottom absolute -top-3 left-1/2 -translate-x-1/2 bg-info text-white rounded-full w-6 h-6 flex items-center justify-center shadow-sm hover:bg-[var(--theme-primary)] transition-colors opacity-60 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100"
         data-selected={data.isSelected}
-        title="Edit step settings"
+        title="Edit node settings"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="h-3 w-3"
+          className="h-3.5 w-3.5"
           viewBox="0 0 24 24"
           fill="currentColor"
         >
@@ -215,13 +219,13 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
         type="button"
         data-testid={`workflow-node-delete-${id}`}
         onClick={handleDelete}
-        className="absolute -top-2 -right-2 bg-danger text-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm hover:bg-[var(--theme-danger)] transition-colors opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100"
+        className="flow-node-action origin-bottom-left absolute -top-3 -right-3 bg-danger text-white rounded-full w-6 h-6 flex items-center justify-center shadow-sm hover:bg-[var(--theme-danger)] transition-colors opacity-60 group-hover:opacity-100 pointer-coarse:opacity-100 data-[selected=true]:opacity-100"
         data-selected={data.isSelected}
-        title="Delete step"
+        title="Delete node"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="h-3 w-3"
+          className="h-3.5 w-3.5"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -237,6 +241,12 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
       <div className={`font-medium break-words ${isSkipped ? 'text-secondary' : isStopped ? 'text-danger' : 'text-primary'}`}>
         {data.label}
       </div>
+
+      {serviceLabel && (
+        <div className="text-xs text-muted break-words" data-testid={`workflow-node-service-${id}`}>
+          {serviceLabel}
+        </div>
+      )}
 
       {data.description && (
         <div className={`text-xs break-words ${isSkipped ? 'text-muted dark:text-secondary' : isStopped ? 'text-danger' : 'text-secondary'}`}>
@@ -274,9 +284,9 @@ const CustomNode = ({ data, id }: CustomNodeProps) => {
       {data.isManualTrigger && !isSkipped && !isStopped && (
         <div
           className="absolute right-0 bottom-1/4 translate-x-1/2 translate-y-1/2 bg-warning text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"
-          title="Human-in-the-loop - pauses and waits for a manual trigger before this step."
+          title="Manual Trigger - pauses before this node until Run Node."
         >
-          HIL
+          MANUAL
         </div>
       )}
 

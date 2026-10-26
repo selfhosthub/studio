@@ -123,7 +123,7 @@ export function useWorkflowEditor() {
   // ---- step CRUD ----
 
   const addStep = () => {
-    const stepName = `New Step ${workflow.steps.length + 1}`;
+    const stepName = `New Node ${workflow.steps.length + 1}`;
     const stepId = createStepIdFromName(stepName, workflow.steps);
 
     const newStep: Step = {
@@ -148,7 +148,7 @@ export function useWorkflowEditor() {
   const addConnectedStep = (sourceStepId: string, position: { x: number; y: number }) => {
     if (!workflow.steps.some((step: Step) => step.id === sourceStepId)) return;
 
-    const stepName = `New Step ${workflow.steps.length + 1}`;
+    const stepName = `New Node ${workflow.steps.length + 1}`;
     const stepId = createStepIdFromName(stepName, workflow.steps);
 
     const newStep: Step = {

@@ -36,7 +36,7 @@ class SQLAlchemyOrganizationSecretRepository(OrganizationSecretRepository):
 
         SECURITY: Decrypts secret_data. Never log the result.
         """
-        secret_data = self._encryption.decrypt_credential_dict(model.secret_data)
+        secret_data = self._encryption.open_secret_data(model.secret_data)
 
         return OrganizationSecret(
             id=model.id,
@@ -58,7 +58,7 @@ class SQLAlchemyOrganizationSecretRepository(OrganizationSecretRepository):
 
         SECURITY: Encrypts secret_data before storage.
         """
-        secret_data_to_store = self._encryption.encrypt_credential_dict(
+        secret_data_to_store = self._encryption.seal_secret_data(
             secret.secret_data
         )
 
@@ -67,7 +67,7 @@ class SQLAlchemyOrganizationSecretRepository(OrganizationSecretRepository):
             organization_id=secret.organization_id,
             name=secret.name,  # Immutable - cannot be changed after this
             secret_type=secret.secret_type,
-            secret_data=secret_data_to_store or {},
+            secret_data=secret_data_to_store,
             description=secret.description,
             is_active=secret.is_active,
             is_protected=secret.is_protected,
@@ -100,13 +100,13 @@ class SQLAlchemyOrganizationSecretRepository(OrganizationSecretRepository):
                 code=f"Organization secret with ID {secret.id} not found",
             )
 
-        secret_data_to_store = self._encryption.encrypt_credential_dict(
+        secret_data_to_store = self._encryption.seal_secret_data(
             secret.secret_data
         )
 
         # SECURITY: Name is immutable - do not update it
         secret_model.secret_type = secret.secret_type
-        secret_model.secret_data = secret_data_to_store or {}
+        secret_model.secret_data = secret_data_to_store
         secret_model.is_active = secret.is_active
         secret_model.expires_at = secret.expires_at
         secret_model.updated_at = datetime.now(UTC)

@@ -5,8 +5,29 @@ import { Step } from '@/entities/workflow';
 import { createStepIdFromName, getDependentSteps, topologicalSortSteps } from '@/shared/lib/step-utils';
 import { calculateNewStepPosition } from '@/entities/workflow/lib/step-position-utils';
 import { usePreferences } from '@/entities/preferences';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 const noop = () => {};
+
+// Per-node callback credentials a duplicated node must not share with its original.
+const NODE_WEBHOOK_METADATA_KEYS = ['webhook_token', 'webhook_secret', 'has_webhook_token'];
+const NODE_WEBHOOK_PARAMETER_KEYS = ['webhook_auth_header_value', 'webhook_jwt_secret'];
+
+// Copy of a record without the given keys
+function omitKeys<T extends Record<string, any> | undefined>(record: T, keys: string[]): T {
+  if (!record) return record;
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !keys.includes(key))) as T;
+}
+
+// Step copy without its node callback token, secret or auth values
+function withoutNodeWebhookSecrets(step: Step): Step {
+  return {
+    ...step,
+    client_metadata: omitKeys(step.client_metadata, NODE_WEBHOOK_METADATA_KEYS),
+    parameters: omitKeys(step.parameters, NODE_WEBHOOK_PARAMETER_KEYS),
+    job: step.job && { ...step.job, parameters: omitKeys(step.job.parameters, NODE_WEBHOOK_PARAMETER_KEYS) },
+  };
+}
 
 export function useStepCRUD(
   workflow: any,
@@ -15,6 +36,7 @@ export function useStepCRUD(
   setSelectedStepId: React.Dispatch<React.SetStateAction<string | null>>
 ) {
   const { preferences } = usePreferences();
+  const confirm = useConfirm();
 
   // Declared before the null-workflow early return to keep hook order stable across renders.
   const handleStepsChange = useCallback((updatedSteps: Step[]) => {
@@ -35,7 +57,7 @@ export function useStepCRUD(
       updateStep: noop,
       handleStepIdChange: noop,
       handleStepsChange,
-      removeStep: noop,
+      removeStep: async () => false,
       duplicateStep: noop,
     };
   }
@@ -51,7 +73,7 @@ export function useStepCRUD(
     position: { x: number; y: number },
     dependsOn: string[] = []
   ): Step => {
-    const stepName = 'New Step';
+    const stepName = 'New Node';
     const stepId = createStepIdFromName(stepName, workflow.steps);
     return {
       id: stepId,
@@ -159,7 +181,8 @@ export function useStepCRUD(
     }
   };
 
-  const removeStep = (stepId: string) => {
+  // Resolves true when the step was removed, false when the user cancelled.
+  const removeStep = async (stepId: string): Promise<boolean> => {
     const stepsRecord = workflow.steps.reduce((acc: Record<string, any>, step: Step) => {
       acc[step.id] = step;
       return acc;
@@ -169,10 +192,13 @@ export function useStepCRUD(
 
     if (dependents.length > 0) {
       const dependentNames = dependents.map((id: string) => stepsRecord[id].name).join(', ');
-      if (!confirm(
-        `The following steps depend on "${stepsRecord[stepId].name}":\n\n${dependentNames}\n\nRemoving this step will also remove these dependencies. Continue?`
-      )) {
-        return;
+      if (!(await confirm({
+        title: 'Delete node',
+        message: `The following nodes depend on "${stepsRecord[stepId].name}":\n\n${dependentNames}\n\nDeleting this node will also remove these connections. Continue?`,
+        confirmLabel: 'Delete',
+        variant: 'danger',
+      }))) {
+        return false;
       }
     }
 
@@ -215,6 +241,7 @@ export function useStepCRUD(
       const remainingStep = cleanedSteps[0];
       setSelectedStepId(remainingStep?.id || null);
     }
+    return true;
   };
 
   const duplicateStep = () => {
@@ -224,7 +251,7 @@ export function useStepCRUD(
     const duplicateStepId = createStepIdFromName(duplicateStepName, workflow.steps);
 
     const newStep = {
-      ...JSON.parse(JSON.stringify(selectedStep)),
+      ...withoutNodeWebhookSecrets(JSON.parse(JSON.stringify(selectedStep))),
       id: duplicateStepId,
       name: duplicateStepName,
       position: {

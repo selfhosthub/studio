@@ -26,6 +26,7 @@ export interface Prompt {
   variables: PromptVariable[];
   is_enabled: boolean;
   source: string; // "marketplace" | "custom" | "super_admin" | "uninstalled"
+  tier?: "community" | "plus" | null; // catalog tier of an installed prompt; null for the org's own
   marketplace_slug?: string | null;
   created_by?: string | null;
   scope: string; // "personal" | "organization"

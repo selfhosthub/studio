@@ -8,7 +8,7 @@ package-data = {"app" = ["**/*.py"]}
 
 [project]
 name = "studio-api"
-version = "1.8.0"
+version = "1.9.0"
 description = "Production-ready workflow orchestration SaaS framework built with Domain-Driven Design"
 requires-python = ">=3.12,<3.14"
 license = "LicenseRef-Studio-Use-License"
@@ -35,7 +35,7 @@ dependencies = [
     "asyncpg==0.30.0",
     "pydantic==2.11.9",
     "pydantic-settings==2.11.0",  # Settings management (was missing!)
-    "PyJWT==2.13.0",  # CVE-2026-48522/48523/48525/48526: auth bypass, SSRF, algo bypass, DoS
+    "PyJWT==2.15.0",  # CVE-2026-48522/48523/48525/48526: auth bypass, SSRF, algo bypass, DoS
     "passlib==1.7.4",
     "python-multipart==0.0.31",  # CVE-2026-53537/53538/53539/53540: param smuggling and DoS
     "bcrypt==4.0.1",  # 4.x is compatible with passlib 1.7.4

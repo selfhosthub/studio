@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { X, Bell } from 'lucide-react';
 import { TIMEOUTS } from '@/shared/lib/constants';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 type ToastNotification = {
   id: string;
@@ -79,7 +80,7 @@ export default function NotificationToast({
               {notification.message}
             </p>
             <p className="text-xs text-secondary mt-1">
-              {new Date(notification.timestamp).toLocaleTimeString()}
+              {formatDate(notification.timestamp)}
             </p>
           </div>
 

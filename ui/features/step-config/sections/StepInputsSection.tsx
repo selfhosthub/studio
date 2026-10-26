@@ -11,7 +11,7 @@ interface StepInputsSectionProps {
   title?: string;
 }
 
-export default function StepInputsSection({ title = 'Step Inputs' }: StepInputsSectionProps) {
+export default function StepInputsSection({ title = 'Node Inputs' }: StepInputsSectionProps) {
   const { 
     inputs,
     updateStep,
@@ -210,7 +210,7 @@ export default function StepInputsSection({ title = 'Step Inputs' }: StepInputsS
           >
             <div className="flex items-center justify-center">
               <ArrowLeft size={16} className="mr-2" />
-              Previous Steps
+              Previous Nodes
             </div>
           </Tab>
         </Tab.List>
@@ -417,7 +417,7 @@ export default function StepInputsSection({ title = 'Step Inputs' }: StepInputsS
                     
                     <div>
                       <label htmlFor={`prev-step-source-${key}`} className="block text-sm font-medium mb-1">
-                        Source Step
+                        Source Node
                       </label>
                       <select
                         id={`prev-step-source-${key}`}
@@ -425,10 +425,10 @@ export default function StepInputsSection({ title = 'Step Inputs' }: StepInputsS
                         onChange={(e) => updatePreviousStepInput(key, 'source_step_id', e.target.value)}
                         className="w-full px-3 py-2 border border-primary rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-info"
                       >
-                        <option value="">Select Source Step</option>
+                        <option value="">Select Source Node</option>
                         {previousSteps.map(step => (
                           <option key={step.id} value={step.id}>
-                            {step.name || `Step ${step.id.slice(0, 8)}`}
+                            {step.name || `Node ${step.id.slice(0, 8)}`}
                           </option>
                         ))}
                       </select>
@@ -465,7 +465,7 @@ export default function StepInputsSection({ title = 'Step Inputs' }: StepInputsS
                 ))
               ) : (
                 <div className="text-center py-6 text-secondary">
-                  <p>No previous step inputs defined yet. Add inputs to use outputs from previous workflow steps.</p>
+                  <p>No previous node inputs defined yet. Add inputs to use outputs from previous workflow nodes.</p>
                 </div>
               )}
             </div>

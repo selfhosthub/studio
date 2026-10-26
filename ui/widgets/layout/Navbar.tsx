@@ -23,6 +23,8 @@ const Navbar = ({ onMobileMenuToggle }: NavbarProps) => {
 
   // Get branding configuration
   const { branding } = useBranding();
+  // Text logo: the short name, else the organization name
+  const logoText = branding.shortName || branding.companyName;
   const { allowRegistration } = useRegistrationSettings();
 
   // Use user data directly from context, with loading state
@@ -72,8 +74,8 @@ const Navbar = ({ onMobileMenuToggle }: NavbarProps) => {
 
           {/* Logo */}
           <div className="flex items-center">
-            <Link href="/" className="flex items-center">
-              {branding.logoUrl ? (
+            {branding.logoUrl ? (
+              <Link href="/" className="flex items-center">
                 <Image
                   src={branding.logoUrl}
                   alt={branding.companyName || 'Logo'}
@@ -82,12 +84,14 @@ const Navbar = ({ onMobileMenuToggle }: NavbarProps) => {
                   className="h-8 md:h-10 w-auto"
                   priority
                 />
-              ) : branding.shortName ? (
+              </Link>
+            ) : logoText ? (
+              <Link href="/" className="flex items-center">
                 <span className="text-xl font-bold md:text-2xl text-info">
-                  {branding.shortName}
+                  {logoText}
                 </span>
-              ) : null}
-            </Link>
+              </Link>
+            ) : null}
           </div>
 
           {/* Right side buttons */}
@@ -145,8 +149,8 @@ const Navbar = ({ onMobileMenuToggle }: NavbarProps) => {
                         <p className="text-sm font-medium text-primary truncate">{userData.email}</p>
                       </div>
                       <div className="border-t border-secondary"></div>
-                      <Link href="/profile" className="block px-4 py-2 text-sm text-secondary hover:bg-card">
-                        Your Profile
+                      <Link href="/settings/profile" className="block px-4 py-2 text-sm text-secondary hover:bg-card">
+                        Profile
                       </Link>
                       <Link href="/settings" className="block px-4 py-2 text-sm text-secondary hover:bg-card">
                         Settings

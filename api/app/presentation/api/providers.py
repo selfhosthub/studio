@@ -67,11 +67,19 @@ from app.application.services.catalog_merge_service import (
     _allowed_visibilities,
     caller_is_staging as _caller_is_staging,
 )
+from app.application.services.package_management_service import (
+    PackageManagementService,
+)
 from app.application.services.provider_service import (
     ProviderService as ProviderServiceClass,
 )
+from app.domain.common.exceptions import BusinessRuleViolation
 from app.domain.common.value_objects import OperationalStatus
-from app.domain.provider.models import CredentialType, PackageType
+from app.domain.provider.models import (
+    OAUTH2_TOKEN_KEYS,
+    CredentialType,
+    PackageType,
+)
 from app.domain.provider.repository import (
     ProviderRepository,
     ProviderServiceRepository,
@@ -83,6 +91,7 @@ from app.presentation.api.dependencies import (
     get_audit_service,
     get_current_user,
     get_db_session,
+    get_package_management_service,
     get_provider_repository,
     get_provider_service,
     get_provider_service_repository,
@@ -239,9 +248,24 @@ async def delete_provider(
     provider_id: UUID4 = Path(..., description="Provider ID"),
     user: CurrentUser = Depends(require_super_admin),
     service: ProviderServiceClass = Depends(get_provider_service),
+    pkg_service: PackageManagementService = Depends(get_package_management_service),
 ):
-    """Requires SUPER_ADMIN role."""
-    result = await service.delete_provider(provider_id)
+    """Requires SUPER_ADMIN role. Deletes the provider and its services."""
+    usage = await pkg_service.get_provider_usage(str(provider_id))
+    workflow_count = usage["workflow_count"]
+    if workflow_count:
+        noun = "workflow" if workflow_count == 1 else "workflows"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot delete provider: it is used by {workflow_count} {noun}. "
+                "Remove its nodes from those workflows first, or uninstall the package to deactivate the provider."
+            ),
+        )
+    try:
+        result = await service.delete_provider(provider_id)
+    except BusinessRuleViolation as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=safe_error_message(e))
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -429,9 +453,10 @@ async def list_credentials(
             detail="User has no associated organization",
         )
     organization_id = UUID(raw_org_id)
-    return await service.list_credentials_by_organization(
+    credentials = await service.list_credentials_by_organization(
         organization_id=organization_id, provider_id=provider_id, skip=skip, limit=limit
     )
+    return [c.for_role(user.get("role")) for c in credentials]
 
 
 @router.get("/credentials/{credential_id}", response_model=CredentialRead)
@@ -448,7 +473,7 @@ async def get_credential(
             detail=f"Credential with ID {credential_id} not found",
         )
     await validate_organization_access(str(credential.organization_id), user)
-    return credential
+    return credential.for_role(user.get("role"))
 
 
 @router.patch("/credentials/{credential_id}", response_model=CredentialRead)
@@ -465,27 +490,44 @@ async def update_credential(
     Requires ADMIN or SUPER_ADMIN role.
     """
     try:
-        credential = await service.get_credential(credential_id)
-        if not credential:
+        before = await service.get_credential_with_secret(credential_id)
+        if not before:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Credential with ID {credential_id} not found",
             )
-        await validate_organization_access(str(credential.organization_id), user)
+        await validate_organization_access(str(before.organization_id), user)
+        old_name = before.name
+        old_credentials = dict(before.credentials or {})
+        old_expires_at = before.expires_at
 
         # Get provider name for audit logging
-        provider = await service.get_provider_by_slug(credential.provider_slug)
-        provider_name = provider.name if provider else credential.provider_slug
+        provider = await service.get_provider_by_slug(before.provider_slug)
+        provider_name = provider.name if provider else before.provider_slug
 
         updated = await service.update_credential(credential_id, credential_update)
+        after = await service.get_credential_with_secret(credential_id)
+
+        changes: dict[str, Any] = {}
+        if updated.name != old_name:
+            changes["name"] = {"old": old_name, "new": updated.name}
+        new_credentials = (after.credentials if after else None) or {}
+        if new_credentials != old_credentials:
+            changes["value"] = {"changed": True}
+        if updated.expires_at != old_expires_at:
+            changes["expires_at"] = {
+                "old": old_expires_at.isoformat() if old_expires_at else None,
+                "new": updated.expires_at.isoformat() if updated.expires_at else None,
+            }
 
         # Audit log the credential update
         await audit_service.log_credential_updated(
             actor_id=UUID(user["id"]),
             actor_type=AuditActorType(user.get("role") or "user"),
-            organization_id=credential.organization_id,
+            organization_id=before.organization_id,
             credential_id=credential_id,
-            credential_name=credential.name,
+            credential_name=updated.name,
+            changes=changes,
             provider_name=provider_name,
         )
 
@@ -539,12 +581,11 @@ async def delete_credential(
 
 
 # Token types that cannot be revealed after creation
-_NON_REVEALABLE_TYPES = frozenset({"oauth", "oauth2", "bearer", "jwt"})
+_NON_REVEALABLE_TYPES = frozenset({"oauth", "bearer", "jwt"})
 
 # Friendly messages for why credentials can't be revealed
 _NON_REVEALABLE_REASONS = {
     "oauth": "OAuth tokens cannot be revealed after initial authorization. Re-authenticate to get new tokens.",
-    "oauth2": "OAuth2 tokens cannot be revealed after initial authorization. Re-authenticate to get new tokens.",
     "bearer": "Bearer tokens can only be viewed at creation time.",
     "jwt": "JWT tokens can only be viewed when generated.",
     "custom_token": "This credential was marked as a one-time token and cannot be revealed.",
@@ -580,7 +621,8 @@ async def reveal_credential_secret(
     - custom: Can be revealed UNLESS is_token_type=True
 
     Token types that CANNOT be revealed (shown only at creation):
-    - oauth / oauth2: Tokens from OAuth flow
+    - oauth2: Client fields only; tokens from the OAuth flow are withheld
+    - oauth: Tokens pasted by hand
     - bearer: One-time bearer tokens
     - jwt: Generated JWT tokens
     - custom with is_token_type=True: User marked as one-time token
@@ -666,8 +708,14 @@ async def reveal_credential_secret(
         },
     )
 
+    secret_data = credential.credentials
+    if cred_type_lower == "oauth2":
+        secret_data = {
+            k: v for k, v in (secret_data or {}).items() if k not in OAUTH2_TOKEN_KEYS
+        }
+
     return CredentialRevealResponse(
-        secret_data=credential.credentials,
+        secret_data=secret_data,
         revealed_at=datetime.now(timezone.utc),
         credential_id=credential_id,
         credential_type=credential.credential_type,
@@ -710,6 +758,8 @@ async def create_provider_service(
         return await service.create_provider_service(command)
     except EntityNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=safe_error_message(e))
+    except BusinessRuleViolation as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=safe_error_message(e))
 
 
 @router.get("/{provider_id}/services", response_model=List[ProviderServiceRead])

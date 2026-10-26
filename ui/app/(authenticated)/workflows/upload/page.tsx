@@ -116,8 +116,8 @@ export default function UploadWorkflowPage() {
               ))}
             </ul>
             <p className="text-sm text-secondary mt-2">
-              Steps naming a missing provider or prompt import unlinked. Install what is
-              missing, then set it on the step.
+              Nodes naming a missing provider or prompt import unlinked. Install what is
+              missing, then set it on the node.
             </p>
             {importedId && (
               <button
@@ -212,7 +212,7 @@ export default function UploadWorkflowPage() {
               type="button"
               onClick={() => router.back()}
               disabled={loading}
-              className="btn-danger"
+              className="btn-cancel"
             >
               Cancel
             </button>

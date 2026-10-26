@@ -20,6 +20,8 @@ interface UseInstanceFormParams {
   instanceId: string;
   setInstance: (instance: InstanceResponse | null) => void;
   setJobs: (jobs: Job[]) => void;
+  /** False skips the auto-start of a run with no form fields. */
+  canControlRun: boolean;
 }
 
 /**
@@ -33,6 +35,7 @@ export function useInstanceForm({
   instanceId,
   setInstance,
   setJobs,
+  canControlRun,
 }: UseInstanceFormParams) {
   const { toast } = useToast();
   const [formSchema, setFormSchema] = useState<WorkflowFormSchemaResponse | null>(null);
@@ -75,10 +78,13 @@ export function useInstanceForm({
           // Show form panel for user input - reset flag since we didn't auto-start
           hasAutoStarted.current = false;
           setFormSchema(schema);
-        } else {
+        } else if (canControlRun) {
           // No form fields - auto-start the instance
           const startedInstance = await startInstance(instance.id);
           setInstance(startedInstance);
+        } else {
+          // Not the run's owner or an admin - leave the run pending
+          hasAutoStarted.current = false;
         }
       } catch {
         // Reset flag on error so user can retry
@@ -90,7 +96,7 @@ export function useInstanceForm({
 
     loadFormSchemaAndMaybeStart();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- instance fields sufficient, full instance would cause loops
-  }, [instance?.workflow_id, instance?.status]);
+  }, [instance?.workflow_id, instance?.status, canControlRun]);
 
   // Handle form submission to start the workflow
   const handleFormSubmit = async (formValues: Record<string, unknown>) => {

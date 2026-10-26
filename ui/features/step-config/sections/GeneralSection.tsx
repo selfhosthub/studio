@@ -20,7 +20,7 @@ export default function GeneralSection({ name, description, onChange }: GeneralS
           value={name}
           onChange={(e) => onChange('name', e.target.value)}
           className="w-full p-2 border rounded"
-          placeholder="Step name"
+          placeholder="Node name"
         />
       </div>
       
@@ -31,7 +31,7 @@ export default function GeneralSection({ name, description, onChange }: GeneralS
           onChange={(e) => onChange('description', e.target.value)}
           className="w-full p-2 border rounded"
           rows={3}
-          placeholder="Step description"
+          placeholder="Node description"
         />
       </div>
     </div>

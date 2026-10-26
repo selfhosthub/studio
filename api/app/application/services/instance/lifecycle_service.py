@@ -18,6 +18,7 @@ from app.domain.provider.repository import (
 from app.domain.provider.credential_validity import needs_reauthorization
 from app.domain.workflow.models import ExecutionMode
 from app.domain.common.json_serialization import serialize_steps
+from app.infrastructure.security.step_secrets import snapshot_step_secrets
 
 from app.application.dtos import InstanceCreate, InstanceResponse
 from app.application.interfaces import EventBus, EntityNotFoundError
@@ -136,16 +137,20 @@ class LifecycleService:
         if errors:
             raise ValueError(f"Cannot start workflow: {' | '.join(errors)}")
 
-    async def create_instance(self, instance_data: InstanceCreate) -> InstanceResponse:
+    async def create_instance(
+        self, instance_data: InstanceCreate, actor_id: Optional[uuid.UUID] = None
+    ) -> InstanceResponse:
         workflow = await self._get_workflow_or_raise(instance_data.workflow_id)
 
         workflow.update_instance_count()
         await self.workflow_repository.update(workflow)
 
+        # The authenticated caller owns the run; system triggers pass the owner in user_id.
         instance = workflow.create_instance(
-            user_id=instance_data.user_id,
+            user_id=actor_id or instance_data.user_id,
             input_data=instance_data.input_data or {},
             client_metadata=instance_data.client_metadata or {},
+            actor_id=actor_id,
         )
 
         instance.version = workflow.instance_count
@@ -157,7 +162,7 @@ class LifecycleService:
             "description": workflow.description,
             "execution_mode": workflow.execution_mode.value,
             "version": workflow.version,
-            "steps": serialize_steps(workflow.steps),
+            "steps": snapshot_step_secrets(serialize_steps(workflow.steps)),
         }
 
         if workflow.execution_mode == ExecutionMode.QUEUED:

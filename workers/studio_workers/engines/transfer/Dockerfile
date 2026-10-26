@@ -17,11 +17,15 @@ RUN apt-get update && apt-get install -y --only-upgrade \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 
 # Copy and install base requirements (httpx, psutil, etc.)
+# Pin every dependency to the versions in workers/uv.lock
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --all-extras --no-emit-project --no-hashes -q -o constraints.txt
+
 COPY studio_workers/requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt -c constraints.txt
 
 # Copy shared contracts package
 COPY studio_workers/contracts/ studio_workers/contracts/

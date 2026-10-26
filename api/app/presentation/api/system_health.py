@@ -3,23 +3,27 @@
 """System health, storage, worker, and maintenance-mode endpoints. Super-admin only."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from app.config.settings import settings
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
+from app.application.services.org_file import OrgFileService
 from app.application.services.system_health_service import (
     SystemHealthService,
     get_storage_stats,
+    probe_database,
 )
 from app.presentation.api.dependencies import (
     CurrentUser,
     get_current_user,
+    get_org_file_service_bypass,
     get_system_health_service,
 )
 from app.infrastructure.maintenance import state as maintenance_state
 from app.infrastructure.messaging.pg_notify import notify_global
+from app.infrastructure.persistence.database import db
 from app.presentation.websockets.manager import manager as ws_manager
 
 router = APIRouter(prefix="/infrastructure/health", tags=["Infrastructure"])
@@ -38,6 +42,9 @@ class JobStats(BaseModel):
     total_failed: int = 0
     long_running_jobs: list[dict[str, Any]] = []  # running > 30 min
     jobs_without_worker: list[dict[str, Any]] = []  # pending > 5 min
+    long_running_total: int = 0
+    jobs_without_worker_total: int = 0
+    list_cap: int = 20
     by_workflow: dict[str, dict[str, int]] = {}
 
 
@@ -60,6 +67,7 @@ class StorageStats(BaseModel):
 
 
 class WorkerStats(BaseModel):
+    heartbeat_timeout_minutes: int = settings.WORKER_HEARTBEAT_TIMEOUT_MINUTES
     total_registered: int
     online: int
     offline: int
@@ -73,6 +81,7 @@ class PlatformStats(BaseModel):
     total_organizations: int = 0
     active_users: int = 0  # last_login within session timeout
     running_instances: int = 0
+    active_users_window_minutes: int = 0  # session timeout the active_users count uses
 
 
 class DatabaseStats(BaseModel):
@@ -126,6 +135,11 @@ class PaginatedStorageResponse(BaseModel):
     total_files: int
 
 
+class ProbeResult(BaseModel):
+    status: Literal["healthy", "degraded", "down"]
+    message: str
+
+
 class SystemHealthResponse(BaseModel):
     timestamp: datetime
     websocket: WebSocketStats
@@ -133,6 +147,8 @@ class SystemHealthResponse(BaseModel):
     storage: StorageStats
     workers: WorkerStats
     database_connected: bool
+    database: ProbeResult
+    messaging: ProbeResult
     platform: Optional[PlatformStats] = None
 
 
@@ -142,6 +158,14 @@ def get_websocket_stats() -> WebSocketStats:
         organizations_connected=len(ws_manager.org_connections),
         users_connected=len(ws_manager.user_connections),
     )
+
+
+async def probe_messaging(request: Request) -> ProbeResult:
+    """Probe the LISTEN/NOTIFY broadcaster that carries WebSocket fan-out."""
+    broadcaster = getattr(request.app.state, "pg_broadcaster", None)
+    if broadcaster is None:
+        return ProbeResult(status="down", message="Listener is not running")
+    return ProbeResult(**await broadcaster.probe())
 
 
 def get_queue_status_message(db_pending: int, db_running: int) -> str:
@@ -157,11 +181,15 @@ def get_queue_status_message(db_pending: int, db_running: int) -> str:
     description="Get comprehensive system health including WebSocket, storage, and worker status. Super-admin only.",
 )
 async def get_system_health(
+    request: Request,
     user: CurrentUser = Depends(get_current_user),
     _: None = Depends(require_super_admin),
     service: SystemHealthService = Depends(get_system_health_service),
+    file_service: OrgFileService = Depends(get_org_file_service_bypass),
 ) -> SystemHealthResponse:
-    """Combined snapshot: websocket, jobs, storage, workers, database, platform."""
+    """Combined snapshot: websocket, jobs, storage, workers, database, messaging, platform."""
+    database = ProbeResult(**await probe_database(db.get_session_factory))
+    messaging = await probe_messaging(request)
     job_data = await service.get_job_stats()
     worker_data = await service.get_worker_stats()
     platform_data = await service.get_platform_stats()
@@ -170,9 +198,13 @@ async def get_system_health(
         timestamp=datetime.now(timezone.utc),
         websocket=get_websocket_stats(),
         job_stats=JobStats(**job_data),
-        storage=StorageStats(**get_storage_stats()),
+        storage=StorageStats(
+            **get_storage_stats(await file_service.count_live_files_by_organization())
+        ),
         workers=WorkerStats(**worker_data),
-        database_connected=True,
+        database_connected=database.status != "down",
+        database=database,
+        messaging=messaging,
         platform=PlatformStats(**platform_data),
     )
 
@@ -186,8 +218,11 @@ async def get_system_health(
 async def get_storage_health(
     user: CurrentUser = Depends(get_current_user),
     _: None = Depends(require_super_admin),
+    file_service: OrgFileService = Depends(get_org_file_service_bypass),
 ) -> StorageStats:
-    return StorageStats(**get_storage_stats())
+    return StorageStats(
+        **get_storage_stats(await file_service.count_live_files_by_organization())
+    )
 
 
 @router.get(
@@ -237,9 +272,14 @@ async def get_paginated_storage(
     user: CurrentUser = Depends(get_current_user),
     _: None = Depends(require_super_admin),
     service: SystemHealthService = Depends(get_system_health_service),
+    file_service: OrgFileService = Depends(get_org_file_service_bypass),
 ) -> PaginatedStorageResponse:
     data = await service.get_paginated_org_storage(
-        page=page, per_page=per_page, sort_by=sort_by, sort_order=sort_order
+        page=page,
+        per_page=per_page,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        file_counts=await file_service.count_live_files_by_organization(),
     )
     data["items"] = [OrganizationStorageItem(**item) for item in data["items"]]
     return PaginatedStorageResponse(**data)

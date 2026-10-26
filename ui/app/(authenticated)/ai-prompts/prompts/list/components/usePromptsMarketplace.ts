@@ -1,12 +1,13 @@
 // ui/app/(authenticated)/ai-prompts/prompts/list/components/usePromptsMarketplace.ts
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PAGINATION } from '@/shared/lib/constants';
+import { useListPref, isString, oneOf } from '@/shared/hooks/useListPref';
 import {
   getPromptsCatalog,
   getInstalledPrompts,
   installPrompt,
   uninstallPrompt,
+  getMarketplacePromptUsage,
   refreshPromptsCatalog,
   getEntitlementTokenStatus,
 } from '@/shared/api';
@@ -16,19 +17,19 @@ import type {
   PromptInstallResponse,
 } from '@/shared/api';
 import { useToast } from '@/features/toast';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 import { useCatalogStatus } from '@/features/marketplace';
 
-type SortField = 'display_name' | 'category' | 'tier';
-type SortDirection = 'asc' | 'desc';
-
-export type { SortField, SortDirection };
+const TIER_FILTERS = ['all', 'community', 'plus'] as const;
 
 interface UsePromptsMarketplaceOptions {
   onPromptsChanged: () => void;
+  isSuperAdmin?: boolean;
 }
 
-export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplaceOptions) {
+export function usePromptsMarketplace({ onPromptsChanged, isSuperAdmin = false }: UsePromptsMarketplaceOptions) {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { reportWarnings } = useCatalogStatus();
 
   const [catalogPrompts, setCatalogPrompts] = useState<MarketplacePrompt[]>([]);
@@ -38,13 +39,9 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
   const [error, setError] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [tierFilter, setTierFilter] = useState<'all' | 'community' | 'plus'>('all');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGINATION.DEFAULT_PAGE_SIZE);
-  const [sortField, setSortField] = useState<SortField>('display_name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [search, setSearch] = useListPref('prompts-marketplace', 'search', '', isString);
+  const [categoryFilter, setCategoryFilter] = useListPref('prompts-marketplace', 'category', 'all', isString);
+  const [tierFilter, setTierFilter] = useListPref<typeof TIER_FILTERS[number]>('prompts-marketplace', 'tier', 'all', oneOf(TIER_FILTERS));
   const [catalogFilterOptions, setCatalogFilterOptions] = useState<Record<string, string[]>>({
     tier: ['community', 'plus'],
     category: [],
@@ -112,64 +109,23 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
     void (async () => { await fetchMarketplace(); })();
   }, [fetchMarketplace]);
 
-  // Filter + sort + paginate
+  // Filter, ordered by name ascending
   const filteredCatalog = useMemo(() => {
-    let result = catalogPrompts.filter((t) => {
-      if (tierFilter !== 'all' && t.tier !== tierFilter) return false;
-      if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return (
-          t.display_name.toLowerCase().includes(q) ||
-          t.description.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-
-    result.sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case 'display_name':
-          cmp = a.display_name.localeCompare(b.display_name);
-          break;
-        case 'category':
-          cmp = a.category.localeCompare(b.category);
-          break;
-        case 'tier': {
-          const order: Record<string, number> = { community: 0, plus: 1 };
-          cmp = (order[a.tier] ?? 2) - (order[b.tier] ?? 2);
-          break;
+    return catalogPrompts
+      .filter((t) => {
+        if (tierFilter !== 'all' && t.tier !== tierFilter) return false;
+        if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
+        if (search) {
+          const q = search.toLowerCase();
+          return (
+            t.display_name.toLowerCase().includes(q) ||
+            t.description.toLowerCase().includes(q)
+          );
         }
-      }
-      return sortDirection === 'asc' ? cmp : -cmp;
-    });
-
-    return result;
-  }, [catalogPrompts, search, categoryFilter, tierFilter, sortField, sortDirection]);
-
-  // Reset to first page when filters change (adjust during render, not in an effect).
-  const filterKey = `${search}|${categoryFilter}|${tierFilter}`;
-  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
-  if (filterKey !== prevFilterKey) {
-    setPrevFilterKey(filterKey);
-    setPage(1);
-  }
-
-  const totalPages = Math.ceil(filteredCatalog.length / pageSize) || 1;
-  const paginatedCatalog = filteredCatalog.slice(
-    (page - 1) * pageSize,
-    page * pageSize
-  );
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+        return true;
+      })
+      .sort((a, b) => a.display_name.localeCompare(b.display_name));
+  }, [catalogPrompts, search, categoryFilter, tierFilter]);
 
   const handleInstall = async (tpl: MarketplacePrompt, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
@@ -180,7 +136,9 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
         toast({
           title: result.already_installed
             ? 'Already in organization'
-            : `"${result.prompt_name}" copied to organization`,
+            : isSuperAdmin
+              ? `"${result.prompt_name}" installed`
+              : `"${result.prompt_name}" copied to organization`,
           variant: 'success',
         });
         if (!force) {
@@ -190,7 +148,7 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
       }
     } catch (err: unknown) {
       toast({
-        title: 'Failed to install prompt',
+        title: isSuperAdmin ? 'Failed to install prompt' : 'Failed to copy prompt',
         description: err instanceof Error ? err.message : 'Unknown error',
         variant: 'destructive',
       });
@@ -202,7 +160,21 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
   const handleUninstall = async (marketplaceId: string) => {
     const info = installedMap.get(marketplaceId);
     const displayName = info?.name || marketplaceId;
-    if (!window.confirm(`Remove "${displayName}"?`)) return;
+    let usageLine = '';
+    try {
+      const { workflow_count: count } = await getMarketplacePromptUsage(marketplaceId);
+      usageLine = count > 0
+        ? `\n\nUsed by ${count} ${count === 1 ? 'workflow' : 'workflows'}. Organization copies stay, so those workflows keep working.`
+        : '';
+    } catch {
+      // Confirm without the count when it is unavailable
+    }
+    if (!(await confirm({
+      title: 'Remove prompt',
+      message: `Remove "${displayName}"?` + usageLine,
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    }))) return;
 
     setUninstallingId(marketplaceId);
     try {
@@ -221,7 +193,7 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
       onPromptsChanged();
     } catch (err: unknown) {
       toast({
-        title: 'Failed to uninstall prompt',
+        title: 'Failed to remove prompt',
         description: err instanceof Error ? err.message : 'Unknown error',
         variant: 'destructive',
       });
@@ -239,9 +211,11 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
       return;
     }
     if (
-      !window.confirm(
-        `Install ${notInstalled.length} ${tier} prompt${notInstalled.length > 1 ? 's' : ''}?`
-      )
+      !(await confirm({
+        title: 'Install prompts',
+        message: `Install ${notInstalled.length} ${tier} prompt${notInstalled.length > 1 ? 's' : ''}?`,
+        confirmLabel: 'Install',
+      }))
     )
       return;
 
@@ -286,26 +260,17 @@ export function usePromptsMarketplace({ onPromptsChanged }: UsePromptsMarketplac
   return {
     catalogPrompts,
     filteredCatalog,
-    paginatedCatalog,
     installedIds,
     catalogFilterOptions,
     tokenConfigured,
     loading,
     error,
-    page,
-    setPage,
-    pageSize,
-    setPageSize,
-    totalPages,
     search,
     setSearch,
     categoryFilter,
     setCategoryFilter,
     tierFilter,
     setTierFilter,
-    sortField,
-    sortDirection,
-    handleSort,
     installingId,
     uninstallingId,
     uploading,

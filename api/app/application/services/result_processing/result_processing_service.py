@@ -82,9 +82,19 @@ class StepResultPayload:
         return self.status.upper() == "PROCESSING"
 
     @property
+    def is_waiting_for_approval(self) -> bool:
+        """Check if the worker paused the step for approval."""
+        return self.status.upper() == "WAITING_FOR_APPROVAL"
+
+    @property
     def is_completed(self) -> bool:
         """Check if the step completed (or any non-special status)."""
-        return not (self.is_failed or self.is_queued or self.is_processing)
+        return not (
+            self.is_failed
+            or self.is_queued
+            or self.is_processing
+            or self.is_waiting_for_approval
+        )
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> Optional["StepResultPayload"]:
@@ -349,6 +359,22 @@ class ResultProcessingService:
             return ProcessingOutcome(
                 action=NextAction(
                     action=OrchestrationAction.WAIT_WEBHOOK,
+                    waiting_step_id=parsed.step_id,
+                ),
+                instance=instance,
+                job=job,
+                step_id=parsed.step_id,
+                result_data=parsed.result_data,
+            )
+
+        # 7c. Approval pause: the worker parked an approval step; route to WAIT_APPROVAL.
+        if parsed.is_waiting_for_approval:
+            if job.status == StepExecutionStatus.QUEUED:
+                job.start()
+                await step_execution_repo.update(job)
+            return ProcessingOutcome(
+                action=NextAction(
+                    action=OrchestrationAction.WAIT_APPROVAL,
                     waiting_step_id=parsed.step_id,
                 ),
                 instance=instance,

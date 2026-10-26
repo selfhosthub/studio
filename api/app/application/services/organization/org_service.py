@@ -18,8 +18,10 @@ from app.application.interfaces.exceptions import PermissionDeniedError
 from app.application.services.organization.auth_helpers import (
     verify_super_admin_access,
 )
+from app.application.services.organization.org_creation import (
+    create_organization_with_generated_slug,
+)
 from app.domain.common.value_objects import Role
-from app.domain.organization.models import Organization
 from app.domain.organization.repository import (
     OrganizationRepository,
     UserRepository,
@@ -45,14 +47,11 @@ class OrgService:
         """Create a new organization. Only SUPER_ADMIN can create organizations."""
         await verify_super_admin_access(self.user_repository, current_user_id)
 
-        organization = Organization.create(
+        organization, events = await create_organization_with_generated_slug(
+            self.organization_repository,
             name=command.name,
-            slug=command.slug,
             description=command.description,
         )
-
-        events = organization.clear_events()
-        organization = await self.organization_repository.create(organization)
 
         for event in events:
             await self.event_bus.publish(event)
@@ -164,10 +163,15 @@ class OrgService:
                 code="INSUFFICIENT_PERMISSIONS",
             )
 
+        # Settings keys in the command replace those keys; keys it omits are kept
         organization.update(
             name=command.name,
             description=command.description,
-            settings=command.settings,
+            settings=(
+                {**(organization.settings or {}), **command.settings}
+                if command.settings is not None
+                else None
+            ),
         )
 
         # Handle is_active changes via domain methods (super_admin only)

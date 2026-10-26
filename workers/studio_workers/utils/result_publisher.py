@@ -42,12 +42,17 @@ class ResultPublisher:
         error: Optional[str] = None,
         error_code: Optional[str] = None,
         job_id: Optional[str] = None,
+        error_cause: Optional[str] = None,
+        error_host: Optional[str] = None,
         webhook_pending: bool = False,
+        error_status: Optional[int] = None,
+        error_detail: Optional[str] = None,
     ) -> bool:
         """Publish a step result to the API; returns True on success.
 
         ``error`` is log-only detail; the client-visible message is derived by
-        the API from ``error_code``. ``webhook_pending`` tells the API the request
+        the API from ``error_code`` plus the connect-phase ``error_cause`` and ``error_host``
+        and the provider's ``error_status`` and scrubbed ``error_detail``. ``webhook_pending`` tells the API the request
         fired async and released without a result; the generation id rides in
         ``result``.
         """
@@ -56,6 +61,10 @@ class ResultPublisher:
             "result": result or {},
             "error": error,
             "error_code": error_code,
+            "error_cause": error_cause,
+            "error_host": error_host,
+            "error_status": error_status,
+            "error_detail": error_detail,
             "webhook_pending": webhook_pending,
         }
         if job_id:

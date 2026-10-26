@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { getWorkflows, setWorkflowEventTrigger, clearWorkflowEventTrigger } from '@/shared/api';
 import type { WorkflowResponse } from '@/shared/types/api';
 import { useToast } from '@/features/toast';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 type EventOn = 'completed' | 'failed' | 'terminal';
 
@@ -25,6 +26,7 @@ export function EventConfigSection({
   onCleared,
 }: EventConfigSectionProps) {
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const [workflows, setWorkflows] = useState<WorkflowResponse[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
@@ -69,7 +71,12 @@ export function EventConfigSection({
   };
 
   const handleClear = async () => {
-    if (!confirm('Remove the event trigger for this workflow?')) {
+    if (!(await confirm({
+      title: 'Remove event trigger',
+      message: 'Remove the event trigger for this workflow?',
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    }))) {
       return;
     }
     setSaving(true);

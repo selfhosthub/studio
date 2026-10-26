@@ -9,14 +9,12 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.result_processing.step_result_enrichment import (
     build_step_result_payload,
-)
-from app.application.services.result_processing.worker_error_codes import (
-    client_message_for_worker_error,
+    client_error_for_report,
 )
 from app.domain.queue.repository import QueuedJobRepository, WorkerRepository
 from app.config.queues import allowed_queues
@@ -153,6 +151,12 @@ class StepResultRequest(BaseModel):
     result: Dict[str, Any] = {}
     error: Optional[str] = None  # Log-only detail; never rendered to clients.
     error_code: Optional[str] = None
+    # Connect-phase cause and target host; the API validates both before display.
+    error_cause: Optional[str] = Field(default=None, max_length=64)
+    error_host: Optional[str] = Field(default=None, max_length=253)
+    # Provider HTTP status and the provider's scrubbed message; the API sanitizes both before display.
+    error_status: Optional[int] = None
+    error_detail: Optional[str] = None
     job_id: Optional[str] = None
     # Worker fired async + released without polling.
     webhook_pending: bool = False
@@ -169,14 +173,16 @@ async def publish_step_result(
     job_repo = SQLAlchemyQueuedJobRepository(session)
     job = await require_worker_job(worker.worker_id, request.job_id, session)
 
-    client_error = client_message_for_worker_error(request.error_code)
-    if request.status == "COMPLETED":
+    client_error = client_error_for_report(request.model_dump())
+    # An approval pause ends the worker's job; the step itself waits on the approver.
+    if request.status in ("COMPLETED", "WAITING_FOR_APPROVAL"):
         await job_repo.complete_job(job.id, request.result or {})
-    elif request.status == "FAILED":
+    elif client_error is not None:
         logger.warning(
-            "Step job %s FAILED [code=%s]: %s",
+            "Step job %s FAILED [code=%s cause=%s]: %s",
             job.id,
             request.error_code,
+            request.error_cause,
             request.error,
         )
         await job_repo.fail_job(job.id, client_error)
@@ -187,7 +193,7 @@ async def publish_step_result(
         job,
         status=request.status,
         result=request.result,
-        error=client_error if request.status == "FAILED" else None,
+        error=client_error,
         webhook_pending=request.webhook_pending,
     )
     instance_id = payload["instance_id"]

@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import DatePicker from 'react-datepicker';
 import { Calendar, X } from 'lucide-react';
 import { Modal } from '@/shared/ui';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 export interface DateTimePickerModalProps {
   value: string;
@@ -28,20 +29,7 @@ function parseValue(value: string): Date | null {
 
 function formatTrigger(date: Date | null, withTime: boolean): string {
   if (!date) return '';
-  if (withTime) {
-    return date.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  }
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatDate(date, { time: withTime });
 }
 
 function toOutputString(date: Date | null, withTime: boolean): string {
@@ -144,7 +132,7 @@ export function DateTimePickerModal({ value, onChange, format = 'date-time', pla
             <button
               type="button"
               onClick={cancelModal}
-              className="flex-1 px-4 py-2 border rounded text-secondary hover:bg-card"
+              className="btn-cancel flex-1"
             >
               Cancel
             </button>

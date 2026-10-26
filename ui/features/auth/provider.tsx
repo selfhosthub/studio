@@ -167,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({
         title: "Login successful",
         description: `Welcome back, ${userData.username}!`,
+        variant: "success",
       });
     },
     onError: (error: Error) => {
@@ -189,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({
         title: "Registration successful",
         description: `Welcome, ${userData.username}!`,
+        variant: "success",
       });
     },
     onError: (error: Error) => {
@@ -210,6 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast({
         title: "Logged out",
         description: "You have been logged out successfully",
+        variant: "success",
       });
     },
     onError: (error: Error) => {

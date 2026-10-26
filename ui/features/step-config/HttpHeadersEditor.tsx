@@ -11,6 +11,8 @@ interface HttpHeader {
 interface HttpHeadersEditorProps {
   headers: Record<string, string>;
   onChange: (headers: Record<string, string>) => void;
+  /** Header names holding a stored secret the viewer cannot read, shown as configured and read-only. */
+  configuredSecrets?: string[];
 }
 
 // Generate unique ID for stable list keys
@@ -20,7 +22,8 @@ const generateId = () => {
 
 // Build the initial header rows: a default Content-Type when none provided,
 // otherwise the existing headers converted to id-tagged rows.
-const computeInitialHeaders = (headers: Record<string, string>): HttpHeader[] => {
+const computeInitialHeaders = (headers: Record<string, string>, hasConfigured: boolean): HttpHeader[] => {
+  if (hasConfigured && Object.keys(headers).length === 0) return [];
   if (Object.keys(headers).length === 0) {
     return [{ id: generateId(), name: 'Content-Type', value: 'application/json' }];
   }
@@ -82,9 +85,9 @@ const HEADER_VALUE_SUGGESTIONS: Record<string, string[]> = {
   ],
 };
 
-export default function HttpHeadersEditor({ headers = {}, onChange }: HttpHeadersEditorProps) {
+export default function HttpHeadersEditor({ headers = {}, onChange, configuredSecrets = [] }: HttpHeadersEditorProps) {
   // Seed rows from props once (SSR-safe: derived purely from the headers prop).
-  const [headersList, setHeadersList] = useState<HttpHeader[]>(() => computeInitialHeaders(headers));
+  const [headersList, setHeadersList] = useState<HttpHeader[]>(() => computeInitialHeaders(headers, configuredSecrets.length > 0));
 
   // Autocomplete states
   const [showNameSuggestions, setShowNameSuggestions] = useState<{id: string, suggestions: string[]}>({id: '', suggestions: []});
@@ -97,7 +100,7 @@ export default function HttpHeadersEditor({ headers = {}, onChange }: HttpHeader
   useEffect(() => {
     if (didNotifyDefaultRef.current) return;
     didNotifyDefaultRef.current = true;
-    if (Object.keys(headers).length === 0) {
+    if (Object.keys(headers).length === 0 && configuredSecrets.length === 0) {
       onChange({ 'Content-Type': 'application/json' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally runs once on mount
@@ -213,6 +216,30 @@ export default function HttpHeadersEditor({ headers = {}, onChange }: HttpHeader
 
   return (
     <div className="space-y-2" ref={suggestionContainerRef}>
+      {configuredSecrets.map((name) => (
+        <div key={`configured-${name}`} className="flex gap-2 items-center" data-testid={`header-configured-${name}`}>
+          <input
+            type="text"
+            value={name}
+            readOnly
+            disabled
+            aria-label={`${name} header name`}
+            className="flex-1 min-w-0 px-3 py-2 border border-primary rounded-md text-sm opacity-60"
+          />
+          <input
+            type="password"
+            value="configured"
+            readOnly
+            disabled
+            aria-label={`${name} (configured)`}
+            className="flex-1 min-w-0 px-3 py-2 border border-primary rounded-md text-sm opacity-60"
+          />
+          <span className="text-xs text-secondary whitespace-nowrap">Configured</span>
+        </div>
+      ))}
+      {configuredSecrets.length > 0 && (
+        <p className="text-xs text-secondary">Configured headers are kept. Ask an admin to change them.</p>
+      )}
       {headersList.map((header) => (
         <div key={header.id} className="relative">
           <div className="flex gap-2 items-center">

@@ -53,7 +53,7 @@ def _validate_neutral_messages(messages: Any) -> List[Dict[str, Any]]:
     if not isinstance(messages, list) or not messages:
         raise _invalid(
             "Chat prompt shaping requires a non-empty 'messages' list of "
-            "{role, content} entries. Bind a prompt or author messages on the step."
+            "{role, content} entries. Bind a prompt or author messages on the node."
         )
     for entry in messages:
         if not isinstance(entry, dict) or "role" not in entry or "content" not in entry:

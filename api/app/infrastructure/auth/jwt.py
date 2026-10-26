@@ -401,14 +401,10 @@ class RoleChecker:
             )
         return user
 
-    async def _log_access_denied(  # pragma: no cover
+    async def _log_access_denied(
         self, user: Dict[str, Any], request: Request
     ) -> None:
         try:
-            from app.infrastructure.persistence.database import get_db_session
-            from app.infrastructure.repositories.audit_repository import (
-                AuditEventRepository,
-            )
             from app.application.services.audit_service import AuditService
             from app.domain.audit.models import (
                 AuditAction,
@@ -418,34 +414,31 @@ class RoleChecker:
                 AuditStatus,
                 ResourceType,
             )
+            from app.presentation.api.dependencies import get_audit_repository
 
             user_id_str = user.get("id") or user.get("sub") or ""
             org_id = user.get("org_id")
 
-            # Resolve through dependency_overrides so tests can substitute the session factory.
-            session_dep = request.app.dependency_overrides.get(
-                get_db_session, get_db_session
+            # Resolve through dependency_overrides so tests can substitute the audit repository.
+            repo_dep = request.app.dependency_overrides.get(
+                get_audit_repository, get_audit_repository
             )
-            session: Optional[AsyncSession] = None
-            async for session in session_dep():
-                assert session is not None
-                repo = AuditEventRepository(session)
-                svc = AuditService(repo)
-                await svc.log_event(
-                    actor_id=uuid.UUID(str(user_id_str)) if user_id_str else None,
-                    actor_type=AuditActorType(user.get("role", "user")),
-                    action=AuditAction.ACCESS_DENIED,
-                    resource_type=ResourceType.USER,
-                    organization_id=uuid.UUID(org_id) if org_id else None,
-                    severity=AuditSeverity.WARNING,
-                    category=AuditCategory.SECURITY,
-                    status=AuditStatus.FAILED,
-                    error_message=f"Role '{user.get('role')}' not in {[str(r) for r in self.allowed_roles]}",
-                    metadata={
-                        "denial_type": "role",
-                        "user_role": str(user.get("role")),
-                        "required_roles": [str(r) for r in self.allowed_roles],
-                    },
-                )
+            svc = AuditService(await repo_dep())
+            await svc.log_event(
+                actor_id=uuid.UUID(str(user_id_str)) if user_id_str else None,
+                actor_type=AuditActorType(user.get("role", "user")),
+                action=AuditAction.ACCESS_DENIED,
+                resource_type=ResourceType.USER,
+                organization_id=uuid.UUID(org_id) if org_id else None,
+                severity=AuditSeverity.WARNING,
+                category=AuditCategory.SECURITY,
+                status=AuditStatus.FAILED,
+                error_message=f"Role '{user.get('role')}' cannot use this; requires {', '.join(r.value for r in self.allowed_roles)}",
+                metadata={
+                    "denial_type": "role",
+                    "user_role": str(user.get("role")),
+                    "required_roles": [r.value for r in self.allowed_roles],
+                },
+            )
         except Exception as e:
             logger.warning(f"Failed to log access denied audit event: {e}")

@@ -20,6 +20,7 @@ import { useNotificationSocket, useNotificationEvents, type NotificationEvent } 
 import { useNotificationsQuery, useRefreshNotifications, usePatchNotifications } from '../useNotificationsQuery';
 import { useToast } from '@/features/toast';
 import { NOTIFICATION_DEFAULTS } from '@/shared/defaults';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 export default function NotificationBell() {
   const { user } = useUser();
@@ -30,17 +31,24 @@ export default function NotificationBell() {
   // WebSocket connection for real-time updates
   const { status: wsStatus } = useNotificationSocket();
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside or pressing Escape
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsOpen(false);
+    }
 
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        document.removeEventListener('keydown', handleKeyDown);
+      };
     }
   }, [isOpen]);
 
@@ -75,17 +83,20 @@ export default function NotificationBell() {
     if (event.event_type === 'notification_created') {
       void refreshNotifications();
 
+      // The viewer already got the local toast for their own action.
+      if (event.data.client_metadata?.actor_id === userId) return;
+
       // Show toast via global toast system (uses portal, avoids CSS containment issues)
-      const isError = event.data.tags?.includes('error');
+      const tags = event.data.tags ?? [];
       toast({
         title: event.data.title || NOTIFICATION_DEFAULTS.toastTitle,
         description: event.data.message || NOTIFICATION_DEFAULTS.toastMessage,
-        variant: isError ? 'destructive' : 'success',
+        variant: tags.includes('error') ? 'destructive' : tags.includes('success') ? 'success' : 'info',
       });
     } else if (event.event_type === 'notification_read') {
       void refreshNotifications();
     }
-  }, [refreshNotifications, toast]));
+  }, [refreshNotifications, toast, userId]));
 
   async function handleMarkAsRead(notificationId: string) {
     try {
@@ -157,7 +168,7 @@ export default function NotificationBell() {
                   title="Mark all as read"
                 >
                   <CheckCheck size={14} />
-                  Mark all read
+                  Mark all as read
                 </button>
               )}
               <button
@@ -191,16 +202,21 @@ export default function NotificationBell() {
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
-                        <p className={`text-sm ${
-                          !notification.read_at
-                            ? 'font-medium text-primary'
-                            : 'text-secondary'
-                        }`}>
+                        {notification.title && (
+                          <p className={`text-sm truncate ${
+                            !notification.read_at
+                              ? 'font-semibold text-primary'
+                              : 'font-medium text-secondary'
+                          }`}>
+                            {notification.title}
+                          </p>
+                        )}
+                        <p className="text-xs text-secondary line-clamp-2">
                           {notification.message}
                         </p>
                         {notification.created_at && (
                           <p className="text-xs text-secondary mt-1">
-                            {new Date(notification.created_at).toLocaleString()}
+                            {formatDate(notification.created_at)}
                           </p>
                         )}
                       </div>
@@ -209,7 +225,7 @@ export default function NotificationBell() {
                           onClick={() => handleMarkAsRead(notification.id)}
                           className="ml-2 text-xs text-info hover:text-info whitespace-nowrap"
                         >
-                          Mark read
+                          Mark as read
                         </button>
                       )}
                     </div>

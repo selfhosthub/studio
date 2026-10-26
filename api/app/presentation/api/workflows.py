@@ -27,7 +27,9 @@ from app.application.dtos.workflow_dto import (
     WorkflowFormSchemaResponse,
     WorkflowResponse,
     WorkflowUpdate,
+    webhook_incoming_url,
 )
+from app.infrastructure.security.step_secrets import strip_step_secrets
 from app.application.interfaces.exceptions import DuplicateEntityError
 from app.domain.common.exceptions import BusinessRuleViolation, EntityNotFoundError
 from app.application.services.form_field_resolver import FormFieldResolver
@@ -96,6 +98,19 @@ async def _broadcast_catalog_changed() -> None:
         logger.exception("Failed to broadcast catalog_changed")
 
 
+def _can_manage_secrets(user: CurrentUser) -> bool:
+    """True when the caller's role may see and set a workflow's secrets."""
+    return user.get("role") in ("admin", "super_admin")
+
+
+def _for_viewer(workflow: WorkflowResponse, user: CurrentUser) -> WorkflowResponse:
+    """Drop the webhook token and step secrets from a workflow returned to a non-admin."""
+    if not _can_manage_secrets(user):
+        workflow.webhook_token = None
+        workflow.steps = strip_step_secrets(workflow.steps, flag_token=True)
+    return workflow
+
+
 @router.post("/", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
 async def create_workflow(
     workflow: WorkflowCreate,
@@ -116,8 +131,10 @@ async def create_workflow(
     workflow.created_by = UUID(user["id"])
 
     try:
-        return await service.create_workflow(workflow)
+        return _for_viewer(await service.create_workflow(workflow), user)
     except DuplicateEntityError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=safe_error_message(e))
+    except BusinessRuleViolation as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=safe_error_message(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e))
@@ -156,7 +173,7 @@ async def list_workflows(
         workflows = await service.workflow_repository.list_by_organization(
             org_uuid, skip=skip, limit=limit
         )
-    return await service.to_responses(workflows)
+    return [_for_viewer(w, user) for w in await service.to_responses(workflows)]
 
 
 @router.get("/pending-publish", response_model=List[WorkflowResponse])
@@ -183,12 +200,13 @@ async def copy_workflow(
     """Copy a workflow to the current user's personal scope."""
     effective_org_id = user["org_id"]
     try:
-        return await service.copy_workflow(
+        copied = await service.copy_workflow(
             workflow_id=workflow_id,
             user_id=UUID(user["id"]),
             organization_id=UUID(effective_org_id),
             target_scope="personal",
         )
+        return _for_viewer(copied, user)
     except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -206,7 +224,9 @@ async def request_publish(
 ):
     """Request publishing a personal workflow to the organization."""
     try:
-        return await service.request_publish(workflow_id, UUID(user["id"]))
+        return _for_viewer(
+            await service.request_publish(workflow_id, UUID(user["id"])), user
+        )
     except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -321,7 +341,7 @@ async def get_workflow(
         )
 
     await validate_organization_access(str(workflow.organization_id), user)
-    return workflow
+    return _for_viewer(workflow, user)
 
 
 @router.patch("/{workflow_id}", response_model=WorkflowResponse)
@@ -363,16 +383,20 @@ async def update_workflow(
     touches_trigger_config = any(
         getattr(workflow_update, f) is not None for f in _TRIGGER_CONFIG_FIELDS
     )
-    if touches_trigger_config and user.get("role") not in ("admin", "super_admin"):
+    if touches_trigger_config and not _can_manage_secrets(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can change a workflow's trigger configuration.",
         )
 
     try:
-        return await service.update_workflow(
-            workflow_id, workflow_update, actor_id=UUID(str(user.get("id")))
+        updated = await service.update_workflow(
+            workflow_id,
+            workflow_update,
+            actor_id=UUID(str(user.get("id"))),
+            can_manage_secrets=_can_manage_secrets(user),
         )
+        return _for_viewer(updated, user)
     except DuplicateEntityError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=safe_error_message(e))
     except BusinessRuleViolation as e:
@@ -581,7 +605,7 @@ async def generate_webhook_token(
 
     try:
         result = await service.generate_webhook_token(workflow_id)
-        webhook_url = f"{settings.external_api_base}/api/v1/webhooks/incoming/{result['token']}"
+        webhook_url = webhook_incoming_url(result["token"])
         return WebhookTokenResponse(
             webhook_token=result["token"],
             webhook_secret=result["secret"],
@@ -628,7 +652,7 @@ async def regenerate_webhook_token(
 
     try:
         result = await service.regenerate_webhook_token(workflow_id)
-        webhook_url = f"{settings.external_api_base}/api/v1/webhooks/incoming/{result['token']}"
+        webhook_url = webhook_incoming_url(result["token"])
         return WebhookTokenResponse(
             webhook_token=result["token"],
             webhook_secret=result["secret"],
@@ -700,14 +724,14 @@ class ApiKeyResponse(BaseModel):
 
 
 class RotateTriggerSecretKeyResponse(BaseModel):
-    """Result of regenerating a shared `workflow_trigger` secret on the Secrets page."""
+    """Result of regenerating a trigger `api_key` secret on the Secrets page."""
 
     api_key: str
     shared_by_count: int
 
 
 class TriggerSecretOption(BaseModel):
-    """A reusable workflow_trigger OrganizationSecret an admin can share."""
+    """A reusable trigger OrganizationSecret an admin can share."""
 
     id: str
     name: str
@@ -736,6 +760,8 @@ async def set_workflow_schedule(
     workflow_id: UUID = Path(...),
     user: CurrentUser = Depends(require_admin),
     service: WorkflowService = Depends(get_workflow_service),
+    service_repo: ProviderServiceRepository = Depends(get_provider_service_repository),
+    prompt_repo: PromptRepository = Depends(get_prompt_repository),
 ):
     """
     Configure the schedule (SCHEDULE trigger) for this workflow.
@@ -744,7 +770,7 @@ async def set_workflow_schedule(
 
     Raises:
         404: Workflow not found
-        400: Invalid schedule rule
+        400: Invalid schedule rule, or a required run-form field has no default
     """
     workflow = await service.get_workflow(workflow_id)
     if not workflow:
@@ -755,6 +781,10 @@ async def set_workflow_schedule(
 
     await validate_organization_access(str(workflow.organization_id), user)
 
+    form_fields = await FormFieldResolver(
+        provider_service_repository=service_repo,
+        prompt_repository=prompt_repo,
+    ).resolve_fields(workflow)
     try:
         return await service.set_schedule(
             workflow_id,
@@ -762,6 +792,7 @@ async def set_workflow_schedule(
             rrule=body.rrule,
             timezone=body.timezone,
             enabled=body.enabled,
+            form_fields=form_fields,
         )
     except BusinessRuleViolation as e:
         raise HTTPException(
@@ -883,12 +914,12 @@ async def set_workflow_trigger_secret(
     user: CurrentUser = Depends(require_admin),
     service: WorkflowService = Depends(get_workflow_service),
 ):
-    """Point this workflow at an existing `workflow_trigger` secret (share it).
+    """Point this workflow at an existing trigger secret (share it).
     Admin only. The secret must exist and belong to this org.
 
     Raises:
         404: Workflow not found.
-        400: The secret doesn't exist / isn't a trigger secret in this org.
+        400: The secret doesn't exist, isn't an api_key secret, or no workflow triggers off it.
     """
     workflow = await service.get_workflow(workflow_id)
     if not workflow:
@@ -915,13 +946,13 @@ async def regenerate_trigger_secret_key(
     user: CurrentUser = Depends(require_admin),
     service: WorkflowService = Depends(get_workflow_service),
 ):
-    """Deliberately rotate a `workflow_trigger` secret's API key from the Secrets
+    """Deliberately rotate a trigger `api_key` secret's key from the Secrets
     page (admin only). Every workflow sharing the secret immediately uses the new
     key; the response reports how many that is. This is where rotation of a
     *shared* secret lives - the in-workflow Regenerate refuses when shared.
 
     Raises:
-        400: The secret doesn't exist / isn't a trigger secret in this org.
+        400: The secret doesn't exist, isn't an api_key secret, or no workflow triggers off it.
     """
     org_id = user.get("org_id") or user.get("organization_id")
     if not org_id:
@@ -1171,7 +1202,7 @@ async def generate_step_webhook_token(
 
     try:
         result = await service.generate_step_webhook_token(workflow_id, step_id)
-        webhook_url = f"/api/v1/webhooks/incoming/{result['token']}"
+        webhook_url = webhook_incoming_url(result["token"])
         return StepWebhookTokenResponse(
             step_id=step_id,
             webhook_token=result["token"],
@@ -1227,7 +1258,7 @@ async def regenerate_step_webhook_token(
 
     try:
         result = await service.regenerate_step_webhook_token(workflow_id, step_id)
-        webhook_url = f"/api/v1/webhooks/incoming/{result['token']}"
+        webhook_url = webhook_incoming_url(result["token"])
         return StepWebhookTokenResponse(
             step_id=step_id,
             webhook_token=result["token"],
@@ -1283,9 +1314,9 @@ async def get_step_webhook_token(
         if not result["token"]:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No webhook token found for step {step_id}",
+                detail=f"No webhook token found for node {step_id}",
             )
-        webhook_url = f"/api/v1/webhooks/incoming/{result['token']}"
+        webhook_url = webhook_incoming_url(result["token"])
         return StepWebhookTokenResponse(
             step_id=step_id,
             webhook_token=result["token"],
@@ -1345,7 +1376,7 @@ async def export_workflow(
             if hasattr(workflow.trigger_type, "value")
             else workflow.trigger_type
         ),
-        "steps": workflow.steps,
+        "steps": strip_step_secrets(workflow.steps),
         "trigger_input_schema": workflow.trigger_input_schema,
         "client_metadata": workflow.client_metadata,
         "webhook_method": workflow.webhook_method,

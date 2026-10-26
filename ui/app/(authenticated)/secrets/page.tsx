@@ -11,32 +11,19 @@ import { getProviders, getOrganizationCredentials, getOrganizationSecrets } from
 import type { Provider as ApiProvider, ProviderCredential, OrganizationSecret as ApiOrgSecret } from '@/shared/api/providers';
 import {
   LinkedText,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableCell,
-  TableHeaderCell,
-  TableContainer,
   StatusBadge,
   ActionButton,
   LoadingState,
   ErrorState,
   EmptyState,
   SearchInput,
-  Pagination,
+  ResourceTable,
+  type ResourceColumnConfig,
 } from '@/shared/ui';
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
-import { PAGINATION } from '@/shared/lib/constants';
 import { withReturnTo } from '@/shared/hooks/useReturnTo';
+import { formatDate } from '@/shared/lib/dateFormatter';
+import { secretTypeLabel } from '@/shared/lib/secret-labels';
 type TabType = 'organization' | 'providers';
-
-// Format date as "MM/DD/YYYY HH:MM:SS UTC" (24-hour, no comma, UTC timezone)
-const formatDateTime = (dateStr: string) => {
-  const d = new Date(dateStr);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
-};
 
 type Provider = ApiProvider;
 type Credential = ProviderCredential;
@@ -77,15 +64,9 @@ function SecretsPageContent() {
   // Where editors should return to: this list, including the active tab.
   const currentUrl = `/secrets?tab=${activeTab}`;
 
-  // Organization secrets search and pagination
+  // Organization secrets and provider credentials search
   const [orgSearchTerm, setOrgSearchTerm] = useState('');
-  const [orgCurrentPage, setOrgCurrentPage] = useState(1);
-  const [orgPageSize, setOrgPageSize] = useState(PAGINATION.DEFAULT_PAGE_SIZE);
-
-  // Provider credentials search and pagination
   const [providerSearchTerm, setProviderSearchTerm] = useState('');
-  const [providerCurrentPage, setProviderCurrentPage] = useState(1);
-  const [providerPageSize, setProviderPageSize] = useState(PAGINATION.DEFAULT_PAGE_SIZE);
 
   useEffect(() => {
     if (authStatus === 'loading') return;
@@ -158,48 +139,27 @@ function SecretsPageContent() {
       (secret) =>
         secret.name?.toLowerCase().includes(orgSearchTerm.toLowerCase()) ||
         secret.description?.toLowerCase().includes(orgSearchTerm.toLowerCase()) ||
-        secret.secret_type?.toLowerCase().includes(orgSearchTerm.toLowerCase())
+        secret.secret_type?.toLowerCase().includes(orgSearchTerm.toLowerCase()) ||
+        secretTypeLabel(secret.secret_type).toLowerCase().includes(orgSearchTerm.toLowerCase())
     );
   }, [orgSecrets, orgSearchTerm]);
 
-  // Reset org page when search changes (adjust during render, not in an effect).
-  const [prevOrgSearchTerm, setPrevOrgSearchTerm] = useState(orgSearchTerm);
-  if (orgSearchTerm !== prevOrgSearchTerm) {
-    setPrevOrgSearchTerm(orgSearchTerm);
-    setOrgCurrentPage(1);
-  }
-
-  // Org secrets pagination calculations
   const orgTotalCount = filteredOrgSecrets.length;
-  const orgTotalPages = Math.ceil(orgTotalCount / orgPageSize) || 1;
-  const paginatedOrgSecrets = filteredOrgSecrets.slice(
-    (orgCurrentPage - 1) * orgPageSize,
-    orgCurrentPage * orgPageSize
-  );
 
-  // Filter providers based on search (for provider credentials tab)
+  // Filter providers by provider name, description or any credential name
   const filteredProviders = useMemo(() => {
+    const term = providerSearchTerm.toLowerCase();
     return providers.filter(
       (provider) =>
-        provider.name?.toLowerCase().includes(providerSearchTerm.toLowerCase()) ||
-        provider.description?.toLowerCase().includes(providerSearchTerm.toLowerCase())
+        provider.name?.toLowerCase().includes(term) ||
+        provider.description?.toLowerCase().includes(term) ||
+        (credentials[provider.id] || []).some((cred) => cred.name?.toLowerCase().includes(term))
     );
-  }, [providers, providerSearchTerm]);
+  }, [providers, credentials, providerSearchTerm]);
 
-  // Reset provider page when search changes (adjust during render, not in an effect).
-  const [prevProviderSearchTerm, setPrevProviderSearchTerm] = useState(providerSearchTerm);
-  if (providerSearchTerm !== prevProviderSearchTerm) {
-    setPrevProviderSearchTerm(providerSearchTerm);
-    setProviderCurrentPage(1);
-  }
+  const credsOf = (provider: Provider) => credentials[provider.id] || [];
 
-  // Provider pagination calculations
-  const providerTotalCount = filteredProviders.length;
-  const providerTotalPages = Math.ceil(providerTotalCount / providerPageSize) || 1;
-  const paginatedProviders = filteredProviders.slice(
-    (providerCurrentPage - 1) * providerPageSize,
-    providerCurrentPage * providerPageSize
-  );
+  const providerTotalCount = filteredProviders.reduce((n, p) => n + credsOf(p).length, 0);
 
   if (loading || authStatus === 'loading') {
     return (
@@ -233,13 +193,213 @@ function SecretsPageContent() {
   // A non-admin who lands on ?tab=organization is bounced to providers.
   const effectiveTab = !canManageSecrets && activeTab === 'organization' ? 'providers' : activeTab;
 
+  const manageProviderCell = (provider: Provider) => (canManageSecrets ? (
+    <ActionButton
+      variant="change"
+      onClick={() => router.push(withReturnTo(`/providers/${provider.id}/credentials`, currentUrl))}
+    >
+      Credentials
+    </ActionButton>
+  ) : (
+    <span className="text-muted">-</span>
+  ));
+
+  // Sort keys over every credential a provider row shows
+  const firstText = (values: (string | undefined)[]) =>
+    values.filter((v): v is string => !!v).sort((a, b) => a.localeCompare(b))[0];
+  const dateTimes = (values: (string | null | undefined)[]) =>
+    values.filter((v): v is string => !!v).map((v) => new Date(v).getTime());
+  const newestCreated = (provider: Provider) => {
+    const times = dateTimes(credsOf(provider).map((c) => c.created_at));
+    return times.length ? new Date(Math.max(...times)) : null;
+  };
+  const soonestExpiry = (provider: Provider) => {
+    const times = dateTimes(credsOf(provider).map((c) => c.expires_at));
+    return times.length ? new Date(Math.min(...times)) : null;
+  };
+
+  const isExpired = (expiresAt: string | null | undefined) => !!expiresAt && new Date(expiresAt) < new Date();
+  const expiresCell = (expiresAt: string | null | undefined) => (
+    <>
+      <span>{expiresAt ? formatDate(expiresAt) : '-'}</span>
+      {isExpired(expiresAt) && <span className="badge-error ml-2">expired</span>}
+    </>
+  );
+
+  const orgColumns: ResourceColumnConfig<OrganizationSecret>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      sortValue: (secret) => secret.name,
+      render: (secret) => (
+        <div className="flex items-start">
+          <Key className="h-5 w-5 text-info mr-3 mt-0.5 flex-shrink-0" />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">
+                {secret.name}
+              </span>
+              {secret.is_protected && (
+                <span title="Protected - cannot be deleted">
+                  <Lock className="h-3.5 w-3.5 text-warning" />
+                </span>
+              )}
+            </div>
+            {secret.description && (
+              <div className="text-xs text-muted mt-0.5">
+                <LinkedText text={secret.description} />
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      align: 'center',
+      sortValue: (secret) => secretTypeLabel(secret.secret_type),
+      render: (secret) => <StatusBadge status={secretTypeLabel(secret.secret_type)} variant="default" />,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'center',
+      sortValue: (secret) => secret.is_active,
+      render: (secret) => (
+        <StatusBadge
+          status={secret.is_active ? 'active' : 'inactive'}
+          variant={secret.is_active ? 'success' : 'error'}
+        />
+      ),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      align: 'center',
+      sortValue: (secret) => (secret.created_at ? new Date(secret.created_at) : null),
+      render: (secret) => formatDate(secret.created_at || ''),
+    },
+    {
+      key: 'expires',
+      header: 'Expires',
+      align: 'center',
+      sortValue: (secret) => (secret.expires_at ? new Date(secret.expires_at) : null),
+      render: (secret) => expiresCell(secret.expires_at),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'center',
+      render: (secret) => (
+        <ActionButton
+          variant="change"
+          onClick={() => router.push(withReturnTo(`/secrets/${secret.id}/edit`, currentUrl))}
+        >
+          Edit
+        </ActionButton>
+      ),
+    },
+  ];
+
+  // One row per provider; its credentials stack inside the credential cells.
+  const providerColumns: ResourceColumnConfig<Provider>[] = [
+    {
+      key: 'provider',
+      header: 'Provider',
+      sortValue: (provider) => provider.name,
+      render: (provider) => (
+        <>
+          <div className="text-sm font-medium">
+            {provider.name}
+          </div>
+          <div className="text-muted text-xs">
+            {provider.description || `${provider.provider_type} provider`}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'credential',
+      header: 'Credential Name',
+      sortValue: (provider) => firstText(credsOf(provider).map((c) => c.name)),
+      render: (provider) => {
+        const creds = credsOf(provider);
+        if (creds.length === 0) {
+          return <span className="text-muted italic">No credentials configured</span>;
+        }
+        return (
+          <div className="space-y-2">
+            {creds.map((cred) => (
+              <div key={cred.id} className="flex items-center">
+                <Key className="h-4 w-4 text-muted mr-2" />
+                <div className="text-sm font-medium">
+                  {cred.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      align: 'center',
+      sortValue: (provider) => firstText(credsOf(provider).map((c) => secretTypeLabel(c.credential_type))),
+      render: (provider) => (
+        <div className="space-y-2">
+          {credsOf(provider).map((cred) => (
+            <div key={cred.id}>
+              <StatusBadge status={secretTypeLabel(cred.credential_type)} variant="default" />
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      align: 'center',
+      sortValue: newestCreated,
+      cellClassName: 'text-sm text-muted',
+      render: (provider) => (
+        <div className="space-y-2">
+          {credsOf(provider).map((cred) => (
+            <div key={cred.id}>{formatDate(cred.created_at || '')}</div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: 'expires',
+      header: 'Expires',
+      align: 'center',
+      sortValue: soonestExpiry,
+      cellClassName: 'text-sm text-muted',
+      render: (provider) => (
+        <div className="space-y-2">
+          {credsOf(provider).map((cred) => (
+            <div key={cred.id}>{expiresCell(cred.expires_at)}</div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'center',
+      render: manageProviderCell,
+    },
+  ];
+
   return (
     <>
       <div className="px-4 py-6 sm:px-6 lg:px-8">
         <div className="sm:flex sm:items-center mb-8">
           <div className="sm:flex-auto">
             <h1 className="text-2xl font-semibold text-primary">
-              {user?.role === 'super_admin' ? 'System Secrets' : 'Secrets & Credentials'}
+              {user?.role === 'super_admin' ? 'System Secrets' : 'Secrets'}
             </h1>
             <p className="mt-2 text-sm text-secondary">
               {user?.role === 'super_admin'
@@ -278,278 +438,77 @@ function SecretsPageContent() {
         {/* Organization Secrets Tab Content */}
         {canManageSecrets && (effectiveTab === 'organization' || !showTabs) && (
           <div>
-            {/* Search and Pagination Controls */}
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <SearchInput
-                value={orgSearchTerm}
-                onChange={setOrgSearchTerm}
-                placeholder="Search secrets..."
-              />
-              <div className="flex items-center gap-4">
-                <Link
-                  href={withReturnTo('/secrets/new', currentUrl)}
-                  className="btn-primary inline-flex items-center"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Secret
-                </Link>
-                <Pagination
-                  currentPage={orgCurrentPage}
-                  totalPages={orgTotalPages}
-                  totalCount={orgTotalCount}
-                  pageSize={orgPageSize}
-                  onPageChange={setOrgCurrentPage}
-                  onPageSizeChange={(size) => {
-                    setOrgPageSize(size);
-                    setOrgCurrentPage(1);
-                  }}
-                  pageSizeOptions={PAGE_SIZE_OPTIONS}
-                  position="top"
+            <ResourceTable<OrganizationSecret>
+              data={filteredOrgSecrets}
+              getItemId={(secret) => secret.id}
+              columns={orgColumns}
+              prefPage="secrets"
+              pagination={{ itemLabel: 'secret' }}
+              pageResetKey={orgSearchTerm}
+              toolbar={
+                <>
+                  <SearchInput
+                    value={orgSearchTerm}
+                    onChange={setOrgSearchTerm}
+                    placeholder="Search secrets..."
+                  />
+                  <Link
+                    href={withReturnTo('/secrets/new', currentUrl)}
+                    className="btn-primary inline-flex items-center"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Secret
+                  </Link>
+                </>
+              }
+              emptyState={
+                <EmptyState
+                  icon={<Key className="h-12 w-12" />}
+                  title="No secrets found"
+                  description={orgSearchTerm ? 'Try adjusting your search term.' : 'Get started by creating an organization secret.'}
                 />
-              </div>
-            </div>
-
-            {paginatedOrgSecrets.length === 0 ? (
-              <EmptyState
-                icon={<Key className="h-12 w-12" />}
-                title="No secrets found"
-                description={orgSearchTerm ? 'Try adjusting your search term.' : 'Get started by creating an organization secret.'}
-              />
-            ) : (
-              <>
-                <TableContainer>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHeaderCell>Name</TableHeaderCell>
-                        <TableHeaderCell align="center">Type</TableHeaderCell>
-                        <TableHeaderCell align="center">Status</TableHeaderCell>
-                        <TableHeaderCell align="center">Created</TableHeaderCell>
-                        <TableHeaderCell align="center">Expires</TableHeaderCell>
-                        <TableHeaderCell align="center">Actions</TableHeaderCell>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paginatedOrgSecrets.map((secret) => (
-                        <TableRow key={secret.id}>
-                          <TableCell>
-                            <div className="flex items-start">
-                              <Key className="h-5 w-5 text-info mr-3 mt-0.5 flex-shrink-0" />
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium">
-                                    {secret.name}
-                                  </span>
-                                  {secret.is_protected && (
-                                    <span title="Protected - cannot be deleted">
-                                      <Lock className="h-3.5 w-3.5 text-warning" />
-                                    </span>
-                                  )}
-                                </div>
-                                {secret.description && (
-                                  <div className="text-xs text-muted mt-0.5">
-                                    <LinkedText text={secret.description} />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell align="center">
-                            <StatusBadge status={secret.secret_type} variant="default" />
-                          </TableCell>
-                          <TableCell align="center">
-                            <StatusBadge
-                              status={secret.is_active ? 'Active' : 'Inactive'}
-                              variant={secret.is_active ? 'success' : 'error'}
-                            />
-                          </TableCell>
-                          <TableCell align="center">
-                            {formatDateTime(secret.created_at || '')}
-                          </TableCell>
-                          <TableCell align="center">
-                            {secret.expires_at ? formatDateTime(secret.expires_at) : '-'}
-                          </TableCell>
-                          <TableCell align="center">
-                            <ActionButton
-                              variant="change"
-                              onClick={() => router.push(withReturnTo(`/secrets/${secret.id}/edit`, currentUrl))}
-                            >
-                              Manage
-                            </ActionButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-
-                {/* Bottom Pagination */}
-                <Pagination
-                  currentPage={orgCurrentPage}
-                  totalPages={orgTotalPages}
-                  totalCount={orgTotalCount}
-                  pageSize={orgPageSize}
-                  onPageChange={setOrgCurrentPage}
-                  itemLabel="secret"
-                  position="bottom"
-                />
-              </>
-            )}
+              }
+            />
           </div>
         )}
 
         {/* Provider Credentials Tab Content */}
         {effectiveTab === 'providers' && showTabs && (
           <div>
-            {/* Search and Pagination Controls */}
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <SearchInput
-                value={providerSearchTerm}
-                onChange={setProviderSearchTerm}
-                placeholder="Search providers..."
-              />
-              <Pagination
-                currentPage={providerCurrentPage}
-                totalPages={providerTotalPages}
-                totalCount={providerTotalCount}
-                pageSize={providerPageSize}
-                onPageChange={setProviderCurrentPage}
-                onPageSizeChange={(size) => {
-                  setProviderPageSize(size);
-                  setProviderCurrentPage(1);
-                }}
-                pageSizeOptions={PAGE_SIZE_OPTIONS}
-                position="top"
-              />
-            </div>
-
-            {paginatedProviders.length === 0 ? (
-              <EmptyState
-                icon={<Key className="h-12 w-12" />}
-                title="No providers found"
-                description={providerSearchTerm ? 'Try adjusting your search term.' : 'Get started by adding a provider.'}
-                action={
-                  !providerSearchTerm ? (
-                    <Link
-                      href="/providers"
-                      className="btn-primary inline-flex items-center"
-                    >
-                      <Key className="mr-2 h-4 w-4" />
-                      Go to Providers
-                    </Link>
-                  ) : undefined
-                }
-              />
-            ) : (
-              <>
-                <TableContainer>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHeaderCell>Provider</TableHeaderCell>
-                        <TableHeaderCell>Credential Name</TableHeaderCell>
-                        <TableHeaderCell align="center">Type</TableHeaderCell>
-                        <TableHeaderCell align="center">Created</TableHeaderCell>
-                        <TableHeaderCell align="center">Expires</TableHeaderCell>
-                        <TableHeaderCell align="center">Actions</TableHeaderCell>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paginatedProviders.map((provider) => {
-                        const providerCreds = credentials[provider.id] || [];
-
-                        if (providerCreds.length === 0) {
-                          return (
-                            <TableRow key={provider.id}>
-                              <TableCell>
-                                <div className="text-sm font-medium">
-                                  {provider.name}
-                                </div>
-                                <div className="text-muted text-xs">
-                                  {provider.description || `${provider.provider_type} provider`}
-                                </div>
-                              </TableCell>
-                              <TableCell colSpan={4} className="text-muted italic">
-                                No credentials configured
-                              </TableCell>
-                              <TableCell align="center">
-                                {canManageSecrets ? (
-                                  <ActionButton
-                                    variant="change"
-                                    onClick={() => router.push(withReturnTo(`/providers/${provider.id}/credentials`, currentUrl))}
-                                  >
-                                    Manage
-                                  </ActionButton>
-                                ) : (
-                                  <span className="text-muted">-</span>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        }
-
-                        return providerCreds.map((cred, index) => (
-                          <tr key={cred.id} className="table-row">
-                            {index === 0 && (
-                              <td className="table-cell" rowSpan={providerCreds.length}>
-                                <div className="text-sm font-medium">
-                                  {provider.name}
-                                </div>
-                                <div className="text-muted text-xs">
-                                  {provider.description || `${provider.provider_type} provider`}
-                                </div>
-                              </td>
-                            )}
-                            <td className="table-cell">
-                              <div className="flex items-center">
-                                <Key className="h-4 w-4 text-muted mr-2" />
-                                <div className="text-sm font-medium">
-                                  {cred.name}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="table-cell text-center">
-                              <StatusBadge status={cred.credential_type} variant="default" />
-                            </td>
-                            <td className="table-cell text-center text-sm text-muted">
-                              {formatDateTime(cred.created_at || '')}
-                            </td>
-                            <td className="table-cell text-center text-sm text-muted">
-                              {cred.expires_at ? formatDateTime(cred.expires_at) : '-'}
-                            </td>
-                            {index === 0 && (
-                              <td className="table-cell text-center" rowSpan={providerCreds.length}>
-                                {canManageSecrets ? (
-                                  <ActionButton
-                                    variant="change"
-                                    onClick={() => router.push(withReturnTo(`/providers/${provider.id}/credentials`, currentUrl))}
-                                  >
-                                    Manage
-                                  </ActionButton>
-                                ) : (
-                                  <span className="text-muted">-</span>
-                                )}
-                              </td>
-                            )}
-                          </tr>
-                        ));
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-
-                {/* Bottom Pagination */}
-                <Pagination
-                  currentPage={providerCurrentPage}
-                  totalPages={providerTotalPages}
-                  totalCount={providerTotalCount}
-                  pageSize={providerPageSize}
-                  onPageChange={setProviderCurrentPage}
-                  itemLabel="provider"
-                  position="bottom"
+            <ResourceTable<Provider>
+              data={filteredProviders}
+              getItemId={(provider) => provider.id}
+              tieBreaker="provider"
+              columns={providerColumns}
+              prefPage="secrets-providers"
+              pagination={{ itemLabel: 'provider' }}
+              pageResetKey={providerSearchTerm}
+              toolbar={
+                <SearchInput
+                  value={providerSearchTerm}
+                  onChange={setProviderSearchTerm}
+                  placeholder="Search providers and credentials..."
                 />
-              </>
-            )}
+              }
+              emptyState={
+                <EmptyState
+                  icon={<Key className="h-12 w-12" />}
+                  title="No providers found"
+                  description={providerSearchTerm ? 'Try adjusting your search term.' : 'Get started by adding a provider.'}
+                  action={
+                    !providerSearchTerm ? (
+                      <Link
+                        href="/providers"
+                        className="btn-primary inline-flex items-center"
+                      >
+                        <Key className="mr-2 h-4 w-4" />
+                        Go to Providers
+                      </Link>
+                    ) : undefined
+                  }
+                />
+              }
+            />
           </div>
         )}
       </div>

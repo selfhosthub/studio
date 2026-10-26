@@ -19,9 +19,12 @@ from pydantic import BaseModel
 from app.application.services.audit_service import AuditService
 from app.domain.audit.models import AuditActorType, AuditEvent
 from app.domain.common.value_objects import Role
+from app.domain.organization.models import User
+from app.domain.organization.repository import UserRepository
 from app.presentation.api.dependencies import (
     CurrentUser,
     get_audit_service,
+    get_user_repository,
     require_admin,
     require_super_admin,
 )
@@ -34,7 +37,8 @@ router = APIRouter(tags=["Audit Logs"])
 class AuditEventResponse(BaseModel):
     id: str
     organization_id: Optional[str] = None
-    actor_id: str
+    actor_id: Optional[str] = None
+    actor_name: Optional[str] = None
     actor_type: str
     action: str
     resource_type: str
@@ -49,13 +53,16 @@ class AuditEventResponse(BaseModel):
     created_at: str
 
     @classmethod
-    def from_domain(cls, event: AuditEvent) -> "AuditEventResponse":
+    def from_domain(
+        cls, event: AuditEvent, actor_name: Optional[str] = None
+    ) -> "AuditEventResponse":
         return cls(
             id=str(event.id),
             organization_id=(
                 str(event.organization_id) if event.organization_id else None
             ),
-            actor_id=str(event.actor_id),
+            actor_id=str(event.actor_id) if event.actor_id else None,
+            actor_name=actor_name,
             actor_type=(
                 event.actor_type.value
                 if hasattr(event.actor_type, "value")
@@ -93,6 +100,28 @@ class AuditEventResponse(BaseModel):
             error_message=event.error_message,
             created_at=event.created_at.isoformat(),
         )
+
+
+def _display_name(user: User) -> str:
+    """First and last name, or the username when neither is set."""
+    full = " ".join(p for p in (user.first_name, user.last_name) if p)
+    return full or user.username
+
+
+async def _actor_names(
+    events: List[AuditEvent],
+    user_repository: UserRepository,
+    current_user: CurrentUser,
+) -> Dict[UUID, str]:
+    """Display names for the page's actors; super_admin sees every org, admin only their own."""
+    actor_ids = list({e.actor_id for e in events if e.actor_id})
+    users = await user_repository.get_by_ids(actor_ids)
+    if current_user.get("role") == Role.SUPER_ADMIN:
+        return {u.id: _display_name(u) for u in users}
+    org_id = current_user.get("org_id")
+    return {
+        u.id: _display_name(u) for u in users if str(u.organization_id) == org_id
+    }
 
 
 class AuditEventListResponse(BaseModel):
@@ -135,8 +164,13 @@ async def list_audit_events(
     include_system_events: bool = Query(
         True, description="Include system-level events (super_admin only)"
     ),
+    search: Optional[str] = Query(
+        None,
+        description="Match resource name, action, resource type or error message",
+    ),
     current_user: CurrentUser = Depends(require_admin),
     audit_service: AuditService = Depends(get_audit_service),
+    user_repository: UserRepository = Depends(get_user_repository),
 ) -> AuditEventListResponse:
     """admin → own org only; super_admin → all + system events."""
     user_role = current_user.get("role", "user")
@@ -185,28 +219,10 @@ async def list_audit_events(
                     detail="Invalid organization_id format.",
                 )
 
-        events = await audit_service.list_all_events(
-            skip=skip,
-            limit=limit,
-            organization_id=parsed_org_id,
-            resource_type=resource_type,
-            action=action,
-            severity=severity,
-            category=category,
-            actor_id=parsed_actor_id,
-            start_date=parsed_start_date,
-            end_date=parsed_end_date,
-            include_system_events=include_system_events,
-        )
-
-        total = await audit_service.count_events(
-            organization_id=parsed_org_id,
-            resource_type=resource_type,
-            severity=severity,
-            category=category,
-            start_date=parsed_start_date,
-            end_date=parsed_end_date,
-        )
+        filters: Dict[str, Any] = {
+            "organization_id": parsed_org_id,
+            "include_system_events": include_system_events,
+        }
 
     else:
         if not user_org_id:
@@ -214,33 +230,36 @@ async def list_audit_events(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User does not belong to an organization.",
             )
+        filters = {"organization_id": UUID(user_org_id)}
 
-        org_uuid = UUID(user_org_id)
-
+    filters.update(
+        resource_type=resource_type,
+        action=action,
+        severity=severity,
+        category=category,
+        actor_id=parsed_actor_id,
+        start_date=parsed_start_date,
+        end_date=parsed_end_date,
+        search=search,
+    )
+    if is_super_admin:
+        events = await audit_service.list_all_events(
+            skip=skip, limit=limit, **filters
+        )
+    else:
         events = await audit_service.list_organization_events(
-            organization_id=org_uuid,
-            skip=skip,
-            limit=limit,
-            resource_type=resource_type,
-            action=action,
-            severity=severity,
-            category=category,
-            actor_id=parsed_actor_id,
-            start_date=parsed_start_date,
-            end_date=parsed_end_date,
+            skip=skip, limit=limit, **filters
         )
-
-        total = await audit_service.count_events(
-            organization_id=org_uuid,
-            resource_type=resource_type,
-            severity=severity,
-            category=category,
-            start_date=parsed_start_date,
-            end_date=parsed_end_date,
-        )
+    total = await audit_service.count_events(**filters)
+    names = await _actor_names(events, user_repository, current_user)
 
     return AuditEventListResponse(
-        items=[AuditEventResponse.from_domain(e) for e in events],
+        items=[
+            AuditEventResponse.from_domain(
+                e, names.get(e.actor_id) if e.actor_id else None
+            )
+            for e in events
+        ],
         total=total,
         skip=skip,
         limit=limit,
@@ -426,7 +445,7 @@ def _event_to_siem_dict(event: AuditEvent) -> Dict[str, Any]:
         "organization_id": (
             str(event.organization_id) if event.organization_id else None
         ),
-        "actor_id": str(event.actor_id),
+        "actor_id": str(event.actor_id) if event.actor_id else None,
         "actor_type": (
             event.actor_type.value
             if hasattr(event.actor_type, "value")
@@ -528,6 +547,11 @@ async def export_audit_events(
                     "start_date": start_date,
                     "end_date": end_date,
                     "organization_id": organization_id,
+                    "resource_type": resource_type,
+                    "action": action,
+                    "severity": severity,
+                    "category": category,
+                    "limit": limit,
                 },
             },
         )

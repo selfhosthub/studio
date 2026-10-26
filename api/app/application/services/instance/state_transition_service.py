@@ -103,7 +103,7 @@ class StateTransitionService:
             if step_execution.status in _CANNOT_RESET_MID_FLIGHT:
                 raise BusinessRuleViolation(
                     message=(
-                        f"Cannot rerun while step '{step_execution.step_key}' is "
+                        f"Cannot rerun while node '{step_execution.step_key}' is "
                         f"{step_execution.status.value}. Wait for it to finish or "
                         f"cancel the instance first."
                     ),
@@ -206,7 +206,7 @@ class StateTransitionService:
                 return se
         raise BusinessRuleViolation(
             message=(
-                f"Cannot begin operation: step '{primary_step_id}' not "
+                f"Cannot begin operation: node '{primary_step_id}' not "
                 f"in step_entities or step_executions"
             ),
             code="STEP_NOT_FOUND_FOR_OPERATION",

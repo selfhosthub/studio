@@ -6,16 +6,14 @@ import {
   ActionButton,
   StatusBadge,
   SearchInput,
-  Pagination,
-  LoadingState,
-  ErrorState,
   EmptyState,
   Modal,
   UserAvatar,
+  ResourceTable,
+  type ResourceColumnConfig,
 } from "@/shared/ui";
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { PAGINATION } from '@/shared/lib/constants';
 import {
   getOrganizationMembers,
   removeOrganizationMember,
@@ -26,7 +24,7 @@ import {
 import { useUser } from "@/entities/user";
 import { useToast } from "@/features/toast";
 import { Users } from "lucide-react";
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 /**
  * Organization Users page - manages users in the admin's own organization.
@@ -37,6 +35,7 @@ export default function OrganizationUsersPage() {
   const router = useRouter();
   const { user } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const orgId = user?.org_id || '';
 
   const [members, setMembers] = useState<any[]>([]);
@@ -44,10 +43,7 @@ export default function OrganizationUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
-  // Search and pagination state
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGINATION.DEFAULT_PAGE_SIZE);
   const [inviteForm, setInviteForm] = useState({
     email: '',
     username: '',
@@ -101,7 +97,7 @@ export default function OrganizationUsersPage() {
         setError(null);
       } catch (err) {
         console.error('Failed to fetch organization members:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load organization members');
+        setError(err instanceof Error ? err.message : 'Failed to load users');
       } finally {
         setLoading(false);
       }
@@ -120,32 +116,36 @@ export default function OrganizationUsersPage() {
     );
   }, [members, searchTerm]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredMembers.length / pageSize);
-  const paginatedMembers = filteredMembers.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
-
-  // Reset to page 1 when search changes (adjust during render, not in an effect).
-  const [prevSearchTerm, setPrevSearchTerm] = useState(searchTerm);
-  if (searchTerm !== prevSearchTerm) {
-    setPrevSearchTerm(searchTerm);
-    setCurrentPage(1);
-  }
-
-  const handleRemoveMember = async (memberId: string, memberName: string) => {
-    if (!confirm(`Are you sure you want to remove ${memberName} from the organization?`)) {
+  const handleDeactivateMember = async (memberId: string, memberName: string) => {
+    if (!(await confirm({
+      title: 'Deactivate user',
+      message: `Deactivate ${memberName}? They cannot sign in until an admin sets them Active again. Their email and username stay reserved.`,
+      confirmLabel: 'Deactivate',
+      variant: 'warning',
+    }))) {
       return;
     }
 
     try {
       await removeOrganizationMember(orgId, memberId);
-      setMembers(members.filter(m => m.id !== memberId));
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, is_active: false } : m));
+      toast({ title: 'User deactivated', variant: 'success' });
     } catch (err: unknown) {
-      toast({ title: 'Remove failed', description: err instanceof Error ? err.message : 'Failed to remove member', variant: 'destructive' });
+      toast({ title: 'Deactivate failed', description: err instanceof Error ? err.message : 'Failed to deactivate user', variant: 'destructive' });
     }
   };
+
+  const updateInviteForm = (patch: Partial<typeof inviteForm>) => {
+    setInviteForm({ ...inviteForm, ...patch });
+    setInviteError(null);
+  };
+
+  const updateEditForm = (patch: Partial<typeof editForm>) => {
+    setEditForm({ ...editForm, ...patch });
+    setEditError(null);
+  };
+
+  const isEditingSelf = editingUser?.id === user?.id;
 
   const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,8 +167,9 @@ export default function OrganizationUsersPage() {
       setMembers([...members, newUser]);
       setShowInviteModal(false);
       setInviteForm({ email: '', username: '', password: '', confirmPassword: '', role: 'user' });
+      toast({ title: 'User added', variant: 'success' });
     } catch (err: unknown) {
-      setInviteError(err instanceof Error ? err.message : 'Failed to invite user');
+      setInviteError(err instanceof Error ? err.message : 'Failed to add user');
     }
   };
 
@@ -230,12 +231,98 @@ export default function OrganizationUsersPage() {
       const updatedUser = await updateUserAsAdmin(editingUser.id, editForm);
       setMembers(members.map(m => m.id === editingUser.id ? { ...m, ...updatedUser } : m));
       setEditingUser(null);
+      toast({ title: 'User updated', variant: 'success' });
     } catch (err: unknown) {
       setEditError(err instanceof Error ? err.message : 'Failed to update user');
     } finally {
       setEditSaving(false);
     }
   };
+
+  const columns: ResourceColumnConfig<any>[] = [
+    {
+      key: 'user',
+      header: 'User',
+      sortValue: (member) => (member.first_name && member.last_name
+        ? `${member.first_name} ${member.last_name}`
+        : member.username),
+      render: (member) => (
+        <div className="flex items-center">
+          <UserAvatar user={member} sizeClassName="w-8 h-8" />
+          <div className="ml-3">
+            <div className="text-sm font-medium text-primary">
+              {member.first_name && member.last_name
+                ? `${member.first_name} ${member.last_name}`
+                : member.username}
+            </div>
+            <div className="text-sm text-secondary">@{member.username}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'email',
+      header: 'Email',
+      sortValue: (member) => member.email,
+      cellClassName: 'whitespace-nowrap text-sm text-secondary',
+      render: (member) => member.email,
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      sortValue: (member) => member.role,
+      cellClassName: 'md:whitespace-nowrap',
+      render: (member) => (
+        <StatusBadge
+          status={member.role}
+          variant={member.role === 'admin' ? 'warning' : member.role === 'super_admin' ? 'error' : 'default'}
+        />
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortValue: (member) => member.is_active !== false,
+      priority: 'primary',
+      cellClassName: 'md:whitespace-nowrap',
+      render: (member) => (
+        <StatusBadge
+          status={member.is_active !== false ? 'active' : 'inactive'}
+          variant={member.is_active !== false ? 'success' : 'default'}
+        />
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      visible: canManageUsers,
+      cellClassName: 'md:whitespace-nowrap text-sm',
+      render: (member) => (
+        <div className="flex justify-end gap-2 items-center max-md:flex-col max-md:items-stretch">
+          <ActionButton variant="change" onClick={() => handleEditClick(member)}>
+            Edit
+          </ActionButton>
+          {member.id !== user?.id && (isSuperAdmin || member.role === 'user') && (
+            <ActionButton
+              variant="warning"
+              onClick={() => handleResetPasswordClick(member)}
+            >
+              Reset password
+            </ActionButton>
+          )}
+          {member.id !== user?.id && member.is_active !== false && (
+            <ActionButton
+              variant="warning"
+              onClick={() => handleDeactivateMember(member.id, member.username)}
+            >
+              Deactivate
+            </ActionButton>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   if (!canView) {
     return null;
@@ -250,8 +337,8 @@ export default function OrganizationUsersPage() {
             <Users className="w-5 h-5 text-info" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-primary">Members ({members.length})</h2>
-            <p className="text-sm text-secondary">Manage organization members</p>
+            <h2 className="text-lg font-semibold text-primary">Users ({members.length})</h2>
+            <p className="text-sm text-secondary">Manage organization users</p>
           </div>
         </div>
         {canManageUsers && (
@@ -261,130 +348,36 @@ export default function OrganizationUsersPage() {
         )}
       </div>
 
-      {loading && <LoadingState message="Loading members..." />}
-
-      {!loading && error && (
-        <ErrorState
-          title="Error Loading Members"
-          message={error}
-          onRetry={() => window.location.reload()}
-        />
-      )}
-
-      {!loading && !error && (
-        <>
-          {/* Search */}
+      <ResourceTable
+        data={filteredMembers}
+        getItemId={(member) => member.id}
+        tieBreaker="user"
+        columns={columns}
+        prefPage="org-users"
+        pagination={{ itemLabel: 'user' }}
+        pageResetKey={searchTerm}
+        toolbar={
           <SearchInput
             value={searchTerm}
             onChange={setSearchTerm}
-            placeholder="Search members..."
+            placeholder="Search users..."
           />
-
-          {/* Members Table */}
-          {paginatedMembers.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-primary">
-                <thead className="bg-surface">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">User</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Email</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Role</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Status</th>
-                    {canManageUsers && (
-                      <th className="px-4 py-3 text-right text-xs font-medium text-secondary uppercase">Actions</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="bg-card divide-y divide-primary">
-                  {paginatedMembers.map((member) => (
-                    <tr key={member.id}>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <UserAvatar user={member} sizeClassName="w-8 h-8" />
-                          <div className="ml-3">
-                            <div className="text-sm font-medium text-primary">
-                              {member.first_name && member.last_name
-                                ? `${member.first_name} ${member.last_name}`
-                                : member.username}
-                            </div>
-                            <div className="text-sm text-secondary">@{member.username}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-secondary">
-                        {member.email}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <StatusBadge
-                          status={member.role}
-                          variant={member.role === 'admin' ? 'warning' : member.role === 'super_admin' ? 'error' : 'default'}
-                        />
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <StatusBadge
-                          status={member.is_active !== false ? 'active' : 'inactive'}
-                          variant={member.is_active !== false ? 'success' : 'default'}
-                        />
-                      </td>
-                      {canManageUsers && (
-                        <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
-                          <div className="flex justify-end gap-2">
-                            <ActionButton variant="change" onClick={() => handleEditClick(member)}>
-                              Edit
-                            </ActionButton>
-                            {member.id !== user?.id && (isSuperAdmin || member.role === 'user') && (
-                              <ActionButton
-                                variant="warning"
-                                onClick={() => handleResetPasswordClick(member)}
-                              >
-                                Reset password
-                              </ActionButton>
-                            )}
-                            {member.id !== user?.id && (
-                              <ActionButton
-                                variant="destructive"
-                                onClick={() => handleRemoveMember(member.id, member.username)}
-                              >
-                                Remove
-                              </ActionButton>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState
-              title="No members found"
-              description={searchTerm ? 'No members match your search' : 'No members in this organization'}
-            />
-          )}
-
-          {/* Pagination */}
-          {filteredMembers.length > pageSize && (
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalCount={filteredMembers.length}
-              pageSize={pageSize}
-              onPageChange={setCurrentPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setCurrentPage(1);
-              }}
-              pageSizeOptions={PAGE_SIZE_OPTIONS}
-              itemLabel="member"
-              position="bottom"
-            />
-          )}
-        </>
-      )}
+        }
+        loading={loading}
+        loadingMessage="Loading users..."
+        error={error}
+        errorTitle="Error Loading Users"
+        onRetry={() => window.location.reload()}
+        emptyState={
+          <EmptyState
+            title="No users found"
+            description={searchTerm ? 'Try adjusting your search term.' : 'No users in this organization.'}
+          />
+        }
+      />
 
       {/* Invite Modal */}
-      <Modal isOpen={showInviteModal} onClose={() => setShowInviteModal(false)} title="Add New User" size="sm">
+      <Modal isOpen={showInviteModal} onClose={() => setShowInviteModal(false)} title="Add User" size="sm">
         <form onSubmit={handleInviteSubmit} className="p-4 space-y-4">
           <div>
             <label htmlFor="create-user-email" className="block text-sm font-medium text-secondary mb-1">Email</label>
@@ -393,7 +386,7 @@ export default function OrganizationUsersPage() {
               type="email"
               required
               value={inviteForm.email}
-              onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+              onChange={(e) => updateInviteForm({ email: e.target.value })}
               className="form-input w-full"
             />
           </div>
@@ -404,7 +397,7 @@ export default function OrganizationUsersPage() {
               type="text"
               required
               value={inviteForm.username}
-              onChange={(e) => setInviteForm({ ...inviteForm, username: e.target.value })}
+              onChange={(e) => updateInviteForm({ username: e.target.value })}
               className="form-input w-full"
             />
           </div>
@@ -414,8 +407,9 @@ export default function OrganizationUsersPage() {
               id="create-user-password"
               type="password"
               required
+              minLength={8}
               value={inviteForm.password}
-              onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
+              onChange={(e) => updateInviteForm({ password: e.target.value })}
               className="form-input w-full"
             />
           </div>
@@ -425,8 +419,9 @@ export default function OrganizationUsersPage() {
               id="create-user-confirm-password"
               type="password"
               required
+              minLength={8}
               value={inviteForm.confirmPassword}
-              onChange={(e) => setInviteForm({ ...inviteForm, confirmPassword: e.target.value })}
+              onChange={(e) => updateInviteForm({ confirmPassword: e.target.value })}
               className="form-input w-full"
             />
           </div>
@@ -435,7 +430,7 @@ export default function OrganizationUsersPage() {
             <select
               id="create-user-role"
               value={inviteForm.role}
-              onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value as 'user' | 'admin' | 'super_admin' })}
+              onChange={(e) => updateInviteForm({ role: e.target.value as 'user' | 'admin' | 'super_admin' })}
               className="form-input w-full"
             >
               <option value="user">User</option>
@@ -446,9 +441,9 @@ export default function OrganizationUsersPage() {
             <div className="text-sm text-danger">{inviteError}</div>
           )}
           <div className="flex justify-end gap-2">
-            <ActionButton variant="warning" onClick={() => setShowInviteModal(false)}>
+            <button type="button" className="btn-cancel" onClick={() => setShowInviteModal(false)}>
               Cancel
-            </ActionButton>
+            </button>
             <button type="submit" className="btn-primary">
               Add User
             </button>
@@ -465,7 +460,7 @@ export default function OrganizationUsersPage() {
               id="edit-user-username"
               type="text"
               value={editForm.username}
-              onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+              onChange={(e) => updateEditForm({ username: e.target.value })}
               className="form-input w-full"
             />
           </div>
@@ -475,7 +470,7 @@ export default function OrganizationUsersPage() {
               id="edit-user-email"
               type="email"
               value={editForm.email}
-              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+              onChange={(e) => updateEditForm({ email: e.target.value })}
               className="form-input w-full"
             />
           </div>
@@ -486,7 +481,7 @@ export default function OrganizationUsersPage() {
                 id="edit-user-first-name"
                 type="text"
                 value={editForm.first_name}
-                onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                onChange={(e) => updateEditForm({ first_name: e.target.value })}
                 className="form-input w-full"
               />
             </div>
@@ -496,7 +491,7 @@ export default function OrganizationUsersPage() {
                 id="edit-user-last-name"
                 type="text"
                 value={editForm.last_name}
-                onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                onChange={(e) => updateEditForm({ last_name: e.target.value })}
                 className="form-input w-full"
               />
             </div>
@@ -506,7 +501,8 @@ export default function OrganizationUsersPage() {
             <select
               id="edit-user-role"
               value={editForm.role}
-              onChange={(e) => setEditForm({ ...editForm, role: e.target.value as 'user' | 'admin' | 'super_admin' })}
+              onChange={(e) => updateEditForm({ role: e.target.value as 'user' | 'admin' | 'super_admin' })}
+              disabled={isEditingSelf}
               className="form-input w-full"
             >
               <option value="user">User</option>
@@ -518,18 +514,22 @@ export default function OrganizationUsersPage() {
               type="checkbox"
               id="is_active"
               checked={editForm.is_active}
-              onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+              onChange={(e) => updateEditForm({ is_active: e.target.checked })}
+              disabled={isEditingSelf}
               className="form-checkbox"
             />
             <label htmlFor="is_active" className="text-sm text-secondary">Active</label>
           </div>
+          {isEditingSelf && (
+            <p className="text-xs text-secondary">You cannot change your own role or status</p>
+          )}
           {editError && (
             <div className="text-sm text-danger">{editError}</div>
           )}
           <div className="flex justify-end gap-2">
-            <ActionButton variant="warning" onClick={() => setEditingUser(null)} disabled={editSaving}>
+            <button type="button" className="btn-cancel" onClick={() => setEditingUser(null)} disabled={editSaving}>
               Cancel
-            </ActionButton>
+            </button>
             <button type="submit" className="btn-primary" disabled={editSaving}>
               {editSaving ? 'Saving...' : 'Save'}
             </button>
@@ -549,6 +549,7 @@ export default function OrganizationUsersPage() {
               id="reset-user-password"
               type="password"
               required
+              minLength={8}
               value={resetForm.password}
               onChange={(e) => setResetForm({ ...resetForm, password: e.target.value })}
               className="form-input w-full"
@@ -560,6 +561,7 @@ export default function OrganizationUsersPage() {
               id="reset-user-confirm-password"
               type="password"
               required
+              minLength={8}
               value={resetForm.confirmPassword}
               onChange={(e) => setResetForm({ ...resetForm, confirmPassword: e.target.value })}
               className="form-input w-full"
@@ -569,9 +571,9 @@ export default function OrganizationUsersPage() {
             <div className="text-sm text-danger">{resetError}</div>
           )}
           <div className="flex justify-end gap-2">
-            <ActionButton variant="warning" onClick={() => setResetUser(null)} disabled={resetSaving}>
+            <button type="button" className="btn-cancel" onClick={() => setResetUser(null)} disabled={resetSaving}>
               Cancel
-            </ActionButton>
+            </button>
             <button type="submit" className="btn-primary" disabled={resetSaving}>
               {resetSaving ? 'Resetting...' : 'Reset Password'}
             </button>

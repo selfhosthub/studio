@@ -24,6 +24,8 @@ interface InputsPanelProps {
   setFormValues: React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
   onFormSubmit: InstanceSimpleViewProps["onFormSubmit"];
   isSubmittingForm: boolean;
+  /** False hides Submit & Start from a user who neither owns the run nor administers it. */
+  canControlRun?: boolean;
 }
 
 export function InputsPanel({
@@ -33,6 +35,7 @@ export function InputsPanel({
   setFormValues,
   onFormSubmit,
   isSubmittingForm,
+  canControlRun = true,
 }: InputsPanelProps) {
   const [missingFields, setMissingFields] = useState<string[]>([]);
   const [invalidFields, setInvalidFields] = useState<PatternViolation[]>([]);
@@ -148,6 +151,7 @@ export function InputsPanel({
               </div>
             )}
 
+            {canControlRun && (
             <button
               type="submit"
               disabled={isSubmittingForm}
@@ -162,6 +166,7 @@ export function InputsPanel({
                 "Submit & Start"
               )}
             </button>
+            )}
           </form>
         ) : instance.input_data && Object.keys(instance.input_data).length > 0 ? (
           <div className="space-y-3">

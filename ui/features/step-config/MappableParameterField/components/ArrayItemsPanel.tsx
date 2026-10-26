@@ -387,8 +387,8 @@ export function ArrayItemsPanel({
       return (
         <div className="param-field-input-row">
           <select value={fieldMapping.stepId} onChange={(e) => handleStepChange(e.target.value)} className="p-1.5 border rounded text-xs">
-            <option value="">Step...</option>
-            {showInstanceFormOption && <option value="__instance_form__" className="font-semibold">Instance Form</option>}
+            <option value="">Node...</option>
+            {showInstanceFormOption && <option value="__instance_form__" className="font-semibold">Form</option>}
             {previousSteps.map((step) => <option key={step.id} value={step.id}>{step.name || step.id}</option>)}
           </select>
           <select value={normalizedOutputField} onChange={(e) => handleOutputChange(e.target.value)} disabled={!fieldMapping.stepId} className="p-1.5 border rounded text-xs disabled:opacity-50">

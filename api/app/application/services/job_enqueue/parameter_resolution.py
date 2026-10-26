@@ -128,11 +128,23 @@ def flatten_media_refs_to_urls(value: Any) -> Any:
     return value
 
 
+def _resolve_file_record(
+    record: Dict[str, Any], org_id: str, instance_id: str, api_base: str
+) -> Dict[str, Any]:
+    """Sign a file record's URL from its virtual_path, leaving its other fields as stored."""
+    resolved = _resolve_single(record["virtual_path"], org_id, instance_id, api_base)
+    if not is_media_ref(resolved):
+        return record
+    return {**record, "url": resolved["url"]}
+
+
 def _resolve_recursive(value: Any, org_id: str, instance_id: str, api_base: str) -> Any:
     """Walk a value recursively, rewriting any file-reference strings."""
     if isinstance(value, str):
         return _resolve_single(value, org_id, instance_id, api_base)
     if isinstance(value, dict):
+        if isinstance(value.get("virtual_path"), str):
+            return _resolve_file_record(value, org_id, instance_id, api_base)
         return {
             k: _resolve_recursive(v, org_id, instance_id, api_base)
             for k, v in value.items()

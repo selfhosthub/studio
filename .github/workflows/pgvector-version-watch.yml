@@ -1,5 +1,5 @@
 # .github/workflows/pgvector-version-watch.yml
-# Notifier, not auto-bumper: watches for a newer pgvector release or a moved
+# Notifier, not auto-bumper: watches for a newer pgvector tag or a moved
 # pg<major>-trixie image digest and opens an issue when the pins in
 # test_unit_contracts__postgres_version.py fall behind. A human follows the
 # upgrade procedure documented in that test's docstring. Owned by the build
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GUARD: api/tests/unit/contracts/test_unit_contracts__postgres_version.py
@@ -36,11 +36,13 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST"   >> "$GITHUB_OUTPUT"
 
-      - name: Resolve latest pgvector release + current image digest
+      - name: Resolve latest pgvector tag + current image digest
         id: latest
         run: |
           set -euo pipefail
-          LATEST=$(curl -fsSL https://api.github.com/repos/pgvector/pgvector/releases/latest | jq -r .tag_name | sed 's/^v//')
+          LATEST=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/pgvector/pgvector/tags?per_page=100" \
+            | jq -r '.[].name' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          test -n "$LATEST"
           TAG="pgvector/pgvector:${{ steps.pinned.outputs.version }}-pg${{ steps.pinned.outputs.major }}-trixie"
           CURRENT_DIGEST=$(docker buildx imagetools inspect "$TAG" --format '{{.Manifest.Digest}}')
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"

@@ -11,13 +11,14 @@ from studio_workers.contracts.redaction import (
     is_pii_key,
     is_sensitive_key,
     redact_sensitive_data,
+    redact_text,
 )
 
 from app.config.settings import settings
 
 
 class TokenRedactionFilter(logging.Filter):
-    """Redact token strings (JWTs, ?token=, Authorization headers) from message text."""
+    """Redact tokens, secret query params and Authorization values from message text and tracebacks."""
 
     PATTERNS = [
         (r"([?&]token=)[^\s&]+", r"\1[REDACTED]"),
@@ -25,24 +26,32 @@ class TokenRedactionFilter(logging.Filter):
         (r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", r"[REDACTED_JWT]"),
     ]
 
+    def _scrub(self, text: str) -> str:
+        """Text with every token pattern and secret-looking value redacted."""
+        for pattern, replacement in self.PATTERNS:
+            text = re.sub(pattern, replacement, text)
+        return redact_text(text)
+
     def filter(self, record: logging.LogRecord) -> bool:
         if hasattr(record, "msg"):
-            message = str(record.msg)
-            for pattern, replacement in self.PATTERNS:
-                message = re.sub(pattern, replacement, message)
-            record.msg = message
+            record.msg = self._scrub(str(record.msg))
 
-        if hasattr(record, "args") and record.args:
+        if hasattr(record, "args") and record.args and isinstance(record.args, tuple):
             cleaned_args: list[Any] = []
             for arg in record.args:
                 if isinstance(arg, str):
-                    cleaned_arg = arg
-                    for pattern, replacement in self.PATTERNS:
-                        cleaned_arg = re.sub(pattern, replacement, cleaned_arg)
-                    cleaned_args.append(cleaned_arg)
-                else:
+                    cleaned_args.append(self._scrub(arg))
+                elif arg is None or isinstance(arg, (bool, int, float, dict, list)):
                     cleaned_args.append(arg)
+                else:
+                    text = str(arg)
+                    scrubbed = self._scrub(text)
+                    cleaned_args.append(scrubbed if scrubbed != text else arg)
             record.args = tuple(cleaned_args)
+
+        exc_info = getattr(record, "exc_info", None)
+        if exc_info and not getattr(record, "exc_text", None):
+            record.exc_text = self._scrub(logging.Formatter().formatException(exc_info))
 
         return True
 

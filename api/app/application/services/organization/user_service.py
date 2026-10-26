@@ -133,6 +133,12 @@ class UserService:
             self.user_repository, current_user_id, user.organization_id
         )
 
+        if actor.id == user.id:
+            raise ValidationError(
+                message="You cannot deactivate your own account",
+                code="SELF_MODIFICATION",
+            )
+
         # SUPER_ADMIN bypasses last-X guards (platform operator can always intervene).
         if actor.role != Role.SUPER_ADMIN:
             if user.role == Role.SUPER_ADMIN:
@@ -182,6 +188,11 @@ class UserService:
             current_password, user.hashed_password
         ):
             raise ValidationError("Current password is incorrect")
+
+        if self.password_service.verify_password(new_password, user.hashed_password):
+            raise ValidationError(
+                "New password must be different from the current password"
+            )
 
         new_hashed_password = self.password_service.hash_password(new_password)
         user.change_password(new_hashed_password)
@@ -260,6 +271,11 @@ class UserService:
                 self.user_repository, current_user_id, user.organization_id
             )
 
+        if command.email is not None and command.email != user.email.email:
+            if await self.user_repository.get_by_email(command.email):
+                raise ValidationError(f"Email '{command.email}' already exists")
+            user.update_admin_fields(email=command.email)
+
         user.update_profile(
             first_name=getattr(command, "first_name", None),
             last_name=getattr(command, "last_name", None),
@@ -293,6 +309,20 @@ class UserService:
         actor = await verify_admin_access(
             self.user_repository, current_user_id, user.organization_id
         )
+
+        if actor.id == user.id:
+            if command.is_active is False:
+                raise ValidationError(
+                    message="You cannot deactivate your own account",
+                    code="SELF_MODIFICATION",
+                    context={"field": "is_active"},
+                )
+            if command.role is not None and command.role != user.role:
+                raise ValidationError(
+                    message="You cannot change your own role",
+                    code="SELF_MODIFICATION",
+                    context={"field": "role"},
+                )
 
         # Guard clause: Prevent demoting last admin or super_admin (SUPER_ADMIN actors bypass).
         if actor.role != Role.SUPER_ADMIN and command.role is not None and command.role != user.role:

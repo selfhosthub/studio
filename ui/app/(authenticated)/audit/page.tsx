@@ -3,11 +3,11 @@
 'use client';
 
 import { useUser } from '@/entities/user';
-import { useState, useEffect, useMemo, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { formatDate } from '@/shared/lib/dateFormatter';
-import { getAuditEvents, AuditEvent } from '@/shared/api';
-import { PAGINATION } from '@/shared/lib/constants';
+import { maskAuditMetadata } from '@/shared/lib/ip-mask';
+import { getAuditEvents, AuditEvent, AuditEventFilters } from '@/shared/api';
 import {
   Shield,
   AlertTriangle,
@@ -23,6 +23,8 @@ import {
   Eye,
   ChevronDown,
   ChevronRight,
+  FileText,
+  ListChecks,
 } from 'lucide-react';
 import {
   SearchInput,
@@ -31,7 +33,34 @@ import {
   ErrorState,
   EmptyState,
 } from '@/shared/ui';
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import { PAGE_SIZE_OPTIONS, DEFAULT_PAGE_SIZE } from '@/shared/lib/pagination';
+import { useListPref, isPageSize, isString, oneOf } from '@/shared/hooks/useListPref';
+
+const CATEGORY_FILTERS = ['all', 'security', 'configuration', 'access', 'audit'] as const;
+const SEVERITY_FILTERS = ['all', 'info', 'warning', 'critical'] as const;
+const RESOURCE_TYPE_FILTERS = [
+  'all', 'secret', 'credential', 'user', 'organization', 'workflow', 'instance',
+  'instance_step', 'file', 'provider', 'package', 'audit_log',
+] as const;
+const SEARCH_DEBOUNCE_MS = 300;
+
+// Display words for resource types: singular for event text, plural for the filter
+const resourceTypeLabels: Record<string, { one: string; many: string }> = {
+  secret: { one: 'secret', many: 'Secrets' },
+  credential: { one: 'credential', many: 'Credentials' },
+  user: { one: 'user', many: 'Users' },
+  organization: { one: 'organization', many: 'Organizations' },
+  workflow: { one: 'workflow', many: 'Workflows' },
+  instance: { one: 'instance', many: 'Instances' },
+  instance_step: { one: 'instance node', many: 'Instance Nodes' },
+  file: { one: 'file', many: 'Files' },
+  provider: { one: 'provider', many: 'Providers' },
+  package: { one: 'package', many: 'Packages' },
+  audit_log: { one: 'audit log', many: 'Audit Logs' },
+};
+
+// Singular display word for a resource type, falling back to the raw value
+const resourceTypeName = (type: string) => resourceTypeLabels[type]?.one ?? type.replace(/_/g, ' ');
 
 // Resource type icons
 const resourceTypeIcons: Record<string, React.ReactNode> = {
@@ -41,6 +70,8 @@ const resourceTypeIcons: Record<string, React.ReactNode> = {
   organization: <Building2 size={16} />,
   workflow: <Workflow size={16} />,
   instance: <PlayCircle size={16} />,
+  instance_step: <ListChecks size={16} />,
+  file: <FileText size={16} />,
   provider: <Plug size={16} />,
   service: <Plug size={16} />,
   package: <Package size={16} />,
@@ -68,7 +99,7 @@ const categoryStyles: Record<string, string> = {
   security: 'bg-danger-subtle text-danger',
   configuration: 'bg-purple-100 text-purple-800 dark:bg-purple-800 dark:text-purple-100', // css-check-ignore: no semantic token
   access: 'bg-success-subtle text-success',
-  audit: 'bg-card text-primary',
+  audit: 'bg-surface text-secondary',
 };
 
 // Action descriptions
@@ -88,17 +119,40 @@ const actionDescriptions: Record<string, string> = {
   uninstall: 'Uninstalled',
   invite: 'Invited',
   role_change: 'Changed role',
+  access_denied: 'Denied access to',
+  download: 'Downloaded',
+  token_refresh: 'Refreshed token for',
+  trigger: 'Started',
+  approve: 'Approved',
+  reject: 'Rejected',
+  bypass: 'Bypassed',
+  timeout: 'Timed out on',
+  cancel: 'Canceled',
+  retry: 'Retried',
+  rerun: 'Reran',
+  regenerate: 'Regenerated',
+  upload: 'Uploaded',
 };
 
 function AuditLogsContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useUser();
 
-  // Filters from URL
-  const activeCategory = searchParams.get('category') || 'all';
-  const activeSeverity = searchParams.get('severity') || 'all';
-  const activeResourceType = searchParams.get('resource_type') || 'all';
+  const [activeCategory, setActiveCategory] = useListPref('audit', 'category', 'all', oneOf(CATEGORY_FILTERS));
+  const [activeSeverity, setActiveSeverity] = useListPref('audit', 'severity', 'all', oneOf(SEVERITY_FILTERS));
+  const [activeResourceType, setActiveResourceType] = useListPref('audit', 'resourceType', 'all', oneOf(RESOURCE_TYPE_FILTERS));
+
+  // A filter in the address is applied once as the starting value.
+  const [urlFiltersRead, setUrlFiltersRead] = useState(false);
+  if (!urlFiltersRead) {
+    setUrlFiltersRead(true);
+    const category = searchParams.get('category');
+    const severity = searchParams.get('severity');
+    const resourceType = searchParams.get('resource_type');
+    if (oneOf(CATEGORY_FILTERS)(category)) setActiveCategory(category);
+    if (oneOf(SEVERITY_FILTERS)(severity)) setActiveSeverity(severity);
+    if (oneOf(RESOURCE_TYPE_FILTERS)(resourceType)) setActiveResourceType(resourceType);
+  }
 
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,9 +161,15 @@ function AuditLogsContent() {
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
 
   // Search and pagination state
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useListPref('audit', 'search', '', isString);
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchTerm.trim());
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGINATION.DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useListPref('audit', 'pageSize', DEFAULT_PAGE_SIZE, isPageSize);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Determine if user has access
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
@@ -117,6 +177,7 @@ function AuditLogsContent() {
 
   // Fetch audit events from API
   useEffect(() => {
+    let stale = false;
     void (async () => {
       if (!user?.id || !isAdmin) {
         // Compute unconditionally; null clears any previous error.
@@ -128,11 +189,14 @@ function AuditLogsContent() {
 
       setLoading(true);
       try {
-        const filters: Record<string, any> = {
+        const filters: AuditEventFilters = {
           skip: (currentPage - 1) * pageSize,
           limit: pageSize,
         };
 
+        if (debouncedSearch) {
+          filters.search = debouncedSearch;
+        }
         if (activeCategory !== 'all') {
           filters.category = activeCategory;
         }
@@ -144,39 +208,31 @@ function AuditLogsContent() {
         }
 
         const response = await getAuditEvents(filters);
+        if (stale) return;
         setEvents(response.items);
         setTotalCount(response.total);
         setError(null);
       } catch (err: unknown) {
+        if (stale) return;
         console.error('Failed to fetch audit events:', err);
         setError(err instanceof Error ? err.message : 'Failed to load audit events');
       } finally {
-        setLoading(false);
+        if (!stale) setLoading(false);
       }
     })();
+    return () => {
+      stale = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- user?.id is sufficient, full user would cause extra re-renders
-  }, [user?.id, isAdmin, currentPage, pageSize, activeCategory, activeSeverity, activeResourceType]);
+  }, [user?.id, isAdmin, currentPage, pageSize, debouncedSearch, activeCategory, activeSeverity, activeResourceType]);
 
   // Reset page when filters change (adjust during render, not in an effect).
-  const [prevFilterKey, setPrevFilterKey] = useState(`${searchTerm}|${activeCategory}|${activeSeverity}|${activeResourceType}`);
-  const filterKey = `${searchTerm}|${activeCategory}|${activeSeverity}|${activeResourceType}`;
+  const filterKey = `${debouncedSearch}|${activeCategory}|${activeSeverity}|${activeResourceType}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
     setCurrentPage(1);
   }
-
-  // Client-side search filter
-  const filteredEvents = useMemo(() => {
-    if (!searchTerm) return events;
-
-    const query = searchTerm.toLowerCase();
-    return events.filter(event =>
-      event.resource_name?.toLowerCase().includes(query) ||
-      event.action.toLowerCase().includes(query) ||
-      event.resource_type.toLowerCase().includes(query) ||
-      event.actor_type.toLowerCase().includes(query)
-    );
-  }, [events, searchTerm]);
 
   // Pagination calculations
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
@@ -192,17 +248,6 @@ function AuditLogsContent() {
     setExpandedEvents(newExpanded);
   };
 
-  // Update URL with filters
-  const setFilter = (key: string, value: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value === 'all') {
-      params.delete(key);
-    } else {
-      params.set(key, value);
-    }
-    router.push(`/audit?${params.toString()}`);
-  };
-
   // Format actor display
   const formatActor = (event: AuditEvent) => {
     const actorType = event.actor_type;
@@ -214,7 +259,7 @@ function AuditLogsContent() {
   // Format event description
   const formatEventDescription = (event: AuditEvent) => {
     const action = actionDescriptions[event.action] || event.action;
-    const resourceType = event.resource_type.replace(/_/g, ' ');
+    const resourceType = resourceTypeName(event.resource_type);
     const resourceName = event.resource_name ? `"${event.resource_name}"` : '';
 
     return `${action} ${resourceType} ${resourceName}`.trim();
@@ -249,10 +294,6 @@ function AuditLogsContent() {
           </div>
         </div>
 
-        {loading && (
-          <LoadingState message="Loading audit events..." />
-        )}
-
         {!loading && error && (
           <ErrorState
             title="Error Loading Audit Logs"
@@ -262,17 +303,18 @@ function AuditLogsContent() {
           />
         )}
 
-        {!loading && !error && (
+        {!error && (
           <div className="bg-card shadow overflow-hidden sm:rounded-md">
             {/* Filters Row */}
             <div className="border-b border-primary bg-card px-4 py-4 sm:px-6">
               <div className="flex flex-wrap gap-4">
                 {/* Category Filter */}
                 <div>
-                  <label className="block text-xs font-medium text-secondary mb-1">Category</label>
+                  <label htmlFor="audit-category" className="block text-xs font-medium text-secondary mb-1">Category</label>
                   <select
+                    id="audit-category"
                     value={activeCategory}
-                    onChange={(e) => setFilter('category', e.target.value)}
+                    onChange={(e) => { const v = e.target.value; if (oneOf(CATEGORY_FILTERS)(v)) setActiveCategory(v); }}
                     className="form-select w-full text-sm"
                   >
                     <option value="all">All Categories</option>
@@ -285,10 +327,11 @@ function AuditLogsContent() {
 
                 {/* Severity Filter */}
                 <div>
-                  <label className="block text-xs font-medium text-secondary mb-1">Severity</label>
+                  <label htmlFor="audit-severity" className="block text-xs font-medium text-secondary mb-1">Severity</label>
                   <select
+                    id="audit-severity"
                     value={activeSeverity}
-                    onChange={(e) => setFilter('severity', e.target.value)}
+                    onChange={(e) => { const v = e.target.value; if (oneOf(SEVERITY_FILTERS)(v)) setActiveSeverity(v); }}
                     className="form-select w-full text-sm"
                   >
                     <option value="all">All Severities</option>
@@ -300,21 +343,17 @@ function AuditLogsContent() {
 
                 {/* Resource Type Filter */}
                 <div>
-                  <label className="block text-xs font-medium text-secondary mb-1">Resource Type</label>
+                  <label htmlFor="audit-resource-type" className="block text-xs font-medium text-secondary mb-1">Resource Type</label>
                   <select
+                    id="audit-resource-type"
                     value={activeResourceType}
-                    onChange={(e) => setFilter('resource_type', e.target.value)}
+                    onChange={(e) => { const v = e.target.value; if (oneOf(RESOURCE_TYPE_FILTERS)(v)) setActiveResourceType(v); }}
                     className="form-select w-full text-sm"
                   >
                     <option value="all">All Types</option>
-                    <option value="secret">Secrets</option>
-                    <option value="credential">Credentials</option>
-                    <option value="user">Users</option>
-                    <option value="organization">Organizations</option>
-                    <option value="workflow">Workflows</option>
-                    <option value="instance">Instances</option>
-                    <option value="provider">Providers</option>
-                    <option value="package">Packages</option>
+                    {RESOURCE_TYPE_FILTERS.filter((t) => t !== 'all').map((t) => (
+                      <option key={t} value={t}>{resourceTypeLabels[t].many}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -322,11 +361,11 @@ function AuditLogsContent() {
 
             {/* Search and Pagination Controls */}
             <div className="border-b border-primary bg-card px-4 py-4 sm:px-6">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <SearchInput
                   value={searchTerm}
                   onChange={setSearchTerm}
-                  placeholder="Search events..."
+                  placeholder="Search names, actions and errors"
                 />
                 <Pagination
                   currentPage={currentPage}
@@ -344,10 +383,17 @@ function AuditLogsContent() {
               </div>
             </div>
 
+            {loading && (
+              <div className="py-8">
+                <LoadingState message="Loading audit events..." />
+              </div>
+            )}
+
             {/* Events List */}
+            {!loading && (
             <ul className="divide-y divide-primary">
-              {filteredEvents.length > 0 ? (
-                filteredEvents.map((event) => {
+              {events.length > 0 ? (
+                events.map((event) => {
                   const isExpanded = expandedEvents.has(event.id);
                   const severity = severityStyles[event.severity] || severityStyles.info;
                   const hasDetails = event.changes || (event.metadata && Object.keys(event.metadata).length > 0);
@@ -358,7 +404,7 @@ function AuditLogsContent() {
                       className={`${event.severity === 'critical' ? 'bg-danger-subtle' : ''}`}
                     >
                       <div className="px-4 py-4 sm:px-6">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-center gap-3">
                             {/* Resource Type Icon */}
                             <div className="flex-shrink-0 text-muted dark:text-secondary">
@@ -370,8 +416,8 @@ function AuditLogsContent() {
                               <p className="text-sm font-medium text-primary">
                                 {formatEventDescription(event)}
                               </p>
-                              <p className="text-xs text-secondary mt-0.5">
-                                by {formatActor(event)} {event.actor_id && `(${event.actor_id.slice(0, 8)}...)`}
+                              <p className="text-xs text-secondary mt-0.5" title={event.actor_id ?? undefined}>
+                                by {event.actor_name ? `${event.actor_name} (${formatActor(event)})` : formatActor(event)}
                               </p>
                             </div>
                           </div>
@@ -434,13 +480,13 @@ function AuditLogsContent() {
                                   <div>
                                     <span className="font-medium text-secondary">Metadata:</span>
                                     <pre className="mt-1 text-secondary whitespace-pre-wrap">
-                                      {JSON.stringify(event.metadata, null, 2)}
+                                      {JSON.stringify(maskAuditMetadata(event.metadata), null, 2)}
                                     </pre>
                                   </div>
                                 )}
                                 {event.resource_id && (
-                                  <div className="mt-2 text-secondary" title={`Identifier of the affected ${event.resource_type || 'resource'} record`}>
-                                    {event.resource_type ? `${event.resource_type} ID` : 'Resource ID'}: {event.resource_id}
+                                  <div className="mt-2 text-secondary" title={`Identifier of the affected ${event.resource_type ? resourceTypeName(event.resource_type) : 'resource'} record`}>
+                                    {event.resource_type ? `${resourceTypeName(event.resource_type).replace(/^./, (c) => c.toUpperCase())} ID` : 'Resource ID'}: {event.resource_id}
                                   </div>
                                 )}
                                 {isSuperAdmin && event.organization_id && (
@@ -466,9 +512,10 @@ function AuditLogsContent() {
                 </li>
               )}
             </ul>
+            )}
 
             {/* Pagination Controls - Bottom */}
-            {filteredEvents.length > 0 && (
+            {!loading && events.length > 0 && (
               <div className="border-t border-primary bg-card px-4 py-4 sm:px-6">
                 <Pagination
                   currentPage={currentPage}

@@ -73,7 +73,11 @@ class InstanceRepository(ABC):
         statuses: Optional[List[InstanceStatus]] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-    ) -> List[Instance]: ...
+        workflow_id: Optional[uuid.UUID] = None,
+        sort_by: Optional[str] = None,
+        sort_order: str = "desc",
+    ) -> List[Instance]:
+        """sort_by is name, workflow_name, status, updated_at or created_at; newest first when None."""
 
     @abstractmethod
     async def count_by_status(
@@ -88,6 +92,7 @@ class InstanceRepository(ABC):
         organization_id: uuid.UUID,
         status: Optional[InstanceStatus] = None,
         statuses: Optional[List[InstanceStatus]] = None,
+        workflow_id: Optional[uuid.UUID] = None,
     ) -> int: ...
 
     @abstractmethod

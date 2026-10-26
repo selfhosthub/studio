@@ -22,6 +22,7 @@ import {
 } from '@/shared/api';
 import { InstanceStatus, type InstanceResponse } from '@/shared/types/api';
 import { useToast } from '@/features/toast/provider';
+import { useConfirm, usePromptText, type ConfirmFn, type ConfirmOptions } from '@/shared/ui/ConfirmDialog';
 import type { Job } from '../lib/types';
 
 interface UseInstanceActionsParams {
@@ -58,7 +59,8 @@ interface RunInstanceActionOpts<T> {
   loading: LoadingControl;
   errorPrefix: string;
   toast: ToastFn;
-  confirmMessage?: string;
+  confirm: ConfirmFn;
+  confirmation?: ConfirmOptions;
   onSuccess?: (result: T) => void | Promise<void>;
   successMessage?: string | ((result: T) => string);
   successType?: 'success' | 'info';
@@ -66,7 +68,7 @@ interface RunInstanceActionOpts<T> {
 }
 
 async function runInstanceAction<T>(opts: RunInstanceActionOpts<T>): Promise<void> {
-  if (opts.confirmMessage && !window.confirm(opts.confirmMessage)) {
+  if (opts.confirmation && !(await opts.confirm(opts.confirmation))) {
     return;
   }
   setLoading(opts.loading, true);
@@ -104,6 +106,8 @@ export function useInstanceActions({
 }: UseInstanceActionsParams) {
   const router = useRouter();
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const promptText = usePromptText();
 
   const [updating, setUpdating] = useState(false);
   const [retryingJobs, setRetryingJobs] = useState<Set<string>>(new Set());
@@ -169,9 +173,16 @@ export function useInstanceActions({
     runInstanceAction({
       apiCall: () => cancelInstance(instanceId),
       loading: { kind: 'bool', set: setUpdating },
-      confirmMessage: 'Are you sure you want to cancel this instance?',
+      confirmation: {
+        title: 'Cancel instance',
+        message: 'Cancel this instance? This stops the instance and cancels its non-terminal nodes.',
+        confirmLabel: 'Cancel instance',
+        cancelLabel: 'Keep running',
+        variant: 'danger',
+      },
       errorPrefix: 'Failed to cancel instance',
       toast,
+      confirm,
       onSuccess: async () => {
         const updated = await getInstance(instanceId);
         setInstance(updated);
@@ -183,13 +194,14 @@ export function useInstanceActions({
     runInstanceAction({
       apiCall: () => retryJob(jobId),
       loading: { kind: 'set', key: jobId, set: setRetryingJobs },
-      errorPrefix: 'Failed to retry job',
+      errorPrefix: 'Failed to retry node',
       toast,
+      confirm,
       onSuccess: async () => {
         const jobsData = await getJobsForInstance(instanceId);
         setJobs(jobsData);
       },
-      successMessage: 'Job retry initiated',
+      successMessage: 'Node retry initiated',
       successType: 'info',
       reconcileOnError: () => reconcileInstanceAndJobs(instanceId),
     });
@@ -198,10 +210,15 @@ export function useInstanceActions({
     runInstanceAction({
       apiCall: () => rerunJobOnly(jobId),
       loading: { kind: 'set', key: jobId, set: setRetryingJobs },
-      confirmMessage:
-        'Rerun this step?\n\nThis will delete all existing assets from this step and generate new ones.',
-      errorPrefix: 'Failed to rerun job',
+      confirmation: {
+        title: 'Rerun node',
+        message: 'Rerun this node?\n\nThis will delete all existing files from this node and generate new ones.',
+        confirmLabel: 'Rerun',
+        variant: 'danger',
+      },
+      errorPrefix: 'Failed to rerun node',
       toast,
+      confirm,
       onSuccess: async () => {
         setJobResources(prev => {
           const newState = { ...prev };
@@ -210,7 +227,7 @@ export function useInstanceActions({
         });
         await refetchInstanceAndJobs(instanceId);
       },
-      successMessage: 'Step rerun initiated',
+      successMessage: 'Node rerun initiated',
       successType: 'info',
       reconcileOnError: () => reconcileInstanceAndJobs(instanceId),
     });
@@ -219,16 +236,21 @@ export function useInstanceActions({
     runInstanceAction({
       apiCall: () => rerunAndContinue(jobId),
       loading: { kind: 'set', key: jobId, set: setRetryingJobs },
-      confirmMessage:
-        'Rerun this step and all downstream steps?\n\nThis will delete all existing assets from this step and all downstream steps.',
-      errorPrefix: 'Failed to rerun job',
+      confirmation: {
+        title: 'Rerun node and downstream',
+        message: 'Rerun this node and all downstream nodes?\n\nThis will delete all existing files from this node and all downstream nodes.',
+        confirmLabel: 'Rerun',
+        variant: 'danger',
+      },
+      errorPrefix: 'Failed to rerun node',
       toast,
+      confirm,
       onSuccess: async () => {
         // Clear all resources since downstream steps will be re-executed too
         setJobResources({});
         await refetchInstanceAndJobs(instanceId);
       },
-      successMessage: 'Step rerun initiated (this step + downstream)',
+      successMessage: 'Node rerun initiated (this node + downstream)',
       successType: 'info',
       reconcileOnError: () => reconcileInstanceAndJobs(instanceId),
     });
@@ -237,10 +259,15 @@ export function useInstanceActions({
     runInstanceAction({
       apiCall: () => rerunStepOnly(targetInstanceId, stepId),
       loading: { kind: 'set', key: stepId, set: setRunningSteps },
-      confirmMessage:
-        'Rerun this step only?\n\nThis will delete all existing assets from this step and generate new ones. Downstream steps will NOT be affected.',
-      errorPrefix: 'Failed to rerun step',
+      confirmation: {
+        title: 'Rerun node only',
+        message: 'Rerun this node only?\n\nThis will delete all existing files from this node and generate new ones. Downstream nodes will NOT be affected.',
+        confirmLabel: 'Rerun',
+        variant: 'danger',
+      },
+      errorPrefix: 'Failed to rerun node',
       toast,
+      confirm,
       onSuccess: async () => {
         // Clear resources for jobs in this step to force reload when it completes
         const stepJobIds = jobs.filter(j => j.step_id === stepId).map(j => j.id);
@@ -253,7 +280,7 @@ export function useInstanceActions({
         });
         await refetchInstanceAndJobs(targetInstanceId);
       },
-      successMessage: 'Step rerun initiated (this step only)',
+      successMessage: 'Node rerun initiated (this node only)',
       successType: 'info',
       reconcileOnError: () => reconcileInstanceAndJobs(targetInstanceId),
     });
@@ -262,10 +289,14 @@ export function useInstanceActions({
     runInstanceAction({
       apiCall: () => checkWebhookStatus(targetInstanceId, stepId),
       loading: { kind: 'set', key: stepId, set: setRunningSteps },
-      confirmMessage:
-        'Check status now?\n\nThis calls the provider for each pending generation. If they are not done yet you will need to check again later.',
+      confirmation: {
+        title: 'Check status',
+        message: 'Check status now?\n\nThis calls the provider for each pending generation. If they are not done yet you will need to check again later.',
+        confirmLabel: 'Check status',
+      },
       errorPrefix: 'Failed to check status',
       toast,
+      confirm,
       onSuccess: async () => {
         await refetchInstanceAndJobs(targetInstanceId);
       },
@@ -293,7 +324,7 @@ export function useInstanceActions({
   };
 
   const handleRunAgain = async () => {
-    if (!confirm('Create a new instance with the same configuration?')) {
+    if (!(await confirm({ title: 'Run again', message: 'Create a new instance with the same configuration?', confirmLabel: 'Run again' }))) {
       return;
     }
 
@@ -322,42 +353,59 @@ export function useInstanceActions({
       loading: { kind: 'bool', set: setResuming },
       errorPrefix: 'Failed to resume instance',
       toast,
+      confirm,
       onSuccess: () => refetchInstanceAndJobs(instanceId),
       successMessage: 'Instance resumed',
       successType: 'info',
     });
 
-  const handleApprove = (approved: boolean) =>
-    runInstanceAction<unknown>({
-      apiCall: () => approveInstance(instanceId, approved),
+  const handleApprove = async (approved: boolean) => {
+    let comment: string | undefined;
+    if (!approved) {
+      const reason = await promptText({
+        title: 'Reject node',
+        message: 'Rejecting fails this instance.',
+        inputLabel: 'Reason (optional)',
+        inputPlaceholder: 'Why is this node rejected?',
+        confirmLabel: 'Reject',
+        variant: 'warning',
+      });
+      if (reason === null) return;
+      comment = reason || undefined;
+    }
+    await runInstanceAction<unknown>({
+      apiCall: () => approveInstance(instanceId, approved, comment),
       loading: { kind: 'bool', set: setApproving },
-      confirmMessage: !approved ? 'Are you sure you want to reject this step?' : undefined,
-      errorPrefix: `Failed to ${approved ? 'approve' : 'reject'} step`,
+      errorPrefix: `Failed to ${approved ? 'approve' : 'reject'} node`,
       toast,
+      confirm,
       onSuccess: () => refetchInstanceAndJobs(instanceId),
       successMessage: (result) =>
         ((result as Record<string, unknown>).message as string) ||
-        `Step ${approved ? 'approved' : 'rejected'}`,
+        `Node ${approved ? 'approved' : 'rejected'}`,
     });
+  };
 
   const handleTrigger = (stepId: string) =>
     runInstanceAction({
       apiCall: () => triggerStep(instanceId, stepId),
       loading: { kind: 'bool', set: setTriggering },
-      errorPrefix: 'Failed to trigger step',
+      errorPrefix: 'Failed to trigger node',
       toast,
+      confirm,
       onSuccess: () => refetchInstanceAndJobs(instanceId),
-      successMessage: 'Step triggered',
+      successMessage: 'Node triggered',
     });
 
   const handleRunStoppedStep = (stepId: string) =>
     runInstanceAction({
       apiCall: () => runStoppedStep(instanceId, stepId),
       loading: { kind: 'set', key: stepId, set: setRunningSteps },
-      errorPrefix: 'Failed to run step',
+      errorPrefix: 'Failed to run node',
       toast,
+      confirm,
       onSuccess: () => refetchInstanceAndJobs(instanceId),
-      successMessage: 'Step started',
+      successMessage: 'Node started',
     });
 
   return {

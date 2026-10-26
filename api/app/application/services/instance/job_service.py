@@ -220,7 +220,7 @@ class JobService:
         step_config: Optional[Dict[str, Any]] = getattr(job_data, "step_config", None)
 
         if not step_name:
-            step_name = f"Step {job_data.step_key}"
+            step_name = f"Node {job_data.step_key}"
         if not step_config:
             step_config = {}
 
@@ -658,7 +658,7 @@ class JobService:
                 entity_id=instance_id,
                 code="Instance not found",
             )
-        self._assert_instance_idle(instance, "rerun step")
+        self._assert_instance_idle(instance, "rerun node")
 
         # Skipped steps require all predecessors completed.
         step_entity = instance.step_entities.get(step_id)
@@ -795,10 +795,10 @@ class JobService:
         if incomplete:
             raise BusinessRuleViolation(
                 message=(
-                    f"Cannot rerun skipped step '{step_id}': "
-                    f"predecessor steps not completed: {', '.join(incomplete)}. "
+                    f"Cannot rerun skipped node '{step_id}': "
+                    f"predecessor nodes not completed: {', '.join(incomplete)}. "
                     f"Use 'Rerun' on the failed predecessor to re-execute "
-                    f"it and all downstream steps."
+                    f"it and all downstream nodes."
                 ),
                 code="PREDECESSORS_NOT_COMPLETED",
                 context={

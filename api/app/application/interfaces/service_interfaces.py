@@ -116,7 +116,7 @@ class InstanceServiceInterface(ABC):
 class NotificationServiceInterface(ABC):
     @abstractmethod
     async def create_notification(
-        self, command: NotificationCreate
+        self, command: NotificationCreate, created_by: uuid.UUID
     ) -> NotificationResponse:
         pass
 

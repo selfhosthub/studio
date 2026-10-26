@@ -88,8 +88,7 @@ def expand_group(
         if total_groups <= 0:
             total_groups = 1
         logger.debug(
-            f"repeat not set (raw={raw_repeat!r}), "
-            f"inferred {total_groups} from element arrays"
+            f"repeat not set, inferred {total_groups} from element arrays"
         )
 
     items: List[Dict[str, Any]] = []
@@ -127,7 +126,7 @@ def pull_from_circular_stack(
         count = int(raw_count)
     except (ValueError, TypeError):
         count = 0
-        logger.warning(f"  count={raw_count!r} is not a valid integer")
+        logger.warning("  count is not a valid integer")
 
     if not isinstance(src, list):
         return [dict(element_template)]

@@ -22,6 +22,8 @@ from app.application.dtos.organization_dto import (
 )
 from app.application.interfaces.exceptions import PermissionDeniedError, ValidationError
 from app.application.services.organization import OrganizationService
+from app.application.services.org_file import OrgFileService
+from app.application.services.system_health_service import org_disk_bytes
 from app.application.services.provider_service import ProviderService
 from app.domain.common.exceptions import EntityNotFoundError
 from app.domain.common.exceptions import InvalidStateTransition
@@ -34,9 +36,10 @@ from app.presentation.api.dependencies import (
     get_organization_repository,
     get_organization_member_service,
     get_organization_service,
+    get_org_file_service_bypass,
     get_provider_service,
     get_user_repository_bypass,
-    get_workflow_repository,
+    get_workflow_repository_bypass,
     require_admin,
     require_super_admin,
     verify_org_access,
@@ -114,7 +117,6 @@ async def create_organization(
     try:
         dto = OrganizationCreateDTO(
             name=organization.name,
-            slug=organization.slug,
             description=organization.description,
             settings=organization.settings,
         )
@@ -149,28 +151,12 @@ def _format_bytes(size_bytes: int) -> str:
     return f"{size:.2f} PB"
 
 
-def _get_org_storage_stats(org_id: str) -> OrganizationStorageStats:
+def _get_org_storage_stats(org_id: str, files: int) -> OrganizationStorageStats:
     workspace_path = settings.WORKSPACE_ROOT
     if not workspace_path:
         raise RuntimeError("WORKSPACE_ROOT environment variable is not set")
-    workspace = FilePath(workspace_path)
-    org_base = workspace / "orgs" / org_id
-
-    files = 0
-    size_bytes = 0
-
-    # Count files in both instances/ and uploads/ directories
-    for subdir in ["instances", "uploads"]:
-        dir_path = org_base / subdir
-        if dir_path.exists():
-            for f in dir_path.rglob("*"):
-                if f.is_file():
-                    files += 1
-                    try:
-                        size_bytes += f.stat().st_size
-                    except (OSError, IOError):
-                        pass
-
+    org_dir = FilePath(workspace_path) / "orgs" / org_id
+    size_bytes = org_disk_bytes(org_dir) if org_dir.is_dir() else 0
     return OrganizationStorageStats(
         files=files,
         size_bytes=size_bytes,
@@ -196,13 +182,20 @@ async def list_organization_stats(
         description="Sort order: 'asc' or 'desc'",
         pattern="^(asc|desc)$",
     ),
+    search: Optional[str] = Query(
+        None,
+        max_length=200,
+        description="Case-insensitive match on name or slug",
+    ),
     user: Dict[str, Any] = Depends(require_super_admin),
     org_repo: OrganizationRepository = Depends(get_organization_repository),
     user_repo: UserRepository = Depends(get_user_repository_bypass),
-    workflow_repo: WorkflowRepository = Depends(get_workflow_repository),
+    workflow_repo: WorkflowRepository = Depends(get_workflow_repository_bypass),
+    file_service: OrgFileService = Depends(get_org_file_service_bypass),
 ):
     """List organizations with member/workflow/storage stats. Requires SUPER_ADMIN."""
-    all_orgs = await org_repo.list_all()
+    all_orgs = await org_repo.list_all(search=search.strip() if search else None)
+    file_counts = await file_service.count_live_files_by_organization()
 
     org_stats_list: List[OrganizationStats] = []
 
@@ -238,7 +231,7 @@ async def list_organization_stats(
                 f"Failed to get workflows for org {org.id}: {type(e).__name__}: {e}"
             )
 
-        storage = _get_org_storage_stats(str(org.id))
+        storage = _get_org_storage_stats(str(org.id), file_counts.get(org.id, 0))
         is_system = org.settings.get("is_system", False) if org.settings else False
 
         org_stats_list.append(
@@ -262,29 +255,21 @@ async def list_organization_stats(
             )
         )
 
-    # System org is always pinned at top of results
-    system_org: Optional[OrganizationStats] = None
-    other_orgs: List[OrganizationStats] = []
-    for org_stat in org_stats_list:
-        if org_stat.is_system:
-            system_org = org_stat
-        else:
-            other_orgs.append(org_stat)
-
     if sort_by:
         reverse = sort_order == "desc"
         if sort_by == "name":
-            other_orgs.sort(key=lambda x: x.name.lower(), reverse=reverse)
+            org_stats_list.sort(key=lambda x: x.name.lower(), reverse=reverse)
         elif sort_by == "created_at":
-            other_orgs.sort(key=lambda x: x.created_at or datetime.min, reverse=reverse)
+            org_stats_list.sort(key=lambda x: x.created_at or datetime.min, reverse=reverse)
         elif sort_by == "member_count":
-            other_orgs.sort(key=lambda x: x.member_count, reverse=reverse)
+            org_stats_list.sort(key=lambda x: x.member_count, reverse=reverse)
         elif sort_by == "workflow_count":
-            other_orgs.sort(key=lambda x: x.workflow_count, reverse=reverse)
+            org_stats_list.sort(key=lambda x: x.workflow_count, reverse=reverse)
         elif sort_by == "storage":
-            other_orgs.sort(key=lambda x: x.storage.size_bytes, reverse=reverse)
-
-    org_stats_list = ([system_org] if system_org else []) + other_orgs
+            org_stats_list.sort(key=lambda x: x.storage.size_bytes, reverse=reverse)
+    else:
+        # Unsorted lists pin the system org at the top
+        org_stats_list.sort(key=lambda x: not x.is_system)
     total = len(org_stats_list)
     paginated = org_stats_list[skip : skip + limit]
 
@@ -372,7 +357,7 @@ async def update_organization(
             if update_data.settings is not None:
                 # Check for branding changes
                 old_settings = existing_org.settings or {}
-                new_settings = update_data.settings or {}
+                new_settings = {**old_settings, **update_data.settings}
                 old_branding = old_settings.get("branding", {})
                 new_branding = new_settings.get("branding", {})
                 if old_branding != new_branding:
@@ -456,7 +441,7 @@ async def get_organization_members(
     if user_role == Role.USER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required to view member list",
+            detail="Admin privileges required to view the user list",
         )
 
     users = await service.list_users(organization_id, skip=skip, limit=limit)
@@ -525,7 +510,7 @@ async def remove_organization_member(
     service: OrganizationService = Depends(get_organization_member_service),
 ):
     """
-    Remove a member from organization.
+    Deactivate a member of the organization.
 
     Requires admin privileges.
     """
@@ -537,6 +522,10 @@ async def remove_organization_member(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found in organization",
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=safe_error_message(e)
         )
 
 
@@ -563,17 +552,40 @@ async def update_current_user_profile(
     update_data: UserUpdateRequest,
     user: Dict[str, Any] = Depends(get_current_user),
     service: OrganizationService = Depends(get_organization_service),
+    audit_service: AuditService = Depends(get_audit_service),
 ):
     """Update current user profile."""
     user_id = UUID(user["id"])
+    organization_id = UUID(user.get("org_id")) if user.get("org_id") else None
 
     try:
+        existing_user = await service.get_user(user_id)
         dto = UserUpdateDTO(
             email=update_data.email,
             first_name=update_data.first_name,
             last_name=update_data.last_name,
         )
-        return await service.update_user(user_id, dto, current_user_id=user_id)
+        updated_user = await service.update_user(user_id, dto, current_user_id=user_id)
+
+        # Audit log an email change (WARNING severity - identity change)
+        if existing_user and updated_user.email != existing_user.email:
+            await audit_service.log_event(
+                actor_id=user_id,
+                actor_type=AuditActorType(user.get("role", "user")),
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.USER,
+                resource_id=user_id,
+                resource_name=updated_user.email,
+                organization_id=organization_id,
+                severity=AuditSeverity.WARNING,
+                category=AuditCategory.SECURITY,
+                changes={
+                    "email": {"old": existing_user.email, "new": updated_user.email}
+                },
+                metadata={"reason": "user_initiated"},
+            )
+
+        return updated_user
     except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -659,6 +671,8 @@ async def reset_user_password_as_admin(
             current_user_id=current_user_id,
         )
 
+        target = await service.get_user(user_id)
+
         # Audit log the password reset (WARNING severity - security event)
         await audit_service.log_event(
             actor_id=current_user_id,
@@ -666,6 +680,7 @@ async def reset_user_password_as_admin(
             action=AuditAction.UPDATE,
             resource_type=ResourceType.USER,
             resource_id=user_id,
+            resource_name=target.email if target else None,
             organization_id=organization_id,
             severity=AuditSeverity.WARNING,
             category=AuditCategory.SECURITY,
@@ -788,6 +803,7 @@ async def list_organization_credentials(
     skip: int = Query(0, ge=0),
     limit: int = Query(settings.API_PAGE_LIMIT_DEFAULT, ge=1, le=settings.API_PAGE_MAX),
     verified_org_id: UUID = Depends(verify_org_access_strict),
+    user: Dict[str, Any] = Depends(get_current_user),
     provider_service: ProviderService = Depends(get_provider_service),
 ):
     """
@@ -811,7 +827,7 @@ async def list_organization_credentials(
         )
 
         # Application service returns DTOs with masked secrets
-        return [c.model_dump() for c in credentials]
+        return [c.for_role(user.get("role")).model_dump() for c in credentials]
 
     except Exception:
         logger.exception(

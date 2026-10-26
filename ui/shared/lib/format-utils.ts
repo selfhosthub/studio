@@ -22,3 +22,14 @@ export function formatDuration(seconds: number): string {
   }
   return `${m}:${String(s).padStart(2, '0')}`;
 }
+
+/** Picks the singular or plural noun for a count: plural(1, 'connection') is "connection". */
+export function plural(count: number, noun: string): string {
+  return count === 1 ? noun : `${noun}s`;
+}
+
+/** Turns a status code into words: formatStatus('waiting_for_approval') is "waiting for approval". */
+export function formatStatus(status: string): string {
+  if (status === 'processing') return 'running';
+  return status.replace(/_/g, ' ');
+}

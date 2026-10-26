@@ -10,6 +10,10 @@ from pydantic import Field
 
 from app.domain.common.base_entity import AggregateRoot
 
+# A secret name: letters, digits and underscores, not starting with a digit.
+SECRET_NAME_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]*$"
+SECRET_NAME_RULE = "Use letters, digits and underscores only, starting with a letter or underscore."
+
 
 class OrganizationSecret(AggregateRoot):
     """API keys/credentials/tokens for an organization. secret_data is encrypted at rest in infrastructure. is_protected blocks deletion."""

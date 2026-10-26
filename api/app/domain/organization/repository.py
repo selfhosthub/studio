@@ -4,7 +4,7 @@
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from app.domain.organization.models import Organization, User
 from app.domain.common.value_objects import Role
@@ -41,8 +41,8 @@ class OrganizationRepository(ABC):
     ) -> List[Organization]: ...
 
     @abstractmethod
-    async def list_all(self) -> List[Organization]:
-        """No pagination - used for admin sweeps over all orgs."""
+    async def list_all(self, search: Optional[str] = None) -> List[Organization]:
+        """No pagination - used for admin sweeps over all orgs; search matches name or slug."""
 
     @abstractmethod
     async def count_workflows(self, organization_id: uuid.UUID) -> int: ...
@@ -71,6 +71,10 @@ class UserRepository(ABC):
 
     @abstractmethod
     async def get_by_id(self, user_id: uuid.UUID) -> Optional[User]: ...
+
+    @abstractmethod
+    async def get_by_ids(self, user_ids: Sequence[uuid.UUID]) -> List[User]:
+        """Users matching the given ids; ids not found are omitted."""
 
     @abstractmethod
     async def get_by_email(self, email: str) -> Optional[User]: ...

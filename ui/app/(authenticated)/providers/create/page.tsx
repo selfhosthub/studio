@@ -3,10 +3,41 @@
 "use client";
 
 import React, { useState, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Lock } from 'lucide-react';
 import { uploadPackage } from '@/shared/api';
+import { useUser } from '@/entities/user';
+import { EmptyState, LoadingState } from '@/shared/ui';
 
 export default function UploadProviderPage() {
+  const { user, status } = useUser();
+
+  if (status === 'loading') {
+    return <LoadingState message="Loading..." />;
+  }
+
+  if (user?.role !== 'super_admin') {
+    return (
+      <div className="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-3xl mx-auto">
+        <EmptyState
+          icon={<Lock className="h-12 w-12" />}
+          title="Only a super admin can upload providers"
+          description="Ask a super admin to upload the provider for you."
+          action={
+            <Link href="/providers/list" className="btn-primary inline-flex items-center">
+              Back to Providers
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
+
+  return <UploadProviderForm />;
+}
+
+function UploadProviderForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
@@ -51,7 +82,7 @@ export default function UploadProviderPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) {
-      setError('Please select a package file');
+      setError('Please select a provider file');
       return;
     }
 
@@ -194,7 +225,7 @@ export default function UploadProviderPage() {
               type="button"
               onClick={() => router.back()}
               disabled={loading}
-              className="btn-danger"
+              className="btn-cancel"
             >
               Cancel
             </button>

@@ -20,7 +20,10 @@ except ImportError:  # pragma: no cover
     PIL_AVAILABLE = False
 
 from studio_workers.utils import ResultPublisher, WorkerBase, create_job_client
-from studio_workers.utils.error_codes import classify_error_code
+from studio_workers.utils.error_codes import (
+    classify_error_code,
+    failure_detail,
+)
 from studio_workers.utils.file_upload_client import FileUploadClient
 from studio_workers.worker_types import get_worker_config, resolve_queues
 from studio_workers.settings import settings
@@ -449,7 +452,12 @@ class ComfyUIWorker(WorkerBase):
                 extra={"job_id": job_id, "duration_ms": duration_ms},
             )
             error_msg = f"ComfyUI job failed ({type(e).__name__}). See worker logs."
-            self._handle_failure(job, error_msg, error_code=classify_error_code(e))
+            self._handle_failure(
+                job,
+                error_msg,
+                error_code=classify_error_code(e),
+                **failure_detail(e),
+            )
 
         finally:
             self.set_idle()
@@ -529,14 +537,27 @@ class ComfyUIWorker(WorkerBase):
         return url_path, None
 
     def _handle_failure(
-        self, job: Dict[str, Any], error_msg: str, error_code: str = "INTERNAL"
+        self,
+        job: Dict[str, Any],
+        error_msg: str,
+        error_code: str = "INTERNAL",
+        error_cause: Optional[str] = None,
+        error_host: Optional[str] = None,
+        error_status: Optional[int] = None,
+        error_detail: Optional[str] = None,
     ):
         """Handle job failure - write error and notify."""
         job_id = job.get("job_id", "unknown")
 
         if job.get("notify_api", True):
             if not self.result_publisher.publish_step_result(
-                status="FAILED", error=error_msg, error_code=error_code
+                status="FAILED",
+                error=error_msg,
+                error_code=error_code,
+                error_cause=error_cause,
+                error_host=error_host,
+                error_status=error_status,
+                error_detail=error_detail,
             ):
                 logger.critical(
                     "Failed to publish step result after retries - job will be orphaned",

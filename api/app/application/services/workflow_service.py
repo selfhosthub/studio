@@ -5,12 +5,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
+from studio_workers.contracts.redaction import is_sensitive_key
+
 from app.config.settings import settings
 from app.application.dtos.workflow_dto import (
+    FormFieldResponse,
     WorkflowCreate,
     WorkflowUpdate,
     WorkflowResponse,
 )
+from app.application.services.form_field_resolver import FormFieldResolver
 from app.application.interfaces.event_bus import EventBus
 from app.application.interfaces import EntityNotFoundError
 from app.application.interfaces.exceptions import DuplicateEntityError
@@ -33,6 +37,11 @@ from app.domain.organization_secret import (
     OrganizationSecret,
     OrganizationSecretRepository,
 )
+from app.infrastructure.security.step_secrets import (
+    drop_step_secrets,
+    keep_parameter_secrets,
+    step_secret_paths,
+)
 
 # secret_type tags for the OrganizationSecret rows that hold workflow trigger
 # creds. One credential per row; the type fully determines the data key, so the
@@ -49,6 +58,40 @@ TRIGGER_SECRET_TYPES = frozenset(TRIGGER_CRED_SECRET_TYPE.values())
 # Returned on read in place of the plaintext; ignored as a no-op on update so a
 # round-trip save does not overwrite the stored secret with the sentinel.
 CONFIGURED_SENTINEL = "[CONFIGURED]"
+
+
+def keep_step_secrets(
+    incoming: Dict[str, Dict[str, Any]],
+    stored: Dict[str, StepConfig],
+    can_manage_secrets: bool,
+) -> Dict[str, Dict[str, Any]]:
+    """Incoming steps with stored secret-class client_metadata and parameter secrets kept when absent, and always kept for a non-manager."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    for step_id, step in incoming.items():
+        meta = dict(step.get("client_metadata") or {})
+        if not can_manage_secrets:
+            meta = {k: v for k, v in meta.items() if not is_sensitive_key(k)}
+        stored_step = stored.get(step_id)
+        stored_meta = stored_step.client_metadata if stored_step else {}
+        for key, value in stored_meta.items():
+            if is_sensitive_key(key) and key not in meta:
+                meta[key] = value
+        merged[step_id] = {**step, "client_metadata": meta}
+        job = step.get("job")
+        if isinstance(job, dict):
+            stored_params = (
+                stored_step.job.parameters if stored_step and stored_step.job else {}
+            )
+            merged[step_id]["job"] = {
+                **job,
+                "parameters": keep_parameter_secrets(
+                    job.get("parameters") or {},
+                    stored_params,
+                    step_secret_paths({"client_metadata": stored_meta}),
+                    can_manage_secrets,
+                ),
+            }
+    return merged
 
 
 class WorkflowService:
@@ -277,6 +320,11 @@ class WorkflowService:
         if post_create:
             workflow.update(**post_create)
 
+        if command.status == WorkflowStatus.ACTIVE:
+            workflow.activate()
+        elif command.status == WorkflowStatus.INACTIVE:
+            workflow.deactivate()
+
         events = workflow.clear_events()
 
         workflow = await self.workflow_repository.create(workflow)
@@ -308,6 +356,7 @@ class WorkflowService:
         workflow_id: uuid.UUID,
         command: WorkflowUpdate,
         actor_id: Optional[uuid.UUID] = None,
+        can_manage_secrets: bool = True,
     ) -> WorkflowResponse:
         workflow = await self._get_workflow_or_raise(workflow_id)
 
@@ -331,6 +380,9 @@ class WorkflowService:
         # Pin provider versions on steps before saving
         steps_to_save = command.steps
         if steps_to_save is not None:
+            steps_to_save = keep_step_secrets(
+                steps_to_save, workflow.steps or {}, can_manage_secrets
+            )
             steps_to_save = await self._pin_step_versions(steps_to_save)
 
         # Call domain update method with all parameters, including status
@@ -443,6 +495,11 @@ class WorkflowService:
         # anyone but its creator.
         workflow = await self._get_workflow_or_raise(workflow_id)
         workflow.validate_can_be_deleted(actor_id)
+        for dependent in await self.workflow_repository.list_by_event_source(
+            workflow_id
+        ):
+            dependent.clear_event_trigger()
+            await self.workflow_repository.update(dependent)
         return await self.workflow_repository.delete(workflow_id)
 
     async def set_visibility(
@@ -484,8 +541,9 @@ class WorkflowService:
         rrule: Optional[str],
         timezone: str,
         enabled: bool,
+        form_fields: List[FormFieldResponse],
     ) -> Dict[str, Any]:
-        """Validate the RRULE schedule, compute the first run, and persist it."""
+        """Validate the RRULE schedule and run form, compute the first run, and persist it."""
         from app.infrastructure.scheduling.rrule_schedule import (
             ScheduleError,
             compute_next_run,
@@ -494,6 +552,17 @@ class WorkflowService:
         workflow = await self._get_workflow_or_raise(workflow_id)
         next_run = None
         if enabled:
+            required = set(FormFieldResolver.required_without_default(form_fields))
+            labels = [f.config.label for f in form_fields if f.field_id in required]
+            if labels:
+                raise BusinessRuleViolation(
+                    message=(
+                        "A schedule cannot fill in the run form. Give these "
+                        "required fields a default value first: " + ", ".join(labels)
+                    ),
+                    code="SCHEDULE_MISSING_REQUIRED_FIELD",
+                    context={"workflow_id": str(workflow_id)},
+                )
             try:
                 next_run = compute_next_run(
                     dtstart, rrule, timezone, after=datetime.now(UTC)
@@ -586,8 +655,8 @@ class WorkflowService:
     async def regenerate_trigger_secret_key(
         self, secret_id: uuid.UUID, organization_id: uuid.UUID
     ) -> Dict[str, Any]:
-        """Mint a fresh API key into an existing `workflow_trigger` secret - the
-        deliberate rotation surface for a *shared* secret (the Secrets page). Every
+        """Mint a fresh API key into an `api_key` secret that workflows trigger off,
+        the rotation surface for a shared trigger secret (the Secrets page). Every
         workflow referencing it immediately uses the new key. Returns the new key
         and how many workflows share it (the blast radius)."""
         repo = self.organization_secret_repository
@@ -598,7 +667,8 @@ class WorkflowService:
                 context={"secret_id": str(secret_id)},
             )
         secret = await repo.get_by_id(secret_id, organization_id)
-        if secret is None or secret.secret_type != "api_key":
+        count = await self.workflow_repository.count_by_trigger_secret_id(secret_id)
+        if secret is None or secret.secret_type != "api_key" or count == 0:
             raise BusinessRuleViolation(
                 message="No such API-key trigger secret in this organization.",
                 code="INVALID_TRIGGER_SECRET",
@@ -607,7 +677,6 @@ class WorkflowService:
         new_key = Workflow.new_api_key()
         secret.secret_data = {**secret.secret_data, "api_key": new_key}
         await repo.update(secret)
-        count = await self.workflow_repository.count_by_trigger_secret_id(secret_id)
         return {"api_key": new_key, "shared_by_count": count}
 
     async def recall_api_key(self, workflow_id: uuid.UUID) -> Optional[str]:
@@ -733,7 +802,7 @@ class WorkflowService:
         # Check if token already exists
         if step_config.client_metadata.get("webhook_token"):
             raise BusinessRuleViolation(
-                message="Step webhook token already exists. Use regenerate to replace it.",
+                message="Node webhook token already exists. Use regenerate to replace it.",
                 code="TOKEN_EXISTS",
                 context={"workflow_id": str(workflow_id), "step_id": step_id},
             )
@@ -761,7 +830,7 @@ class WorkflowService:
         # Check if token exists
         if not step_config.client_metadata.get("webhook_token"):
             raise BusinessRuleViolation(
-                message="No step webhook token exists. Use generate first.",
+                message="No node webhook token exists. Use generate first.",
                 code="NO_TOKEN",
                 context={"workflow_id": str(workflow_id), "step_id": step_id},
             )
@@ -790,6 +859,15 @@ class WorkflowService:
             "secret": step_config.client_metadata.get("webhook_secret"),
         }
 
+    async def next_copy_name(self, organization_id: uuid.UUID, base: str) -> str:
+        """First free name of "<base> (copy)", "<base> (copy 2)", ... in the org."""
+        name = f"{base} (copy)"
+        counter = 2
+        while await self.workflow_repository.get_by_name(organization_id, name):
+            name = f"{base} (copy {counter})"
+            counter += 1
+        return name
+
     async def copy_workflow(
         self,
         workflow_id: uuid.UUID,
@@ -805,22 +883,9 @@ class WorkflowService:
             steps_dict = {}
             for step_id, step_config in source.steps.items():
                 steps_dict[step_id] = step_config.model_dump(mode="json")
+            steps_dict = drop_step_secrets(steps_dict)
 
-        # Handle name collision
-        copy_name = f"{source.name} (copy)"
-        existing = await self.workflow_repository.get_by_name(
-            organization_id, copy_name
-        )
-        if existing:
-            counter = 2
-            while True:
-                copy_name = f"{source.name} (copy {counter})"
-                existing = await self.workflow_repository.get_by_name(
-                    organization_id, copy_name
-                )
-                if not existing:
-                    break
-                counter += 1
+        copy_name = await self.next_copy_name(organization_id, source.name)
 
         command = WorkflowCreate(
             name=copy_name,
@@ -871,6 +936,8 @@ class WorkflowService:
             )
 
         workflow.approve_publish()
+        if workflow.status in (WorkflowStatus.DRAFT, WorkflowStatus.INACTIVE):
+            workflow.activate()
         workflow = await self._persist_and_publish(workflow)
         return await self._build_response(workflow)
 
@@ -906,6 +973,7 @@ class WorkflowService:
         steps = data.get("steps", {})
         if not isinstance(steps, dict):
             steps = {}
+        steps = drop_step_secrets(steps)
 
         # Catalog files reference providers and prompts by slug; resolve them
         # to UUIDs so an uploaded catalog workflow links up like an install.
@@ -947,10 +1015,10 @@ class WorkflowService:
                         provider = await provider_repo.get_by_id(provider_id)
                         if not provider:
                             warnings.append(
-                                f"Step '{step_id}': Provider {provider_id_str} not found"
+                                f"Node '{step_id}': Provider {provider_id_str} not found"
                             )
                     except (ValueError, TypeError):
-                        warnings.append(f"Step '{step_id}': Invalid provider_id format")
+                        warnings.append(f"Node '{step_id}': Invalid provider_id format")
 
         # Check AI prompt availability if repo provided
         if prompt_repo:
@@ -970,7 +1038,7 @@ class WorkflowService:
                     prompt_id_str = mapping.get("promptId")
                     if not prompt_id_str:
                         warnings.append(
-                            f"Step '{step_id}': No AI prompt selected"
+                            f"Node '{step_id}': No AI prompt selected"
                         )
                         continue
                     try:
@@ -978,11 +1046,11 @@ class WorkflowService:
                         prompt = await prompt_repo.get_by_id(prompt_id)
                         if not prompt:
                             warnings.append(
-                                f"Step '{step_id}': AI prompt {prompt_id_str} not found"
+                                f"Node '{step_id}': AI prompt {prompt_id_str} not found"
                             )
                     except (ValueError, TypeError):
                         warnings.append(
-                            f"Step '{step_id}': Invalid AI prompt ID format"
+                            f"Node '{step_id}': Invalid AI prompt ID format"
                         )
 
         # Handle name collision

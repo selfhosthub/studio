@@ -131,7 +131,7 @@ export default function BaseOutputFieldsSection({ title = 'Output Fields' }: Bas
           ))
         ) : (
           <div className="text-center py-6 text-secondary">
-            <p>No output fields defined yet. Add fields to make data available for subsequent steps.</p>
+            <p>No output fields defined yet. Add fields to make data available for subsequent nodes.</p>
           </div>
         )}
         
@@ -198,7 +198,7 @@ export default function BaseOutputFieldsSection({ title = 'Output Fields' }: Bas
                   setNewFieldDescription('');
                   setEditMode(false);
                 }}
-                className="px-4 py-2 bg-input text-primary rounded-md hover:bg-surface focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                className="btn-cancel"
               >
                 Cancel
               </button>

@@ -1,6 +1,7 @@
 # api/app/application/services/instance/orchestration_service.py
 
 
+import re
 import uuid
 import logging
 from datetime import datetime, UTC
@@ -26,6 +27,22 @@ from app.domain.instance_step.models import StepExecutionStatus
 from app.domain.instance_step.step_execution import StepExecution
 from app.domain.instance_step.step_execution_repository import StepExecutionRepository
 from app.domain.workflow.repository import WorkflowRepository
+from app.domain.workflow import WorkflowNavigator
+from app.application.services.instance.status_derivation import (
+    derive_instance_step_status_dict,
+)
+from app.application.services.instance.workflow_orchestrator import (
+    OrchestrationAction,
+    WorkflowOrchestrator,
+)
+from app.infrastructure.services.approval_step_finder import ApprovalStepFinder
+from app.infrastructure.security.step_secrets import (
+    form_template_values,
+    opened_parameters,
+    seal_form_parameters,
+    seal_parameter_values,
+    step_service_id,
+)
 from app.domain.org_file.repository import OrgFileRepository
 
 from app.application.dtos import InstanceResponse, StepExecutionResponse
@@ -36,11 +53,15 @@ from app.application.services.job_enqueue import (
     ServiceInactiveError,
     ServiceNotFoundError,
 )
+from app.application.services.job_enqueue.step_parameter_resolver import (
+    resolve_step_job_parameters,
+)
 from app.application.services.instance.helpers import (
     get_instance_or_raise,
     assert_instance_idle,
     assert_no_active_operation,
     BUSY_STATUSES,
+    cancel_non_terminal_steps,
 )
 from app.domain.audit.models import (
     AuditAction,
@@ -56,6 +77,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.application.services.audit_service import AuditService
+    from app.application.services.instance_notifier import InstanceNotifier
     from app.application.services.instance.state_transition_service import (
         StateTransitionService,
     )
@@ -73,6 +95,7 @@ class OrchestrationService:
         audit_service: Optional["AuditService"] = None,
         state_transition_service: Optional["StateTransitionService"] = None,
         iteration_execution_repository: Optional[IterationExecutionRepository] = None,
+        notifier: Optional["InstanceNotifier"] = None,
     ):
         self.instance_repository = instance_repository
         self.step_execution_repository = step_execution_repository
@@ -83,6 +106,20 @@ class OrchestrationService:
         self.audit_service = audit_service
         self.state_transition_service = state_transition_service
         self.iteration_execution_repository = iteration_execution_repository
+        self.notifier = notifier
+
+    async def _announce(
+        self, instance: Instance, action_type: str, step_id: Optional[str] = None
+    ) -> None:
+        """Announce a lifecycle change on the bell and WebSocket when a notifier is wired."""
+        if self.notifier is None:
+            return
+        await self.notifier.announce_state_change(
+            instance=instance,
+            action_type=action_type,
+            step_id=step_id,
+            session=getattr(self.instance_repository, "session", None),
+        )
 
     async def _get_instance_or_raise(self, instance_id: uuid.UUID) -> Instance:
         return await get_instance_or_raise(self.instance_repository, instance_id)
@@ -123,13 +160,19 @@ class OrchestrationService:
         if len(distinct_groups) > 1:
             raise BusinessRuleViolation(
                 message=(
-                    f"Step {step_execution_id} has rows spanning multiple "
+                    f"Node {step_execution_id} has rows spanning multiple "
                     f"iteration groups ({len(distinct_groups)}); expected one."
                 ),
                 code="ITERATION_MULTIPLE_GROUPS",
             )
         group_id = rows[0].iteration_group_id
         return len(rows), (str(group_id) if group_id else None)
+
+    @staticmethod
+    def _path_segments(path: str) -> List[Any]:
+        """Segments of a bracket/dot path, list indexes as ints: 'a[2].b' → ['a', 2, 'b']."""
+        parts = [p for p in re.split(r"\.|\[(\d+)\]", path) if p]
+        return [int(p) if p.isdigit() else p for p in parts]
 
     @staticmethod
     def _set_nested_value(obj: Any, path: str, value: Any) -> None:
@@ -223,16 +266,17 @@ class OrchestrationService:
 
     async def inject_form_values_into_snapshot(
         self, instance: Instance, form_values: Dict[str, Any]
-    ) -> None:
-        """Write form_values into the workflow_snapshot's step parameters.
+    ) -> List[str]:
+        """Write form_values into the workflow_snapshot's step parameters, sealing secret ones; returns the form keys that held a secret.
 
         Two cases:
           mappingType='form'             → set on job.parameters
           _prompt_variable:var_name      → set on prompt mapping's variableValues
         """
         if not instance.workflow_snapshot:
-            return
+            return []
         steps = instance.workflow_snapshot.get("steps", {})
+        injected: Dict[str, Dict[str, str]] = {}
 
         for step_id, step_config in steps.items():
             if not isinstance(step_config, dict):
@@ -276,6 +320,7 @@ class OrchestrationService:
                         param_key,
                         value,
                     )
+                    injected.setdefault(step_id, {})[param_key] = form_key
                     logger.debug(f"Injected form value for {form_key}")
 
             # Pass 2: prompt-variable form values.
@@ -308,6 +353,74 @@ class OrchestrationService:
                     step_config.setdefault("_resolved_prompt_vars", {})[
                         tv_key
                     ] = form_value
+
+        sealed = await self._seal_form_secrets(instance, injected)
+        self._seal_instance_form_targets(instance, form_values, sealed)
+        return sealed
+
+    @staticmethod
+    def _form_key_for(field: str, form_values: Dict[str, Any]) -> Optional[str]:
+        """Form key an __instance_form__ field resolves to, by exact or dotted-suffix match."""
+        return next(
+            (k for k in form_values if k == field or k.endswith(f".{field}")), None
+        )
+
+    def _seal_instance_form_targets(
+        self, instance: Instance, form_values: Dict[str, Any], sealed: List[str]
+    ) -> None:
+        """Write each sealed form value an __instance_form__ mapping or template reads into its target parameter, sealed and recorded."""
+        if not sealed:
+            return
+        steps = dict((instance.workflow_snapshot or {}).get("steps") or {})
+        changed = False
+        for step_id, step_config in steps.items():
+            if not isinstance(step_config, dict):
+                continue
+            params = opened_parameters(step_config)
+
+            def lookup(field: str) -> tuple:
+                key = self._form_key_for(field, form_values)
+                return (key in sealed, form_values[key] if key in sealed else None)
+
+            values = form_template_values(params, lookup) if isinstance(params, dict) else []
+            for param_key, mapping in self._merged_input_mappings(step_config).items():
+                if (
+                    param_key.startswith("_prompt_variable:")
+                    or not isinstance(mapping, dict)
+                    or mapping.get("mappingType") != "mapped"
+                    or mapping.get("stepId") != "__instance_form__"
+                ):
+                    continue
+                key = self._form_key_for(str(mapping.get("outputField") or ""), form_values)
+                if key in sealed:
+                    values.append((self._path_segments(param_key), form_values[key]))
+            if values:
+                steps[step_id] = seal_parameter_values(step_config, values)
+                changed = True
+        if changed:
+            instance.workflow_snapshot = {**(instance.workflow_snapshot or {}), "steps": steps}
+
+    async def _seal_form_secrets(
+        self, instance: Instance, injected: Dict[str, Dict[str, str]]
+    ) -> List[str]:
+        """Encrypt the schema-secret values the run form wrote into the snapshot; returns their form keys."""
+        if not injected:
+            return []
+        steps = dict((instance.workflow_snapshot or {}).get("steps") or {})
+        schemas = await self.workflow_repository.parameter_schemas(
+            {sid for sid in (step_service_id(steps[k]) for k in injected) if sid}
+        )
+        sealed_keys: List[str] = []
+        for step_id, keys in injected.items():
+            roots = {k: self._path_segments(k) for k in keys}
+            steps[step_id], sealed = seal_form_parameters(
+                steps[step_id],
+                list(roots.values()),
+                schemas.get(step_service_id(steps[step_id]) or "", []),
+            )
+            sealed_keys.extend(keys[k] for k, root in roots.items() if root in sealed)
+        instance.workflow_snapshot = {**(instance.workflow_snapshot or {}), "steps": steps}
+        return sealed_keys
 
     async def resume_from_waiting_state(
         self,
@@ -515,8 +628,13 @@ class OrchestrationService:
                         "comment": comment,
                     },
                 )
+                await cancel_non_terminal_steps(
+                    self.step_execution_repository,
+                    inst.id,
+                    context_label="approval rejected",
+                )
 
-            instance = await self.resume_from_waiting_state(
+            await self.resume_from_waiting_state(
                 instance_id=instance_id,
                 step_id=step_id,
                 waiting_status=InstanceStatus.WAITING_FOR_APPROVAL,
@@ -524,6 +642,8 @@ class OrchestrationService:
                 metadata=approval_result,
                 next_action_fn=reject_action,
             )
+            # Reload so the response carries the cancelled step rows.
+            instance = await self._get_instance_or_raise(instance_id)
             logger.info(
                 f"Approval step {step_id} rejected for instance {instance_id}",
                 extra={"instance_id": str(instance_id), "step_id": step_id},
@@ -585,10 +705,10 @@ class OrchestrationService:
 
         # Block on mid-flight or concurrent operations - parity with other
         # re-execution paths.
-        self._assert_instance_idle(instance, "run stopped step")
+        self._assert_instance_idle(instance, "run stopped node")
         assert_no_active_operation(
             instance,
-            operation_label="run stopped step",
+            operation_label="run stopped node",
             error_class=BusinessRuleViolation,
             code="OPERATION_ALREADY_ACTIVE",
             requested_operation="run_stopped_step",
@@ -610,7 +730,7 @@ class OrchestrationService:
         step_entity = instance.step_entities.get(step_id)
         current_status = step_entity.status.value if step_entity else "pending"
         if current_status in ["completed", "running"]:
-            raise InvalidStateTransition(f"Step {step_id} is already {current_status}")
+            raise InvalidStateTransition(f"Node {step_id} is already {current_status}")
 
         if instance.status == InstanceStatus.COMPLETED:
             instance.status = InstanceStatus.PROCESSING
@@ -649,6 +769,8 @@ class OrchestrationService:
         if not self.job_enqueue_service:
             raise ConfigurationError("Job enqueue service not available")
 
+        await self._announce(instance, "processing_started", step_id)
+
         try:
             job_id = await self.job_enqueue_service.enqueue_step(
                 instance_id=instance.id,
@@ -675,7 +797,7 @@ class OrchestrationService:
         )
 
         if not job_id:
-            raise InvariantViolation(f"Enqueue for step {step_id} returned no job_id")
+            raise InvariantViolation(f"Enqueue for node {step_id} returned no job_id")
 
         # Return a transient QUEUED DTO so the UI renders immediately; id
         # matches the eventual persisted row once the worker's first status arrives.
@@ -737,10 +859,10 @@ class OrchestrationService:
             )
 
         if not first_resource.job_execution_id:
-            raise EntityNotFoundError(
-                entity_type="StepExecution",
-                entity_id="None",
-                code=f"Resource {resource_ids[0]} has no associated job execution",
+            raise BusinessRuleViolation(
+                message="Uploaded files cannot be regenerated",
+                code="UPLOADED_FILE_NOT_REGENERABLE",
+                context={"resource_id": str(resource_ids[0])},
             )
 
         job = await self.step_execution_repository.get_by_id(
@@ -989,11 +1111,11 @@ class OrchestrationService:
             step_job.id
         )
         if not iteration_count:
-            raise BusinessRuleViolation(f"Step {step_id} is not an iteration step")
+            raise BusinessRuleViolation(f"Node {step_id} is not an iteration node")
         if iteration_index >= iteration_count:
             raise BusinessRuleViolation(
                 f"Iteration index {iteration_index} out of range "
-                f"(step has {iteration_count} iterations)"
+                f"(node has {iteration_count} iterations)"
             )
 
         iteration_group_id = row_group_id or str(uuid.uuid4())
@@ -1219,6 +1341,21 @@ class OrchestrationService:
         completed_step_id: str,
         get_completed_step_results_fn=None,
     ) -> None:
+        await self.advance_after_step(
+            instance,
+            completed_step_id,
+            get_completed_step_results_fn,
+            announce_processing=True,
+        )
+
+    async def advance_after_step(
+        self,
+        instance: Instance,
+        completed_step_id: str,
+        get_completed_step_results_fn=None,
+        announce_processing: bool = False,
+    ) -> None:
+        """Take the orchestrator's next action for a step finished without a worker result."""
         if not self.job_enqueue_service or not instance.workflow_snapshot:
             logger.warning(
                 f"Cannot enqueue next steps: job_enqueue_service={bool(self.job_enqueue_service)}, "
@@ -1227,55 +1364,99 @@ class OrchestrationService:
             return
 
         steps = instance.workflow_snapshot.get("steps", {})
-        # Variable resolution sees COMPLETED steps only - paused steps' partial outputs are invisible.
-        completed_steps = set(instance.completed_step_ids)
+        ready_steps = WorkflowNavigator.get_ready_steps(
+            steps,
+            set(instance.completed_step_ids),
+            derive_instance_step_status_dict(instance),
+        )
+        approval_step_id = None
+        if ready_steps:
+            approval_step_id = await ApprovalStepFinder().find_approval_step(
+                instance,
+                ready_steps,
+                self.job_enqueue_service.provider_service_repository,
+            )
+        action = WorkflowOrchestrator().determine_next_action(
+            instance=instance,
+            completed_step_id=completed_step_id,
+            approval_step_id=approval_step_id,
+            is_debug_mode=instance.is_debug_mode,
+        )
+        logger.info(
+            f"Next after {completed_step_id}: {action!r}",
+            extra={"instance_id": str(instance.id), "step_id": completed_step_id},
+        )
 
-        ready_steps = []
-        for step_id, step_config in steps.items():
-            if step_id in completed_steps:
-                continue
-            if step_id in instance.failed_step_ids:
-                continue
-            step_entity = instance.step_entities.get(step_id)
-            if step_entity and step_entity.status.value in [
-                StepExecutionStatus.RUNNING.value,
-                "running",
-            ]:
-                continue
-
-            depends_on = []
-            if isinstance(step_config, dict):
-                depends_on = step_config.get("depends_on", []) or []
-
-            if all(dep in completed_steps for dep in depends_on):
-                ready_steps.append(step_id)
-
-        if not ready_steps:
-            logger.info(f"No ready steps found after approval of {completed_step_id}")
-            all_completed = all(sid in completed_steps for sid in steps.keys())
-            if all_completed:
+        match action.action:
+            case OrchestrationAction.COMPLETE:
                 instance.status = InstanceStatus.COMPLETED
                 instance.completed_at = datetime.now(UTC)
                 await self.instance_repository.update(instance)
-                logger.info(f"Instance {instance.id} completed after final approval")
-            return
+                await self._announce(instance, "completed", completed_step_id)
+            case OrchestrationAction.STOP:
+                await self._stop_at_step(instance, action.waiting_step_id or "")
+            case OrchestrationAction.FAIL:
+                instance.fail(
+                    error_message=action.error_message or "Workflow cannot continue",
+                    error_data={
+                        "error": action.error_message,
+                        "step_id": completed_step_id,
+                    },
+                )
+                await self.instance_repository.update(instance)
+                await cancel_non_terminal_steps(
+                    self.step_execution_repository,
+                    instance.id,
+                    context_label="workflow cannot continue",
+                )
+                await self._announce(instance, "failed", completed_step_id)
+            case OrchestrationAction.WAIT_APPROVAL:
+                await self._arm_approval_step(
+                    instance,
+                    action.waiting_step_id or "",
+                    get_completed_step_results_fn,
+                )
+            case OrchestrationAction.WAIT_MANUAL:
+                await self._arm_manual_steps(instance, action.step_ids)
+            case OrchestrationAction.WAIT_DEBUG:
+                await self._pause_for_debug(instance, completed_step_id, action.step_ids)
+            case OrchestrationAction.ENQUEUE_STEPS:
+                await self._enqueue_auto_steps(
+                    instance,
+                    completed_step_id,
+                    action.step_ids,
+                    get_completed_step_results_fn,
+                    announce_processing,
+                )
+
+    async def _enqueue_auto_steps(
+        self,
+        instance: Instance,
+        completed_step_id: str,
+        step_ids: List[str],
+        get_completed_step_results_fn,
+        announce_processing: bool,
+    ) -> None:
+        assert self.job_enqueue_service is not None
+        if announce_processing:
+            await self._announce(instance, "processing_started", completed_step_id)
 
         previous_results = {}
         if get_completed_step_results_fn:
             previous_results = await get_completed_step_results_fn(instance)
 
-        for next_step_id in ready_steps:
+        for next_step_id in step_ids:
             try:
                 await self.job_enqueue_service.enqueue_step(
                     instance_id=instance.id,
                     step_id=next_step_id,
                     organization_id=instance.organization_id,
-                    workflow_snapshot=instance.workflow_snapshot,
+                    workflow_snapshot=instance.workflow_snapshot or {},
                     instance_parameters=instance.input_data or {},
                     previous_step_results=previous_results,
                 )
                 logger.info(
-                    f"Enqueued step {next_step_id} after approval of {completed_step_id}",
+                    f"Enqueued step {next_step_id} after {completed_step_id}",
                     extra={
                         "instance_id": str(instance.id),
                         "step_id": next_step_id,
@@ -1294,6 +1475,107 @@ class OrchestrationService:
             except Exception as e:
                 logger.error(f"Failed to enqueue step {next_step_id}: {e}")
 
+    async def _stop_at_step(self, instance: Instance, stop_step_id: str) -> None:
+        """Stop the step and complete the run early, as the STOP action does."""
+        step = await self.step_execution_repository.get_by_instance_and_key(
+            instance.id, stop_step_id
+        )
+        if step:
+            step.stop()
+            await self.step_execution_repository.update(step)
+        instance.complete(force=True)
+        await self.instance_repository.update(instance)
+        await self._announce(instance, "completed", stop_step_id)
+
+    async def _arm_approval_step(
+        self,
+        instance: Instance,
+        approval_step_id: str,
+        get_completed_step_results_fn=None,
+    ) -> None:
+        """Park the instance on an approval step, as the WAIT_APPROVAL action does."""
+        old_status = instance.status.value
+        instance.wait_for_approval(approval_step_id)
+        instance.output_data["pending_approval"] = {
+            "step_id": approval_step_id,
+            "waiting_since": datetime.now(UTC).isoformat(),
+        }
+        step = await self.step_execution_repository.get_by_instance_and_key(
+            instance.id, approval_step_id
+        )
+        if step:
+            previous_results = (
+                await get_completed_step_results_fn(instance)
+                if get_completed_step_results_fn
+                else {}
+            )
+            step.parameters = resolve_step_job_parameters(
+                instance.workflow_snapshot or {},
+                approval_step_id,
+                instance.input_data or {},
+                previous_results,
+            )
+            step.wait_for_approval()
+            await self.step_execution_repository.update(step)
+        await self.instance_repository.update(instance)
+        await self.event_bus.publish(
+            InstanceStatusChangedEvent(
+                aggregate_id=instance.id,
+                aggregate_type="instance",
+                instance_id=instance.id,
+                workflow_id=instance.workflow_id,
+                organization_id=instance.organization_id,
+                old_status=old_status,
+                new_status=instance.status,
+            )
+        )
+        await self._announce(instance, "waiting_approval", approval_step_id)
+
+    async def _pause_for_debug(
+        self, instance: Instance, completed_step_id: str, pending_step_ids: List[str]
+    ) -> None:
+        """Pause a debug run before its next steps, as the WAIT_DEBUG action does."""
+        instance.status = InstanceStatus.DEBUG_PAUSED
+        instance.output_data["debug_paused"] = {
+            "completed_step_id": completed_step_id,
+            "pending_step_ids": pending_step_ids,
+            "paused_at": datetime.now(UTC).isoformat(),
+        }
+        await self.instance_repository.update(instance)
+        await self._announce(instance, "debug_paused", completed_step_id)
+
+    async def _arm_manual_steps(
+        self, instance: Instance, manual_step_ids: List[str]
+    ) -> None:
+        """Park the instance on its ready manual steps, as the WAIT_MANUAL action does."""
+        old_status = instance.status.value
+        instance.wait_for_manual_trigger(manual_step_ids[0])
+        instance.output_data["pending_trigger"] = {
+            "step_ids": manual_step_ids,
+            "waiting_since": datetime.now(UTC).isoformat(),
+        }
+        for manual_step_id in manual_step_ids:
+            step = await self.step_execution_repository.get_by_instance_and_key(
+                instance.id, manual_step_id
+            )
+            if step:
+                step.wait_for_manual_trigger()
+                await self.step_execution_repository.update(step)
+        await self.instance_repository.update(instance)
+        await self.event_bus.publish(
+            InstanceStatusChangedEvent(
+                aggregate_id=instance.id,
+                aggregate_type="instance",
+                instance_id=instance.id,
+                workflow_id=instance.workflow_id,
+                organization_id=instance.organization_id,
+                old_status=old_status,
+                new_status=instance.status,
+            )
+        )
+        for manual_step_id in manual_step_ids:
+            await self._announce(instance, "waiting_manual_trigger", manual_step_id)
+
     async def _enqueue_step_after_trigger(
         self,
         instance: Instance,
@@ -1306,6 +1588,8 @@ class OrchestrationService:
                 f"workflow_snapshot={bool(instance.workflow_snapshot)}"
             )
             return
+
+        await self._announce(instance, "processing_started", step_id)
 
         previous_results = {}
         if get_completed_step_results_fn:

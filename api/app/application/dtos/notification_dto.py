@@ -20,7 +20,6 @@ class NotificationBase(BaseModel):
 
 
 class NotificationCreate(NotificationBase):
-    created_by: UUID
     channel_type: ChannelType = ChannelType.IN_APP
     channel_id: Optional[UUID] = None
     message: str

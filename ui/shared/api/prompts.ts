@@ -68,6 +68,11 @@ export async function setPromptVisibility(
   });
 }
 
+// Number of workflows whose current version maps this prompt into a step.
+export async function getPromptUsage(id: string): Promise<{ workflow_count: number }> {
+  return apiRequest<{ workflow_count: number }>(`/prompts/${id}/usage`);
+}
+
 export async function deletePrompt(id: string): Promise<void> {
   await apiRequest<void>(`/prompts/${id}`, { method: 'DELETE' });
 }
@@ -207,6 +212,11 @@ export async function installPrompt(
     `/prompts/marketplace/install/${promptId}${qs}`,
     { method: 'POST' },
   );
+}
+
+/** Super admin only: workflows in every org that use a copy of a marketplace prompt. */
+export async function getMarketplacePromptUsage(marketplaceId: string): Promise<{ workflow_count: number }> {
+  return apiRequest<{ workflow_count: number }>(`/prompts/marketplace/usage/${marketplaceId}`);
 }
 
 export async function uninstallPrompt(

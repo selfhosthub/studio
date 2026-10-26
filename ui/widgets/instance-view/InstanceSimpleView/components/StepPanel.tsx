@@ -25,6 +25,7 @@ import { UnifiedIterationBlock } from "./UnifiedIterationBlock";
 import { ResourceGrid } from "./ResourceGrid";
 
 export function StepPanel({
+  canControlRun = true,
   selectedStep,
   selectedStepExecution,
   jobs,
@@ -202,21 +203,22 @@ export function StepPanel({
   };
   const wrappedOnRegenerateResources = (stepId: string, jobId: string, resourceIds: string[]) => {
     discardIfPending();
-    onRegenerateResources(stepId, jobId, resourceIds);
+    return onRegenerateResources(stepId, jobId, resourceIds);
   };
   const wrappedOnRegenerateIteration = (stepId: string, jobId: string, iterationIndex: number) => {
     discardIfPending();
     onRegenerateIteration(stepId, jobId, iterationIndex);
   };
-  const wrappedOnDeleteResources = (stepId: string, jobId: string, resourceIds: string[]) => {
+  const wrappedOnDeleteResources = onDeleteResources && ((stepId: string, jobId: string, resourceIds: string[]) => {
     discardIfPending();
-    onDeleteResources(stepId, jobId, resourceIds);
-  };
+    return onDeleteResources(stepId, jobId, resourceIds);
+  });
 
   return (
     <div className="p-4 space-y-4">
       {/* Step Header with Actions */}
       <StepHeaderActions
+        canControlRun={canControlRun}
         selectedStep={selectedStep}
         selectedStepExecution={selectedStepExecution}
         stepJobs={stepJobs}
@@ -311,6 +313,7 @@ export function StepPanel({
             toggleResourceSelection={toggleResourceSelection}
             clearSelection={clearSelection}
             onUploadFilesToStep={onUploadFilesToStep}
+            canControlRun={canControlRun}
           />
 
           {showFullPlaceholders && !hasIterations ? (
@@ -360,7 +363,7 @@ export function StepPanel({
                       fullOrder.push(...g.resources.map((r) => r.id));
                     }
                   }
-                  // Stage locally only — persists on Run/Rerun click.
+                  // Stage locally only - persists on Run/Rerun click.
                   stageStepReorder(stepId, fullOrder);
                 };
 
@@ -382,9 +385,9 @@ export function StepPanel({
                     onRegenerateSelected={(rids: string[]) =>
                       wrappedOnRegenerateResources(selectedStep.step_id, selectedStepExecution?.id || "", rids)
                     }
-                    onDeleteSelected={(rids: string[]) =>
+                    onDeleteSelected={wrappedOnDeleteResources && ((rids: string[]) =>
                       wrappedOnDeleteResources(selectedStep.step_id, selectedStepExecution?.id || "", rids)
-                    }
+                    )}
                     onSelectVariant={(rid: string) =>
                       onSelectVariant(selectedStepExecution?.id || "", rid)
                     }
@@ -394,13 +397,14 @@ export function StepPanel({
                       setViewingResource({ resource: r, allResources: stepResources })
                     }
                     onDownloadResource={onDownloadResource}
-                    isDragEnabled={selectedStep?.status === "completed" && !isReordering}
+                    isDragEnabled={canControlRun && selectedStep?.status === "completed" && !isReordering}
                     regenerating={regeneratingResources}
                     deleting={deletingResources}
                     stepStatus={selectedStep.status}
                     viewMode={dataViewMode === "auto" ? "tree" : dataViewMode}
                     sensors={sensors}
                     onReorderWithinIteration={handleReorderWithinIteration}
+                    canControlRun={canControlRun}
                   />
                 );
               })}
@@ -428,6 +432,7 @@ export function StepPanel({
               onDownloadResource={onDownloadResource}
               onDeleteResources={wrappedOnDeleteResources}
               onRegenerateResources={wrappedOnRegenerateResources}
+              canControlRun={canControlRun}
             />
           )}
         </div>
@@ -445,7 +450,7 @@ export function StepPanel({
         resultViewMode={resultViewMode}
         setResultViewMode={setResultViewMode}
         detectOutputView={detectOutputView}
-        onUpdateJobResult={onUpdateJobResult}
+        onUpdateJobResult={canControlRun ? onUpdateJobResult : undefined}
         savingResult={savingResult}
         setSavingResult={setSavingResult}
         simpleMode={simpleMode}

@@ -10,6 +10,8 @@ import { useUser } from '@/entities/user';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useReturnTo } from '@/shared/hooks/useReturnTo';
+import { getBrowserTimezone, zonedInputToUtcIso } from '@/shared/lib/schedule-utils';
+import { SECRET_NAME_PATTERN, SECRET_NAME_RULE } from '@/shared/lib/secret-labels';
 
 export default function NewSecretPage() {
   return (
@@ -31,6 +33,7 @@ function NewSecretPageContent() {
   const [submitting, setSubmitting] = useState(false);
   const [useJsonMode, setUseJsonMode] = useState(false);
   const [simpleValue, setSimpleValue] = useState('');
+  const nameError = name.trim() && !SECRET_NAME_PATTERN.test(name.trim()) ? SECRET_NAME_RULE : null;
 
   // Creating org secrets is admin-only; bounce non-admins (the backend also 403s).
   const canManageSecrets = user?.role === 'admin' || user?.role === 'super_admin';
@@ -45,6 +48,7 @@ function NewSecretPageContent() {
       toast({ title: 'Secret name is required', variant: 'destructive' });
       return;
     }
+    if (nameError) return;
 
     try {
       setSubmitting(true);
@@ -74,7 +78,7 @@ function NewSecretPageContent() {
         name: name.trim(),
         secret_type: secretType,
         secret_data: parsedSecretData,
-        expires_at: expiresAt || null,
+        expires_at: expiresAt ? zonedInputToUtcIso(expiresAt, getBrowserTimezone()) : null,
       });
 
       toast({ title: 'Secret created successfully', variant: 'success' });
@@ -102,10 +106,10 @@ function NewSecretPageContent() {
         <div className="infra-card">
           <div className="infra-card-header">
             <h1 className="section-title text-2xl">
-              Create Organization Secret
+              New Secret
             </h1>
             <p className="section-subtitle mt-1">
-              Create a reusable secret for webhook authentication, internal APIs, and templates
+              Create a reusable secret for webhook authentication and internal APIs
             </p>
           </div>
 
@@ -124,10 +128,16 @@ function NewSecretPageContent() {
                   onChange={(e) => setName(e.target.value)}
                   className="form-input"
                   placeholder="e.g., my_api_token"
+                  aria-invalid={nameError ? true : undefined}
+                  aria-describedby="secret-name-help"
                 />
-                <p className="form-helper">
-                  Name cannot be changed after creation. Use in templates as {`{{ secrets.secret_name.field }}`}
-                </p>
+                {nameError ? (
+                  <p id="secret-name-help" className="text-danger text-sm mt-1">{nameError}</p>
+                ) : (
+                  <p id="secret-name-help" className="form-helper">
+                    Letters, digits and underscores. Name cannot be changed after creation.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -205,7 +215,7 @@ function NewSecretPageContent() {
 
               <div>
                 <label htmlFor="secret-expires-at" className="form-label">
-                  Expiration Date (optional)
+                  Expires (optional)
                 </label>
                 <input
                   id="secret-expires-at"
@@ -220,7 +230,7 @@ function NewSecretPageContent() {
             <div className="mt-6 flex justify-end space-x-3">
               <Link
                 href={returnTo}
-                className="btn-orange text-sm inline-flex items-center"
+                className="btn-cancel text-sm inline-flex items-center"
               >
                 Cancel
               </Link>

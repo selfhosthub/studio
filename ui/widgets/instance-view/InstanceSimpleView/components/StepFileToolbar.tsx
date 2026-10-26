@@ -43,6 +43,7 @@ export function StepFileToolbar({
   handleDownloadFiles,
   clearSelection,
   onUploadFilesToStep,
+  canControlRun = true,
 }: StepFileToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -77,6 +78,11 @@ export function StepFileToolbar({
     }
   };
 
+  // True when every selected file came from a step job.
+  const canRegenerateSelection = stepResources
+    .filter((r: OrgFile) => stepSelectedIds.has(r.id))
+    .every((r: OrgFile) => r.job_execution_id);
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
       <h4 className="text-sm font-medium text-secondary">
@@ -90,14 +96,16 @@ export function StepFileToolbar({
       <div className="flex items-center gap-2">
         {stepSelectedCount > 0 && selectedStep && selectedStepExecution && (
           <>
+            {canControlRun && canRegenerateSelection && (
             <button
-              onClick={() => {
-                onRegenerateResources(
+              onClick={async () => {
+                if (await onRegenerateResources(
                   selectedStep.step_id,
                   selectedStepExecution.id,
                   Array.from(stepSelectedIds)
-                );
-                clearSelection(selectedStep.step_id);
+                )) {
+                  clearSelection(selectedStep.step_id);
+                }
               }}
               disabled={regeneratingResources}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-info-subtle text-info rounded hover:bg-[var(--theme-primary)]/20 disabled:opacity-50 transition-colors"
@@ -105,14 +113,17 @@ export function StepFileToolbar({
               <RotateCw className={`w-3 h-3 ${regeneratingResources ? "animate-spin" : ""}`} />
               {regeneratingResources ? "Regenerating..." : `Regenerate (${stepSelectedCount})`}
             </button>
+            )}
+            {onDeleteResources && (
             <button
-              onClick={() => {
-                onDeleteResources(
+              onClick={async () => {
+                if (await onDeleteResources(
                   selectedStep.step_id,
                   selectedStepExecution.id,
                   Array.from(stepSelectedIds)
-                );
-                clearSelection(selectedStep.step_id);
+                )) {
+                  clearSelection(selectedStep.step_id);
+                }
               }}
               disabled={deletingResources}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-danger-subtle text-danger rounded hover:bg-[var(--theme-danger)]/20 disabled:opacity-50 transition-colors"
@@ -120,6 +131,7 @@ export function StepFileToolbar({
               <Trash2 className="w-3 h-3" />
               {deletingResources ? "Deleting..." : `Delete (${stepSelectedCount})`}
             </button>
+            )}
           </>
         )}
         {stepResources.length > 0 && (
@@ -146,7 +158,7 @@ export function StepFileToolbar({
           </button>
         )}
         {/* Add Files Button with Dropdown */}
-        {selectedStep?.status === "completed" && (
+        {canControlRun && selectedStep?.status === "completed" && (
           <div ref={addFilesDropdownRef} className="relative">
             <input
               ref={fileInputRef}
@@ -226,10 +238,10 @@ export function StepFileToolbar({
           }, {});
           const hasMultiFileIteration = Object.values(perIter).some((n) => n > 1);
           const groupTitle = hasMultiFileIteration
-            ? "Group by iteration (recommended — keeps prompt, audio, and images together)"
+            ? "Group by iteration (recommended - keeps prompt, audio, and images together)"
             : "Group by iteration";
           const flatTitle = hasMultiFileIteration
-            ? "Flat view (read-only — switch to grouped view to reorder iterations)"
+            ? "Flat view (read-only - switch to grouped view to reorder iterations)"
             : "Flatten for reordering";
           return (
             <button

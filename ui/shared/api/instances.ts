@@ -23,12 +23,27 @@ export async function getInstancesByWorkflow(workflowId: string, skip = 0, limit
   return apiRequest<InstanceResponse[]>(`/instances/by-workflow/${workflowId}?skip=${skip}&limit=${safeLimit}`);
 }
 
-export async function getInstances(orgId?: string, status?: string, skip = 0, limit = 25): Promise<PaginatedInstanceResponse> {
+export type InstanceSortField = 'name' | 'workflow_name' | 'status' | 'updated_at' | 'created_at';
+
+export async function getInstances(
+  orgId?: string,
+  status?: string,
+  skip = 0,
+  limit = 25,
+  workflowId?: string,
+  sortBy?: InstanceSortField,
+  sortOrder?: 'asc' | 'desc',
+): Promise<PaginatedInstanceResponse> {
   const params = new URLSearchParams();
   if (orgId) params.append('organization_id', orgId);
   if (status) params.append('status', status);
   params.append('skip', skip.toString());
   params.append('limit', limit.toString());
+  if (workflowId) params.append('workflow_id', workflowId);
+  if (sortBy) {
+    params.append('sort_by', sortBy);
+    if (sortOrder) params.append('sort_order', sortOrder);
+  }
   // Endpoint derives org_id from the user token if not given.
   return apiRequest<PaginatedInstanceResponse>(`/instances/?${params.toString()}`);
 }

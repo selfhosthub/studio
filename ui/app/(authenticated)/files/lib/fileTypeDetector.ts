@@ -1,6 +1,9 @@
 // ui/app/(authenticated)/files/lib/fileTypeDetector.ts
 
 import { OrgFile } from '@/shared/types/api';
+import { formatDate } from '@/shared/lib/dateFormatter';
+import { formatStatus } from '@/shared/lib/format-utils';
+import { getFileName } from '@/shared/lib/file-name';
 
 const VIDEO_EXTENSIONS = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv'];
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma'];
@@ -36,12 +39,7 @@ export function isImageFile(resource: OrgFile): boolean {
 }
 
 export function getDisplayFilename(resource: OrgFile): string {
-  if (resource.virtual_path) {
-    const parts = resource.virtual_path.split('/');
-    const filename = parts[parts.length - 1];
-    if (filename && filename.includes('.')) return filename;
-  }
-  return resource.display_name;
+  return getFileName(resource);
 }
 
 export function getFileIcon(resource: OrgFile): string {
@@ -93,6 +91,22 @@ export function getSourceColor(source: string): string {
   }
 }
 
+export type FileStatusVariant = 'success' | 'warning' | 'error' | 'info' | 'default';
+
+const FILE_STATUS: Record<string, { label: string; variant: FileStatusVariant }> = {
+  available: { label: 'ready', variant: 'success' },
+  pending: { label: 'pending', variant: 'default' },
+  generating: { label: 'generating', variant: 'info' },
+  failed: { label: 'failed', variant: 'error' },
+  orphaned: { label: 'orphaned', variant: 'warning' },
+  deleted: { label: 'deleted', variant: 'default' },
+};
+
+// Label and badge variant for a file status, matching the grid card badge.
+export function getFileStatus(status: string): { label: string; variant: FileStatusVariant } {
+  return FILE_STATUS[status] ?? { label: formatStatus(status), variant: 'default' };
+}
+
 export function formatRelativeDate(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
@@ -105,5 +119,5 @@ export function formatRelativeDate(dateString: string): string {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  return formatDate(date, { time: false });
 }

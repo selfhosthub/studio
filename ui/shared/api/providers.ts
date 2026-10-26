@@ -49,7 +49,6 @@ export interface OrganizationSecret {
   name: string;
   secret_type: string;
   description?: string;
-  secret_data?: Record<string, unknown>;
   is_active: boolean;
   is_protected?: boolean;
   expires_at?: string | null;
@@ -234,7 +233,7 @@ export async function revealProviderCredential(credentialId: string): Promise<Re
 
 export function isCredentialTypeRevealable(credentialType: string, isTokenType?: boolean): boolean {
   const type = credentialType.toLowerCase();
-  if (['oauth', 'oauth2', 'bearer', 'jwt'].includes(type)) {
+  if (['oauth', 'bearer', 'jwt'].includes(type)) {
     return false;
   }
   if (type === 'custom' && isTokenType) {
@@ -298,9 +297,18 @@ export async function getOrganizationSecrets(): Promise<OrganizationSecret[]> {
   return apiRequest<OrganizationSecret[]>('/organizations/secrets');
 }
 
-/** SECURITY: returns decrypted secret_data. */
-export async function getOrganizationSecret(secretId: string): Promise<OrganizationSecret> {
-  return apiRequest<OrganizationSecret>(`/organizations/secrets/${secretId}`);
+/** Single secret metadata plus its stored field names, no values. */
+export interface OrganizationSecretDetail extends OrganizationSecret {
+  fields: string[];
+}
+
+export async function getOrganizationSecret(secretId: string): Promise<OrganizationSecretDetail> {
+  return apiRequest<OrganizationSecretDetail>(`/organizations/secrets/${secretId}`);
+}
+
+/** SECURITY: returns decrypted secret_data and writes a reveal audit row. */
+export async function revealOrganizationSecret(secretId: string): Promise<{ secret_data: Record<string, unknown> }> {
+  return apiRequest<{ secret_data: Record<string, unknown> }>(`/organizations/secrets/${secretId}/reveal`);
 }
 
 export async function createOrganizationSecret(data: {
@@ -317,7 +325,7 @@ export async function createOrganizationSecret(data: {
 
 /** Name is immutable; this only updates secret_data / is_active / expires_at. */
 export async function updateOrganizationSecret(secretId: string, data: {
-  secret_data: Record<string, any>;
+  secret_data?: Record<string, any>;
   is_active?: boolean;
   expires_at?: string | null;
 }): Promise<OrganizationSecret> {
@@ -332,7 +340,7 @@ export interface OrganizationSecretUsage {
   workflow_names: string[];
 }
 
-// How many workflows trigger off this secret — used to warn before deletion that
+// How many workflows trigger off this secret - used to warn before deletion that
 // confirming resets those workflows to a manual trigger.
 export async function getOrganizationSecretUsage(secretId: string): Promise<OrganizationSecretUsage> {
   return apiRequest<OrganizationSecretUsage>(`/organizations/secrets/${secretId}/usage`);

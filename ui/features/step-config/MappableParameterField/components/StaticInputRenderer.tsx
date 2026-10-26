@@ -22,6 +22,8 @@ interface StaticInputRendererProps {
   credentialId?: string;
   required?: boolean;
   previousSteps: Step[];
+  /** Key-value keys holding a stored secret the viewer cannot read. */
+  configuredKeys?: string[];
 }
 
 export function StaticInputRenderer({
@@ -36,6 +38,7 @@ export function StaticInputRenderer({
   credentialId,
   required = false,
   previousSteps,
+  configuredKeys,
 }: StaticInputRendererProps) {
   const handleChange = (next: any) => onValueChange(paramKey, next);
 
@@ -93,6 +96,7 @@ export function StaticInputRenderer({
       paramKey={paramKey}
       label={label}
       required={required}
+      configuredKeys={configuredKeys}
     />
   );
 }

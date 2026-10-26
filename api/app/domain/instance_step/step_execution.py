@@ -195,7 +195,7 @@ class StepExecution(AggregateRoot):
             StepExecutionStatus.FAILED,
         ):
             raise InvalidStateTransition(
-                message=f"Cannot restart step with status {self.status.value}",
+                message=f"Cannot restart node with status {self.status.value}",
                 code="INVALID_STEP_EXECUTION_RESTART",
                 context={
                     "entity_type": "StepExecution",
@@ -257,7 +257,7 @@ class StepExecution(AggregateRoot):
             StepExecutionStatus.QUEUED,
         ):
             raise InvalidStateTransition(
-                message=f"Cannot stop step with status {self.status.value}",
+                message=f"Cannot stop node with status {self.status.value}",
                 code="INVALID_STEP_EXECUTION_STOP",
                 context={
                     "entity_type": "StepExecution",
@@ -339,7 +339,7 @@ class StepExecution(AggregateRoot):
         if self.status in _CANNOT_RESET_MID_FLIGHT:
             raise InvalidStateTransition(
                 message=(
-                    f"Cannot reset step in {self.status.value} - " f"cancel it first"
+                    f"Cannot reset node in {self.status.value} - " f"cancel it first"
                 ),
                 code="RESET_MID_FLIGHT",
                 context={
@@ -359,7 +359,7 @@ class StepExecution(AggregateRoot):
         """Bump retry_count and return to PENDING. Caller must first check can_retry()."""
         if not self.can_retry():
             raise BusinessRuleViolation(
-                message="Step cannot be retried",
+                message="Node cannot be retried",
                 code="MAX_RETRIES_EXCEEDED",
                 context={
                     "step_execution_id": str(self.id),
@@ -380,7 +380,7 @@ class StepExecution(AggregateRoot):
             return
         if self.status not in _RERUNNABLE_STATUSES:
             raise InvalidStateTransition(
-                message=f"Cannot rerun step with status {self.status.value}",
+                message=f"Cannot rerun node with status {self.status.value}",
                 code="INVALID_STEP_EXECUTION_RERUN",
                 context={
                     "entity_type": "StepExecution",

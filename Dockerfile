@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 
 WORKDIR /app/api
 COPY api/pyproject.toml api/uv.lock ./
@@ -94,12 +94,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --only-upgrade \
     bsdutils libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1 login mount util-linux \
     libssl3t64 openssl openssl-provider-legacy \
-    perl-base gzip libpcre2-8-0 libsqlite3-0 \
+    perl-base gzip libpcre2-8-0 libsqlite3-0 libbrotli1 \
     && rm -rf /var/lib/apt/lists/*
 
 # cloudflared from upstream binary release. Cloudflare's apt repo doesn't
 # carry trixie (Debian 13) yet; binary works on both amd64 and arm64.
-ARG CLOUDFLARED_VERSION=2026.7.3
+ARG CLOUDFLARED_VERSION=2026.10.3
 RUN ARCH="$(dpkg --print-architecture)" \
     && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${ARCH}" \
         -o /usr/local/bin/cloudflared \
@@ -115,7 +115,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 # Installed into /opt/uv-tools with the shim on /usr/local/bin so the binary
 # is on PATH for every process in the image. Always rebuilds: the ADD of the
 # GitHub release metadata changes whenever the release does, busting the cache.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 ENV UV_TOOL_DIR=/opt/uv-tools \
     UV_TOOL_BIN_DIR=/usr/local/bin
 RUN test -n "${STUDIO_CONSOLE_VERSION}" || (echo "STUDIO_CONSOLE_VERSION build arg required" >&2 && exit 1)

@@ -21,9 +21,12 @@ from app.application.dtos.provider_dto import (
 )
 from app.application.interfaces import EntityNotFoundError, EventBus
 from app.config.settings import settings
-from app.domain.common.exceptions import ConfigurationError
+from app.domain.common.exceptions import BusinessRuleViolation, ConfigurationError
 from app.domain.common.value_objects import OperationalStatus, Visibility
+from app.infrastructure.services.package_version_service import slug_is_reserved
 from app.domain.provider.models import (
+    OAUTH2_TOKEN_KEYS,
+    CredentialType,
     Provider,
     ProviderCredential,
     ProviderService as ProviderServiceModel,
@@ -291,10 +294,20 @@ class ProviderService:
         if command.description is not None:
             credential.description = command.description
         if command.credentials is not None:
-            # Drop blank values so a cleared field is removed, not stored as "".
-            credential.credentials = {
-                k: v for k, v in command.credentials.items() if v != ""
+            # Submitted keys replace stored ones; omitted keys are kept; a blank value removes the key.
+            previous = credential.credentials or {}
+            merged = {
+                k: v
+                for k, v in {**previous, **command.credentials}.items()
+                if v != ""
             }
+            # Drop stored OAuth tokens when the client changed, which needs a reauthorize.
+            if credential.credential_type == CredentialType.OAUTH2 and merged.get(
+                "client_id"
+            ) != previous.get("client_id"):
+                for key in OAUTH2_TOKEN_KEYS - command.credentials.keys():
+                    merged.pop(key, None)
+            credential.credentials = merged
         if command.is_active is not None:
             credential.is_active = command.is_active
         if command.expires_at is not None:
@@ -409,6 +422,10 @@ class ProviderService:
                 entity_type="Provider",
                 entity_id=command.provider_id,
                 code=f"Provider with ID {command.provider_id} not found",
+            )
+        if slug_is_reserved(provider.slug):
+            raise BusinessRuleViolation(
+                "Cannot add a service to a catalog provider. The catalog owns its services."
             )
 
         service = ProviderServiceModel(

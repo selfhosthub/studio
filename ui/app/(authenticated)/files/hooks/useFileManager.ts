@@ -2,8 +2,7 @@
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { STORAGE_KEYS } from '@/shared/lib/constants';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/entities/user';
@@ -11,15 +10,17 @@ import { useToast } from '@/features/toast';
 import { useOrgSettings } from '@/entities/organization';
 import { useFiles } from '@/features/files';
 import { downloadFile, uploadFiles } from '@/shared/api';
-import { asOutputResources } from '@/shared/api/files';
+import { asOutputResources, type FileListQuery } from '@/shared/api/files';
 import { OrgFile } from '@/shared/types/api';
-import { getStoredPageSize } from '@/shared/lib/pagination';
+import { DEFAULT_PAGE_SIZE } from '@/shared/lib/pagination';
+import { useListPref, oneOf, isPageSize } from '@/shared/hooks/useListPref';
 
 type ViewMode = 'grid' | 'table';
 
-const PAGE_SIZE_KEY = 'files-pageSize';
+const VIEW_MODES: readonly ViewMode[] = ['grid', 'table'];
+const EMPTY_QUERY: FileListQuery = {};
 
-export function useFileManager() {
+export function useFileManager(query: FileListQuery = EMPTY_QUERY) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, status: authStatus } = useUser();
@@ -27,26 +28,25 @@ export function useFileManager() {
   const { settings: orgSettings, updateSettings } = useOrgSettings();
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(() => getStoredPageSize(PAGE_SIZE_KEY));
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [pageSize, setPageSize] = useListPref<number>('files', 'pageSize', DEFAULT_PAGE_SIZE, isPageSize);
+  const [viewMode, setViewMode] = useListPref<ViewMode>('files', 'viewMode', 'grid', oneOf(VIEW_MODES));
   const [viewingResource, setViewingResource] = useState<OrgFile | null>(null);
 
   // Upload state
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const { data: rawFiles, isLoading, error, refetch } = useFiles({ page, limit: pageSize });
-  const files = rawFiles ? asOutputResources(rawFiles) : undefined;
+  // Return to the first page whenever search, filters or sort change
+  const queryKey = JSON.stringify(query);
+  const [prevQueryKey, setPrevQueryKey] = useState(queryKey);
+  if (queryKey !== prevQueryKey) {
+    setPrevQueryKey(queryKey);
+    setPage(1);
+  }
 
-  // Load view mode preference from localStorage (Pattern D: ref-flag + unconditional compute-then-set)
-  const didInitViewModeRef = useRef(false);
-  useEffect(() => {
-    if (didInitViewModeRef.current) return;
-    didInitViewModeRef.current = true;
-    const saved = localStorage.getItem(STORAGE_KEYS.FILES_VIEW_MODE);
-    const next: ViewMode = saved === 'grid' || saved === 'table' ? (saved as ViewMode) : 'grid';
-    setViewMode(next);
-  }, []);
+  const { data: fileList, isLoading, error, refetch } = useFiles({ page, limit: pageSize, query });
+  const files = fileList ? asOutputResources(fileList.items) : undefined;
+  const totalCount = fileList?.total ?? 0;
 
   // Redirect in useEffect to avoid setState-during-render warnings
   useEffect(() => {
@@ -59,7 +59,6 @@ export function useFileManager() {
 
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
-    localStorage.setItem(STORAGE_KEYS.FILES_VIEW_MODE, mode);
   };
 
   const handleDownload = async (fileId: string, filename: string) => {
@@ -100,7 +99,6 @@ export function useFileManager() {
   const handlePageSizeChange = (size: number) => {
     setPageSize(size);
     setPage(1);
-    localStorage.setItem(PAGE_SIZE_KEY, String(size));
   };
 
   return {
@@ -109,6 +107,7 @@ export function useFileManager() {
     authStatus,
     // Data
     files,
+    totalCount,
     isLoading,
     error,
     refetch,

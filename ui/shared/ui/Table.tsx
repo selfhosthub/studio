@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import { formatStatus } from '@/shared/lib/format-utils';
 
 interface TableProps {
   children: React.ReactNode;
@@ -67,13 +68,16 @@ export interface TableCellProps {
   className?: string;
   align?: 'left' | 'center' | 'right';
   colSpan?: number;
+  'data-name-cell'?: string;
+  'data-actions-cell'?: string;
 }
 
 export function TableCell({
   children,
   className = '',
   align = 'left',
-  colSpan
+  colSpan,
+  ...dataAttributes
 }: TableCellProps) {
   const alignmentClass = {
     'left': 'text-left',
@@ -85,6 +89,7 @@ export function TableCell({
     <td
       className={`table-cell ${alignmentClass[align]} ${className}`}
       colSpan={colSpan}
+      {...dataAttributes}
     >
       {children}
     </td>
@@ -176,8 +181,8 @@ export function StatusBadge({
   };
 
   return (
-    <span className={`badge ${variantStyles[effectiveVariant]} ${className}`}>
-      {status}
+    <span className={`badge max-md:inline-block! ${variantStyles[effectiveVariant]} ${className}`}>
+      {formatStatus(status)}
     </span>
   );
 }
@@ -355,8 +360,9 @@ export function Pagination({
       <div className="flex items-center gap-4">
         {showPageSizeSelector && onPageSizeChange && (
           <div className="flex items-center gap-2">
-            <span className="text-secondary">Show:</span>
+            <span className="text-secondary">Rows per page:</span>
             <select
+              aria-label="Rows per page"
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               className={selectClass}
@@ -370,12 +376,14 @@ export function Pagination({
         <div className="flex items-center gap-2">
           <button
             onClick={() => onPageChange(currentPage - 1)}
+            aria-label="Previous page"
             disabled={!hasPrevPage}
             className={navButtonClass}
           >
             <ChevronLeft />
           </button>
           <select
+            aria-label="Page"
             value={currentPage}
             onChange={(e) => onPageChange(Number(e.target.value))}
             className={selectClass}
@@ -387,6 +395,7 @@ export function Pagination({
           <span className="text-secondary">of {totalPages || 1}</span>
           <button
             onClick={() => onPageChange(currentPage + 1)}
+            aria-label="Next page"
             disabled={!hasNextPage}
             className={navButtonClass}
           >
@@ -406,12 +415,14 @@ export function Pagination({
       <div className="flex items-center gap-2">
         <button
           onClick={() => onPageChange(currentPage - 1)}
+          aria-label="Previous page"
           disabled={!hasPrevPage}
           className={navButtonClass}
         >
           <ChevronLeft />
         </button>
         <select
+          aria-label="Page"
           value={currentPage}
           onChange={(e) => onPageChange(Number(e.target.value))}
           className={selectClass}
@@ -423,6 +434,7 @@ export function Pagination({
         <span className="text-secondary">of {totalPages || 1}</span>
         <button
           onClick={() => onPageChange(currentPage + 1)}
+          aria-label="Next page"
           disabled={!hasNextPage}
           className={navButtonClass}
         >

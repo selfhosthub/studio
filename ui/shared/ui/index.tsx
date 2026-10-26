@@ -153,19 +153,23 @@ export function LinkedText({
   return <span className={className}>{parts}</span>;
 }
 
-export { ResourceTable } from './ResourceTable';
+export { ResourceTable, sortRows, resolveTieBreak, compareSortValues, nextSort, secondaryColumns } from './ResourceTable';
 export type {
   ResourceTableProps,
   ColumnConfig as ResourceColumnConfig,
-  SearchConfig,
-  FilterConfig,
-  SortConfig,
+  ColumnPriority,
+  ControlledSort,
   PaginationConfig,
-  ActionConfig,
-  EmptyConfig,
+  ServerPagination,
+  SortDirection,
+  SortState,
+  SortValue,
 } from './ResourceTable';
 
 export { Modal } from './Modal';
+
+export { ConfirmDialog, ConfirmProvider, useConfirm, usePromptText } from './ConfirmDialog';
+export type { ConfirmDialogProps, ConfirmFn, ConfirmOptions, ConfirmVariant, PromptTextFn, PromptTextOptions } from './ConfirmDialog';
 
 export { UserAvatar } from './UserAvatar';
 

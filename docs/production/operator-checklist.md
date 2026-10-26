@@ -123,7 +123,7 @@ The URL vars (`SHS_API_BASE_URL`, `SHS_PUBLIC_BASE_URL`, `SHS_FRONTEND_URL`, `SH
 Do this before you take a paying customer. Studio is a framework, not a managed service: the obligations to your end users are yours.
 
 - [ ] Read [LICENSE](https://github.com/selfhosthub/studio/blob/main/LICENSE) (what you may and may not do) and [LEGAL.md](https://github.com/selfhosthub/studio/blob/main/LEGAL.md) (operator obligations)
-- [ ] Write your own **Terms of Service** and **Privacy Policy** and publish them in Admin > Site Content. Both pages ship disabled, and the seeded text is sample text, not legal advice
+- [ ] Write your own **Terms of Service** and **Privacy Policy** and publish them in Admin > Site Content. Both pages ship empty and disabled, and each stays hidden, footer links included, until it has content
 - [ ] Review the terms of every third-party API and model provider you enable. Their costs, rate limits, content-ownership rules, and usage policies bind you, not us
 - [ ] Check the licenses of any model files your deployment downloads. They vary, and some restrict commercial use
 - [ ] Get professional counsel (legal, tax, financial) before going live with paying customers

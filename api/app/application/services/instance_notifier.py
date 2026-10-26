@@ -4,7 +4,7 @@
 
 import logging
 from datetime import datetime, UTC
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +20,35 @@ from app.domain.notification.models import (
 )
 from app.domain.notification.repository import NotificationRepository
 from app.domain.organization.repository import UserRepository
+from app.infrastructure.errors import safe_error_message
 
 logger = logging.getLogger(__name__)
+
+
+_LIFECYCLE_CONTENT: Dict[InstanceStatus, Tuple[str, str, NotificationPriority, Tuple[str, ...]]] = {
+    InstanceStatus.COMPLETED: ("Instance Completed", "{name} completed successfully.", NotificationPriority.MEDIUM, ("workflow", "success")),
+    InstanceStatus.FAILED: ("Instance Failed", "{name} failed.", NotificationPriority.HIGH, ("workflow", "error")),
+    InstanceStatus.PROCESSING: ("Instance Started", "{name} started running.", NotificationPriority.LOW, ("workflow", "started")),
+    InstanceStatus.WAITING_FOR_APPROVAL: ("Approval Required", "{name} is waiting for approval.", NotificationPriority.HIGH, ("workflow", "approval")),
+    InstanceStatus.WAITING_FOR_MANUAL_TRIGGER: ("Manual Trigger Required", "{name} is waiting for a manual trigger.", NotificationPriority.MEDIUM, ("workflow", "manual_trigger")),
+    InstanceStatus.WAITING_FOR_WEBHOOK: ("Awaiting Provider Callback", "{name} fired its request and is awaiting the provider callback.", NotificationPriority.LOW, ("workflow", "webhook")),
+    InstanceStatus.CANCELLED: ("Instance Cancelled", "{name} was cancelled.", NotificationPriority.LOW, ("workflow", "cancelled")),
+}
+
+
+def lifecycle_content(
+    status: InstanceStatus, display_name: str, error: Optional[str] = None
+) -> Optional[Tuple[str, str, NotificationPriority, List[str]]]:
+    """Bell title, message, priority and tags for a lifecycle status, or None when the status is not announced."""
+    entry = _LIFECYCLE_CONTENT.get(status)
+    if entry is None:
+        return None
+    title, template, priority, tags = entry
+    if status == InstanceStatus.FAILED and error:
+        message = f"{display_name} failed: {error}"
+    else:
+        message = template.format(name=display_name)
+    return title, message, priority, list(tags)
 
 
 class InstanceNotifier:
@@ -75,7 +102,7 @@ class InstanceNotifier:
         self._user_repo_factory = user_repo_factory
         self._broadcast_notification = broadcast_notification_fn
         # Fired once per terminal (completed/failed) announce, after the bell
-        # commit — used to chain EVENT-trigger workflows. Best-effort.
+        # commit - used to chain EVENT-trigger workflows. Best-effort.
         self._terminal_hook = terminal_hook
 
     async def publish_instance_update(
@@ -121,13 +148,14 @@ class InstanceNotifier:
         self,
         session: AsyncSession,
         organization_id: UUID,
-        instance_id: UUID,
+        instance_id: Optional[UUID],
         workflow_id: UUID,
         workflow_name: Optional[str],
         status: InstanceStatus,
         error: Optional[str] = None,
         title_override: Optional[str] = None,
         message_override: Optional[str] = None,
+        actor_id: Optional[UUID] = None,
     ) -> None:
         """IN_APP bell notification fan-out to all admin/super_admin users in the org.
 
@@ -152,44 +180,10 @@ class InstanceNotifier:
                 logger.debug(f"No admin users to notify for org {organization_id}")
                 return
 
-            display_name = workflow_name or "Workflow"
-            if status == InstanceStatus.COMPLETED:
-                title = "Instance Completed"
-                message = f"{display_name} completed successfully."
-                priority = NotificationPriority.MEDIUM
-                tags = ["workflow", "success"]
-            elif status == InstanceStatus.FAILED:
-                title = "Instance Failed"
-                message = error or f"{display_name} failed."
-                priority = NotificationPriority.HIGH
-                tags = ["workflow", "error"]
-            elif status == InstanceStatus.PROCESSING:
-                title = "Instance Started"
-                message = f"{display_name} started running."
-                priority = NotificationPriority.LOW
-                tags = ["workflow", "started"]
-            elif status == InstanceStatus.WAITING_FOR_APPROVAL:
-                title = "Approval Required"
-                message = f"{display_name} is waiting for approval."
-                priority = NotificationPriority.HIGH
-                tags = ["workflow", "approval"]
-            elif status == InstanceStatus.WAITING_FOR_MANUAL_TRIGGER:
-                title = "Manual Trigger Required"
-                message = f"{display_name} is waiting for a manual trigger."
-                priority = NotificationPriority.MEDIUM
-                tags = ["workflow", "manual_trigger"]
-            elif status == InstanceStatus.WAITING_FOR_WEBHOOK:
-                title = "Awaiting Provider Callback"
-                message = f"{display_name} fired its request and is awaiting the provider callback."
-                priority = NotificationPriority.LOW
-                tags = ["workflow", "webhook"]
-            elif status == InstanceStatus.CANCELLED:
-                title = "Instance Cancelled"
-                message = f"{display_name} was cancelled."
-                priority = NotificationPriority.LOW
-                tags = ["workflow", "cancelled"]
-            else:
+            content = lifecycle_content(status, workflow_name or "Workflow", error)
+            if content is None:
                 return
+            title, message, priority, tags = content
 
             if title_override is not None:
                 title = title_override
@@ -210,10 +204,11 @@ class InstanceNotifier:
                     client_metadata={
                         "workflow_id": str(workflow_id),
                         "workflow_name": workflow_name,
-                        "instance_id": str(instance_id),
-                        "resource_type": "instance",
-                        "resource_id": str(instance_id),
+                        "instance_id": str(instance_id) if instance_id else None,
+                        "resource_type": "instance" if instance_id else "workflow",
+                        "resource_id": str(instance_id or workflow_id),
                         "error": error,
+                        "actor_id": str(actor_id) if actor_id else None,
                     },
                 )
 
@@ -261,7 +256,7 @@ class InstanceNotifier:
 
         Distinct from the run's own lifecycle announces (started/completed):
         this confirms the *schedule* ticked. Lives here so the create_notification
-        pairing contract stays satisfied. Best-effort — never raises; a failure
+        pairing contract stays satisfied. Best-effort - never raises; a failure
         must not stall the schedule advance."""
         display_name = workflow_name or "Workflow"
         try:
@@ -282,6 +277,35 @@ class InstanceNotifier:
                 f"{instance_id}: {e}"
             )
 
+    async def announce_schedule_failed(
+        self,
+        session: AsyncSession,
+        organization_id: UUID,
+        workflow_id: UUID,
+        workflow_name: Optional[str],
+        error: str,
+    ) -> None:
+        """Bell notification that a SCHEDULE trigger fired but started no run. Best-effort - never raises."""
+        display_name = workflow_name or "Workflow"
+        try:
+            await self.create_notification(
+                session=session,
+                organization_id=organization_id,
+                instance_id=None,
+                workflow_id=workflow_id,
+                workflow_name=workflow_name,
+                status=InstanceStatus.FAILED,
+                error=error,
+                title_override="Scheduled Run Not Started",
+                message_override=f"{display_name} did not start on its schedule: {error}",
+            )
+            await session.commit()
+        except Exception as e:
+            logger.warning(
+                f"Schedule-failed notification failed for workflow "
+                f"{workflow_id}: {safe_error_message(e)}"
+            )
+
     def _status_for_action(self, action_type: str) -> Optional[InstanceStatus]:
         """Map lifecycle action type to canonical status, or None to use instance.status."""
         return self._ACTION_TO_STATUS.get(action_type)
@@ -296,6 +320,7 @@ class InstanceNotifier:
         session: Optional[AsyncSession] = None,
         title_override: Optional[str] = None,
         message_override: Optional[str] = None,
+        actor_id: Optional[UUID] = None,
     ) -> None:
         """Announce a lifecycle state change: commit bell notification then publish WS.
 
@@ -326,11 +351,12 @@ class InstanceNotifier:
                     error=error,
                     title_override=title_override,
                     message_override=message_override,
+                    actor_id=actor_id,
                 )
                 await session.commit()
 
         # EVENT-trigger fan-out: only on terminal completed/failed, only when a
-        # session is available. Best-effort — never let it break the announce.
+        # session is available. Best-effort - never let it break the announce.
         if (
             self._terminal_hook is not None
             and session is not None

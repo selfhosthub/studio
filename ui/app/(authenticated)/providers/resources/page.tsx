@@ -9,15 +9,10 @@ import { PlusCircle, Search, Filter } from "lucide-react";
 import { formatDate } from "@/shared/lib/dateFormatter";
 import { getProviderResourcesByOrganization } from "@/shared/api";
 import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableCell,
-  TableHeaderCell,
-  TableContainer,
+  ResourceTable,
   StatusBadge,
   ActionButton,
+  type ResourceColumnConfig,
 } from "@/shared/ui";
 
 interface Resource {
@@ -61,6 +56,100 @@ export default function ProviderResources() {
     fetchResources();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- user?.org_id is sufficient
   }, [user?.org_id]);
+
+  const columns: ResourceColumnConfig<Resource>[] = [
+    {
+      key: "resource_id",
+      header: "Resource ID",
+      sortValue: (resource) => resource.resource_id,
+      render: (resource) => <div className="font-medium text-sm">{resource.resource_id}</div>,
+    },
+    {
+      key: "provider_id",
+      header: "Provider ID",
+      sortValue: (resource) => resource.provider_id,
+      render: (resource) => (
+        <div className="text-xs text-secondary font-mono">
+          {(resource.provider_id || '').slice(0, 8)}...
+        </div>
+      ),
+    },
+    {
+      key: "resource_type",
+      header: "Type",
+      sortValue: (resource) => resource.resource_type,
+      render: (resource) => (
+        <span className="px-2 py-1 text-xs font-medium rounded bg-info-subtle text-info">
+          {resource.resource_type}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      sortValue: (resource) => resource.status,
+      render: (resource) => (
+        <StatusBadge
+          status={resource.status}
+          variant={
+            resource.status.toLowerCase() === "active" ||
+            resource.status.toLowerCase() === "available"
+              ? "success"
+              : resource.status.toLowerCase() === "in-use" ||
+                  resource.status.toLowerCase() === "in_use"
+                ? "info"
+                : "warning"
+          }
+        />
+      ),
+    },
+    {
+      key: "properties",
+      header: "Properties",
+      sortValue: (resource) => (resource.properties ? Object.keys(resource.properties).length : null),
+      render: (resource) =>
+        resource.properties ? (
+          <div className="text-xs">
+            {Object.entries(resource.properties).slice(0, 2).map(([key, value]) => (
+              <div key={key} className="text-secondary">
+                <span className="font-medium">{key}:</span> {String(value).slice(0, 30)}
+                {String(value).length > 30 ? '...' : ''}
+              </div>
+            ))}
+            {Object.keys(resource.properties).length > 2 && (
+              <div className="text-secondary dark:text-secondary">
+                +{Object.keys(resource.properties).length - 2} more
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="text-muted dark:text-secondary">No properties</span>
+        ),
+    },
+    {
+      key: "created_at",
+      header: "Created",
+      sortValue: (resource) => (resource.created_at ? new Date(resource.created_at) : null),
+      render: (resource) => <div className="text-sm">{formatDate(resource.created_at || '')}</div>,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "center",
+      render: (resource) => (
+        <div className="flex justify-center gap-2 items-center max-md:flex-col max-md:items-stretch">
+          <ActionButton
+            variant="navigate"
+            onClick={() =>
+              router.push(`/providers/resources/${resource.id}`)
+            }
+          >
+            Details
+          </ActionButton>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <>
@@ -124,88 +213,13 @@ export default function ProviderResources() {
             <p className="text-muted">No resources found for your organization.</p>
           </div>
         ) : (
-          <TableContainer>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHeaderCell>Resource ID</TableHeaderCell>
-                  <TableHeaderCell>Provider ID</TableHeaderCell>
-                  <TableHeaderCell>Type</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>Properties</TableHeaderCell>
-                  <TableHeaderCell>Created</TableHeaderCell>
-                  <TableHeaderCell align="center">Actions</TableHeaderCell>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {resources.map((resource) => (
-                  <TableRow key={resource.id}>
-                    <TableCell>
-                      <div className="font-medium text-sm">{resource.resource_id}</div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-xs text-secondary font-mono">
-                        {(resource.provider_id || '').slice(0, 8)}...
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="px-2 py-1 text-xs font-medium rounded bg-info-subtle text-info">
-                        {resource.resource_type}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge
-                        status={resource.status}
-                        variant={
-                          resource.status.toLowerCase() === "active" ||
-                          resource.status.toLowerCase() === "available"
-                            ? "success"
-                            : resource.status.toLowerCase() === "in-use" ||
-                                resource.status.toLowerCase() === "in_use"
-                              ? "info"
-                              : "warning"
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {resource.properties ? (
-                        <div className="text-xs">
-                          {Object.entries(resource.properties).slice(0, 2).map(([key, value]) => (
-                            <div key={key} className="text-secondary">
-                              <span className="font-medium">{key}:</span> {String(value).slice(0, 30)}
-                              {String(value).length > 30 ? '...' : ''}
-                            </div>
-                          ))}
-                          {Object.keys(resource.properties).length > 2 && (
-                            <div className="text-secondary dark:text-secondary">
-                              +{Object.keys(resource.properties).length - 2} more
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted dark:text-secondary">No properties</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">{formatDate(resource.created_at || '')}</div>
-                    </TableCell>
-                    <TableCell align="center">
-                      <div className="flex justify-center space-x-2">
-                        <ActionButton
-                          variant="navigate"
-                          onClick={() =>
-                            router.push(`/providers/resources/${resource.id}`)
-                          }
-                        >
-                          Details
-                        </ActionButton>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <ResourceTable
+            data={resources}
+            getItemId={(resource) => resource.id}
+            columns={columns}
+            prefPage="provider-resources"
+            pagination={{ itemLabel: "resource" }}
+          />
         )}
       </div>
     </>

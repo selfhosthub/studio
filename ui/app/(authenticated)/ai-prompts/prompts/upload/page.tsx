@@ -2,12 +2,24 @@
 
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { Suspense, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { importPrompt } from '@/shared/api';
+import { useReturnTo, withReturnTo } from '@/shared/hooks/useReturnTo';
+import { useToast } from '@/features/toast';
 
 export default function UploadPromptPage() {
+  return (
+    <Suspense>
+      <UploadPromptPageContent />
+    </Suspense>
+  );
+}
+
+function UploadPromptPageContent() {
   const router = useRouter();
+  const { toast } = useToast();
+  const { returnTo } = useReturnTo('/ai-prompts/prompts/list');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +72,8 @@ export default function UploadPromptPage() {
 
     try {
       const result = await importPrompt(selectedFile);
-      router.push(`/ai-prompts/prompts/${result.prompt.id}/edit`);
+      toast({ title: `"${result.prompt.name}" uploaded`, variant: 'success' });
+      router.push(withReturnTo(`/ai-prompts/prompts/${result.prompt.id}/edit`, returnTo));
     } catch (err: unknown) {
       console.error('Failed to upload prompt:', err);
       setError(err instanceof Error ? err.message : 'Failed to upload prompt');
@@ -137,7 +150,7 @@ export default function UploadPromptPage() {
                 }}
                 className="mt-2 text-sm text-danger hover:text-danger"
               >
-                Remove
+                Remove file
               </button>
             </div>
           ) : (
@@ -176,7 +189,7 @@ export default function UploadPromptPage() {
             type="button"
             onClick={() => router.back()}
             disabled={loading}
-            className="btn-danger"
+            className="btn-cancel"
           >
             Cancel
           </button>

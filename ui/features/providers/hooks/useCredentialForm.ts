@@ -4,13 +4,11 @@ import { useState, useCallback } from 'react';
 import {
   createProviderCredential,
   updateProviderCredential,
-  revealProviderCredential,
-  isCredentialTypeRevealable,
 } from '@/shared/api';
 import { useToast } from '@/features/toast';
+import { getBrowserTimezone, utcIsoToZonedInput, zonedInputToUtcIso } from '@/shared/lib/schedule-utils';
 import {
   buildOAuthSecretData,
-  oauthFieldsFromSecretData,
   EMPTY_OAUTH_FIELDS,
   type OAuthFieldValues,
 } from '../components/OAuthCredentialFields';
@@ -19,12 +17,24 @@ import type {
   CredentialSchema,
   Credential,
 } from '../credential-types';
-import { INITIAL_FORM_VALUES } from '../credential-types';
+import { INITIAL_FORM_VALUES, schemaCredentialType } from '../credential-types';
+
+/** Converts a datetime-local value to a UTC ISO string, or null when blank. */
+function expiresAtToUtc(local: string): string | null {
+  return local ? zonedInputToUtcIso(local, getBrowserTimezone()) : null;
+}
+
+/** Keeps only the fields the user typed a value into. */
+function typedOnly(values: Record<string, unknown>): Record<string, unknown> | undefined {
+  const typed = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== '' && v != null));
+  return Object.keys(typed).length ? typed : undefined;
+}
 
 interface UseCredentialFormOptions {
   providerId: string;
   credentialSchema: CredentialSchema | undefined;
   hasCredentialSchema: boolean;
+  providerAuthType?: string;
   setCredentials: React.Dispatch<React.SetStateAction<Credential[]>>;
   onRevealedSecretInvalidate: (credentialId: string) => void;
 }
@@ -33,6 +43,7 @@ export function useCredentialForm({
   providerId,
   credentialSchema,
   hasCredentialSchema,
+  providerAuthType,
   setCredentials,
   onRevealedSecretInvalidate,
 }: UseCredentialFormOptions) {
@@ -157,25 +168,19 @@ export function useCredentialForm({
   ]);
 
   /**
-   * Build secret_data for an update (edit). Handles the basic_auth password
-   * preservation logic when password is left blank.
+   * Build secret_data for an update from the fields the user typed. Undefined keeps
+   * the stored secret; null means validation failed (formError is set).
    */
-  const buildSecretDataForUpdate = useCallback(async (): Promise<Record<string, unknown> | null> => {
+  const buildSecretDataForUpdate = useCallback((): Record<string, unknown> | null | undefined => {
     if (hasCredentialSchema && credentialSchema) {
-      const requiredFields = credentialSchema.required || [];
-      for (const field of requiredFields) {
-        if (!schemaValues[field]?.trim()) {
-          const fieldTitle = credentialSchema.properties[field]?.title || field;
-          setFormError(`${fieldTitle} is required`);
-          return null;
-        }
-      }
-      return { ...schemaValues };
+      return typedOnly(schemaValues);
     }
 
     if (useJsonMode) {
+      const text = credentialForm.secret_data.trim();
+      if (!text || text === '{}') return undefined;
       try {
-        return JSON.parse(credentialForm.secret_data);
+        return JSON.parse(text);
       } catch {
         setFormError('Invalid JSON');
         return null;
@@ -183,42 +188,25 @@ export function useCredentialForm({
     }
 
     const type = credentialForm.credential_type;
-    if (type === 'api_key') {
-      return { api_key: simpleValue };
-    }
     if (type === 'oauth') {
-      if (!oauthFields.access_token.trim()) {
-        setFormError('Access Token is required');
-        return null;
-      }
-      return buildOAuthSecretData(oauthFields);
-    }
-    if (type === 'bearer') {
-      return { access_token: simpleValue };
+      return typedOnly(buildOAuthSecretData(oauthFields));
     }
     if (type === 'basic_auth') {
       if (basicAuthPassword && basicAuthPassword !== basicAuthPasswordConfirm) {
         setFormError('Passwords do not match');
         return null;
       }
-      let passwordToUse = basicAuthPassword;
-      if (!passwordToUse && editingCredential) {
-        try {
-          const existing = await revealProviderCredential(editingCredential.id);
-          passwordToUse = (existing.secret_data as Record<string, string>)?.password || '';
-        } catch {
-          setFormError('Failed to retrieve existing password. Please enter a new password.');
-          return null;
-        }
-      }
-      return { username: basicAuthUsername, password: passwordToUse };
+      return typedOnly({ username: basicAuthUsername, password: basicAuthPassword });
     }
+    if (!simpleValue) return undefined;
+    if (type === 'api_key') return { api_key: simpleValue };
+    if (type === 'bearer') return { access_token: simpleValue };
     return { value: simpleValue };
   }, [
     hasCredentialSchema, credentialSchema, schemaValues,
     useJsonMode, credentialForm.secret_data, credentialForm.credential_type,
     simpleValue, basicAuthUsername, basicAuthPassword, basicAuthPasswordConfirm,
-    oauthFields, editingCredential,
+    oauthFields,
   ]);
 
   /** Handle create credential form submission */
@@ -235,12 +223,12 @@ export function useCredentialForm({
     if (secretData === null) return;
 
     try {
-      const credType = hasCredentialSchema ? 'custom' : credentialForm.credential_type;
+      const credType = hasCredentialSchema ? schemaCredentialType(providerAuthType) : credentialForm.credential_type;
       const newCred = await createProviderCredential(providerId, {
         name: credentialForm.name,
         credential_type: credType,
         secret_data: secretData,
-        expires_at: credentialForm.expires_at || null,
+        expires_at: expiresAtToUtc(credentialForm.expires_at),
         webhook_callback_token: webhookCallbackToken,
       });
       setCredentials(prev => [...prev, newCred]);
@@ -251,10 +239,10 @@ export function useCredentialForm({
       const message = err instanceof Error ? err.message : 'Failed to create credential';
       setFormError(message);
     }
-  }, [credentialForm, buildSecretData, hasCredentialSchema, providerId, webhookCallbackToken, setCredentials, resetForm, toast]);
+  }, [credentialForm, buildSecretData, hasCredentialSchema, providerAuthType, providerId, webhookCallbackToken, setCredentials, resetForm, toast]);
 
-  /** Open the edit modal and populate form with existing values */
-  const handleEditClick = useCallback(async (credential: Credential) => {
+  /** Open the edit modal with the credential's settings; secret fields start empty */
+  const handleEditClick = useCallback((credential: Credential) => {
     setEditingCredential(credential);
     const credType = credential.credential_type;
 
@@ -262,10 +250,9 @@ export function useCredentialForm({
       name: credential.name,
       credential_type: credType,
       secret_data: '{}',
-      expires_at: credential.expires_at
-        ? new Date(credential.expires_at).toISOString().slice(0, 16)
-        : '',
+      expires_at: utcIsoToZonedInput(credential.expires_at ?? null, getBrowserTimezone()),
     });
+    setFormError(null);
     setSimpleValue('');
     setBasicAuthUsername('');
     setBasicAuthPassword('');
@@ -274,35 +261,6 @@ export function useCredentialForm({
     setSchemaValues({});
     setWebhookCallbackToken(credential.webhook_callback_token ?? null);
     setUseJsonMode(credType === 'custom' && !hasCredentialSchema);
-
-    if (isCredentialTypeRevealable(credType, credential.is_token_type)) {
-      try {
-        const result = await revealProviderCredential(credential.id);
-        const secretData = result.secret_data || {};
-
-        if (hasCredentialSchema) {
-          setSchemaValues(secretData as Record<string, string>);
-        } else {
-          const keys = Object.keys(secretData);
-          if (credType === 'basic_auth') {
-            setBasicAuthUsername((secretData as Record<string, string>).username || '');
-          } else if (credType === 'oauth') {
-            setOauthFields(oauthFieldsFromSecretData(secretData as Record<string, unknown>));
-          } else if (keys.length > 1 || credType === 'custom') {
-            setUseJsonMode(true);
-            setCredentialForm(prev => ({
-              ...prev,
-              secret_data: JSON.stringify(secretData, null, 2),
-            }));
-          } else if (keys.length === 1) {
-            setSimpleValue((secretData as Record<string, string>)[keys[0]] || '');
-          }
-        }
-      } catch {
-        // Fallback - user must re-enter values
-      }
-    }
-
     setShowEditModal(true);
   }, [hasCredentialSchema]);
 
@@ -316,16 +274,16 @@ export function useCredentialForm({
       return;
     }
 
-    const secretData = await buildSecretDataForUpdate();
+    const secretData = buildSecretDataForUpdate();
     if (secretData === null) return;
 
     try {
       const updatedCred = await updateProviderCredential(editingCredential!.id, {
         name: credentialForm.name,
-        secret_data: secretData,
-        expires_at: credentialForm.expires_at || null,
+        ...(secretData !== undefined && { secret_data: secretData }),
+        expires_at: expiresAtToUtc(credentialForm.expires_at),
         webhook_callback_token: webhookCallbackToken,
-      } as Parameters<typeof updateProviderCredential>[1]);
+      });
       setCredentials(prev => prev.map(c => c.id === editingCredential!.id ? updatedCred : c));
       onRevealedSecretInvalidate(editingCredential!.id);
       setShowEditModal(false);

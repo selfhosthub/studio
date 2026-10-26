@@ -7,6 +7,8 @@ import type {
   PromptChunk,
   PromptVariable,
 } from "@/shared/types/prompt";
+import { promptCategoryOptions } from "@/shared/lib/prompt-labels";
+import HighlightTextarea from "./HighlightTextarea";
 
 // ============================================================================
 // Types
@@ -27,20 +29,6 @@ interface Props {
 }
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-const CATEGORY_OPTIONS = [
-  { value: "general", label: "General" },
-  { value: "story_generation", label: "Story Generation" },
-  { value: "scene_description", label: "Scene Description" },
-  { value: "summarization", label: "Summarization" },
-  { value: "classification", label: "Classification" },
-  { value: "extraction", label: "Extraction" },
-  { value: "rewriting", label: "Rewriting" },
-];
-
-// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -51,6 +39,37 @@ const BUILTIN_VARIABLES = new Set(["today_date", "today_datetime"]);
  *  Tolerates Jinja2 filters ({{ x | filter }}, {{ x|filter1|filter2 }}) and
  *  ignores {% ... %} tags and built-in variables. */
 const VARIABLE_REF_RE = /\{\{\s*(\w+)(?:\s*\|[^}]*)?\s*\}\}/g;
+
+/** Allowed variable name: the characters VARIABLE_REF_RE captures. */
+const VARIABLE_NAME_RE = /^\w+$/;
+
+/** Default label derived from a variable name: "scene_count" -> "Scene Count". */
+function autoLabel(name: string): string {
+  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Matches every {{ name }} reference, filters included. */
+function variableRefPattern(name: string): RegExp {
+  return new RegExp(`\\{\\{\\s*${name}(?:\\s*\\|[^}]*)?\\s*\\}\\}`, "g");
+}
+
+/** Rewrites every {{ oldName }} reference to {{ newName }}, keeping spacing and filters. */
+export function renameVariableRefs(text: string, oldName: string, newName: string): string {
+  const re = new RegExp(`(\\{\\{\\s*)${oldName}(?=(?:\\s*\\|[^}]*)?\\s*\\}\\})`, "g");
+  return text.replace(re, `$1${newName}`);
+}
+
+/** Returns why a rename is not allowed, or null when it is. */
+export function validateVariableName(
+  next: string,
+  current: string,
+  names: string[]
+): string | null {
+  if (!VARIABLE_NAME_RE.test(next)) return "Use letters, numbers and underscores only";
+  if (BUILTIN_VARIABLES.has(next)) return `${next} is a built-in variable`;
+  if (next !== current && names.includes(next)) return `A variable named ${next} already exists`;
+  return null;
+}
 
 function detectVariables(text: string): string[] {
   const regex = new RegExp(VARIABLE_REF_RE.source, "g");
@@ -218,6 +237,31 @@ export default function PromptForm({
   );
   const [showPreview, setShowPreview] = useState(false);
 
+  // Variable rename: in-progress name edits, the focused variable, the last
+  // rename's snapshot for Undo, and a rejected rename's message.
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
+  const [focusedVar, setFocusedVar] = useState<string | null>(null);
+  const [lastRename, setLastRename] = useState<{
+    from: string;
+    to: string;
+    systemText: string;
+    messagesText: string;
+    variables: PromptVariable[];
+  } | null>(null);
+  const [renameError, setRenameError] = useState<{ name: string; message: string } | null>(null);
+
+  const categoryOptions = useMemo(
+    () => promptCategoryOptions(initialData?.category ? [initialData.category] : []),
+    // initialData is a mount-time snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const highlight = useMemo(
+    () => (focusedVar ? variableRefPattern(focusedVar) : null),
+    [focusedVar]
+  );
+
   // [system] typed in the Messages box - rejected inline, never coerced.
   const systemInMessages = useMemo(
     () => SYSTEM_LINE_RE.test(messagesText),
@@ -238,11 +282,23 @@ export default function PromptForm({
     setVariables((prev) => {
       // Keep existing variables that are still detected, add new ones
       const existing = new Map(prev.map((v) => [v.name, v]));
+      const detected = new Set(detectedVarNames);
+      const removed = prev.filter((v) => !detected.has(v.name));
+      const added = detectedVarNames.filter((name) => !existing.has(name));
+      // One name swapped for another in the text is a rename: carry its settings.
+      if (removed.length === 1 && added.length === 1) {
+        const [from] = removed;
+        existing.set(added[0], {
+          ...from,
+          name: added[0],
+          label: from.label === autoLabel(from.name) ? autoLabel(added[0]) : from.label,
+        });
+      }
       return detectedVarNames.map(
         (name) =>
           existing.get(name) || {
             name,
-            label: name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+            label: autoLabel(name),
             type: "string",
             options: null,
             default: null,
@@ -260,7 +316,9 @@ export default function PromptForm({
     setPreviewValues((prev) => {
       const next = { ...prev };
       for (const v of variables) {
-        if (!(v.name in next)) {
+        const prevDefault = prevVariables.find((p) => p.name === v.name)?.default || "";
+        // Seed new keys, and follow a changed default while the value still holds the old one
+        if (!(v.name in next) || next[v.name] === prevDefault) {
           next[v.name] = v.default || "";
         }
       }
@@ -307,6 +365,74 @@ export default function PromptForm({
     });
   };
 
+  const editSystemText = (value: string) => {
+    setSystemText(value);
+    setLastRename(null);
+  };
+
+  const editMessagesText = (value: string) => {
+    setMessagesText(value);
+    setLastRename(null);
+  };
+
+  const clearDraft = (name: string) =>
+    setNameDrafts((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+
+  /** Applies the drafted name for `oldName`. Returns the name in effect afterwards,
+   *  or null when the draft is invalid and nothing changed. */
+  const commitRename = (oldName: string): string | null => {
+    const draft = nameDrafts[oldName];
+    if (draft === undefined) return oldName;
+    const next = draft.trim();
+    if (next === oldName) {
+      clearDraft(oldName);
+      return oldName;
+    }
+    const problem = validateVariableName(
+      next,
+      oldName,
+      variables.map((v) => v.name)
+    );
+    if (problem) {
+      setRenameError({ name: oldName, message: problem });
+      return null;
+    }
+    setLastRename({ from: oldName, to: next, systemText, messagesText, variables });
+    setVariables((prev) =>
+      prev.map((v) =>
+        v.name === oldName
+          ? {
+              ...v,
+              name: next,
+              label: v.label === autoLabel(oldName) ? autoLabel(next) : v.label,
+            }
+          : v
+      )
+    );
+    setPreviewValues((prev) => {
+      const carried = { ...prev, [next]: prev[oldName] ?? "" };
+      delete carried[oldName];
+      return carried;
+    });
+    setSystemText((t) => renameVariableRefs(t, oldName, next));
+    setMessagesText((t) => renameVariableRefs(t, oldName, next));
+    clearDraft(oldName);
+    setRenameError(null);
+    return next;
+  };
+
+  const undoRename = () => {
+    if (!lastRename) return;
+    setSystemText(lastRename.systemText);
+    setMessagesText(lastRename.messagesText);
+    setVariables(lastRename.variables);
+    setLastRename(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -335,7 +461,7 @@ export default function PromptForm({
         variables,
       });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save template");
+      setError(err instanceof Error ? err.message : "Failed to save prompt");
     } finally {
       setSubmitting(false);
     }
@@ -376,7 +502,7 @@ export default function PromptForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           className="form-input w-full"
-          placeholder="Brief description of what this template does"
+          placeholder="Brief description of what this prompt does"
         />
       </div>
 
@@ -391,7 +517,7 @@ export default function PromptForm({
           onChange={(e) => setCategory(e.target.value)}
           className="form-select w-full"
         >
-          {CATEGORY_OPTIONS.map((opt) => (
+          {categoryOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
@@ -411,10 +537,11 @@ export default function PromptForm({
           <code className="bg-card px-1 rounded">{"{% if %}"}</code>, filters,{" "}
           <code className="bg-card px-1 rounded">{"{{ today_date }}"}</code>.
         </p>
-        <textarea
+        <HighlightTextarea
           id="systemText"
           value={systemText}
-          onChange={(e) => setSystemText(e.target.value)}
+          onChange={editSystemText}
+          highlight={highlight}
           className="form-textarea w-full font-mono text-sm"
           rows={4}
           placeholder="You are a scriptwriter who turns articles into narrated stories."
@@ -433,10 +560,11 @@ export default function PromptForm({
           examples); blocks without a prefix inherit the previous role
           (default: user). Blank lines separate messages.
         </p>
-        <textarea
+        <HighlightTextarea
           id="messagesText"
           value={messagesText}
-          onChange={(e) => setMessagesText(e.target.value)}
+          onChange={editMessagesText}
+          highlight={highlight}
           className="form-textarea w-full font-mono text-sm"
           rows={10}
           placeholder={`[user] Write a narrated story based on the article below.\nStyle: {{ style }}.\nStructure it as {{ scene_count }} scenes.`}
@@ -457,14 +585,27 @@ export default function PromptForm({
           <h3 className="form-label mb-2">
             Variables ({variables.length})
           </h3>
+          {lastRename && (
+            <p className="text-xs text-secondary mb-2" role="status">
+              Renamed <code className="bg-card px-1 rounded">{lastRename.from}</code> to{" "}
+              <code className="bg-card px-1 rounded">{lastRename.to}</code>.{" "}
+              <button
+                type="button"
+                onClick={undoRename}
+                className="text-info hover:underline"
+              >
+                Undo
+              </button>
+            </p>
+          )}
           <div className="space-y-3">
             {variables.map((v, i) => (
               <div
-                key={v.name}
+                key={i}
                 className="border border-primary rounded-lg p-3"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  {/* Name (read-only) */}
+                  {/* Name: renames every {{ name }} reference on blur or Enter */}
                   <div>
                     <label htmlFor={`prompt-var-name-${v.name}`} className="text-xs text-secondary">
                       Name
@@ -472,10 +613,44 @@ export default function PromptForm({
                     <input
                       id={`prompt-var-name-${v.name}`}
                       type="text"
-                      value={v.name}
-                      readOnly
-                      className="form-input w-full bg-surface text-sm"
+                      value={nameDrafts[v.name] ?? v.name}
+                      onFocus={() => {
+                        setFocusedVar(v.name);
+                        setRenameError(null);
+                      }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setNameDrafts((prev) => ({ ...prev, [v.name]: value }));
+                        setRenameError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const name = commitRename(v.name);
+                          if (name) setFocusedVar(name);
+                        } else if (e.key === "Escape") {
+                          clearDraft(v.name);
+                          setRenameError(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (commitRename(v.name) === null) clearDraft(v.name);
+                        setFocusedVar(null);
+                      }}
+                      aria-invalid={renameError?.name === v.name}
+                      aria-describedby={
+                        renameError?.name === v.name ? `prompt-var-name-error-${v.name}` : undefined
+                      }
+                      className="form-input w-full text-sm font-mono"
                     />
+                    {renameError?.name === v.name && (
+                      <p
+                        id={`prompt-var-name-error-${v.name}`}
+                        className="text-xs text-danger mt-1"
+                      >
+                        {renameError.message}
+                      </p>
+                    )}
                   </div>
 
                   {/* Label */}
@@ -635,7 +810,7 @@ export default function PromptForm({
                         }
                         className="form-select text-sm flex-1"
                       >
-                        <option value="">(empty - chunk excluded)</option>
+                        <option value="">(empty, so this message is left out)</option>
                         {v.options.map((opt) => (
                           <option key={opt} value={opt}>
                             {opt}
@@ -654,7 +829,7 @@ export default function PromptForm({
                           }))
                         }
                         className="form-input text-sm flex-1"
-                        placeholder="(empty - chunk excluded)"
+                        placeholder="(empty, so this message is left out)"
                       />
                     )}
                   </div>
@@ -703,7 +878,7 @@ export default function PromptForm({
         <button
           type="button"
           onClick={() => window.history.back()}
-          className="btn-orange text-sm inline-flex items-center"
+          className="btn-cancel text-sm inline-flex items-center"
         >
           Cancel
         </button>

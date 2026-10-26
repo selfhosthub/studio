@@ -87,9 +87,7 @@ export function LegacyCredentialFields({
         {/* Security notice (edit only) */}
         {isEdit && (
           <div className="mb-2 alert alert-warning text-xs">
-            {credentialForm.credential_type === 'basic_auth'
-              ? 'Username is pre-filled. Leave password blank to keep existing password.'
-              : 'For security, existing secret values are not displayed. Enter the new value to update.'}
+            For security, existing secret values are not displayed. Leave a field blank to keep its current value.
           </div>
         )}
 
@@ -125,6 +123,7 @@ export function LegacyCredentialFields({
             credentialForm={credentialForm}
             setCredentialForm={setCredentialForm}
             fieldId={`${prefix}secret_data`}
+            isEdit={isEdit}
           />
         )}
       </div>
@@ -157,15 +156,15 @@ function BasicAuthFields({
     <div className="space-y-3 mt-1">
       <div>
         <label className="form-label text-xs">
-          {isEdit ? 'Username *' : 'Username'}
+          Username
         </label>
         <input
           type="text"
-          required
+          required={!isEdit}
           value={basicAuthUsername}
           onChange={(e) => setBasicAuthUsername(e.target.value)}
           className="form-input"
-          placeholder="Username"
+          placeholder={isEdit ? 'Enter new username or leave blank to keep existing' : 'Username'}
           autoComplete="off"
         />
       </div>
@@ -255,7 +254,7 @@ function SimpleValueField({
       <input
         type="text"
         id={fieldId}
-        required
+        required={!isEdit}
         value={simpleValue}
         onChange={(e) => setSimpleValue(e.target.value)}
         className="form-input-mono"
@@ -273,10 +272,12 @@ function JsonModeField({
   credentialForm,
   setCredentialForm,
   fieldId,
+  isEdit,
 }: {
   credentialForm: CredentialFormValues;
   setCredentialForm: React.Dispatch<React.SetStateAction<CredentialFormValues>>;
   fieldId: string;
+  isEdit: boolean;
 }) {
   const placeholders: Record<string, string> = {
     api_key: '{"api_key": "sk-...", "api_secret": "..."}',
@@ -289,7 +290,7 @@ function JsonModeField({
     <>
       <textarea
         id={fieldId}
-        required
+        required={!isEdit}
         rows={6}
         value={credentialForm.secret_data}
         onChange={(e) => setCredentialForm({ ...credentialForm, secret_data: e.target.value })}

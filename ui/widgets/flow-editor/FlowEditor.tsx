@@ -5,6 +5,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { ErrorBoundary } from '@/shared/ui';
 import { usePreferences } from '@/entities/preferences';
+import { useProviders } from '@/features/providers';
 import {
   ReactFlow,
   applyEdgeChanges,
@@ -34,7 +35,7 @@ import {
   ICON_STYLE_ACTIVE,
   ACTIVE_BUTTON_STYLE,
   DISABLED_BUTTON_STYLE,
-  FIT_VIEW_DURATION,
+  fitViewOptions,
   DEFAULT_NODE_X,
   DEFAULT_NODE_Y,
 } from './constants';
@@ -95,6 +96,7 @@ const FlowEditor = ({
   credentialIssueStepIds = EMPTY_STRING_ARRAY,
 }: FlowEditorProps) => {
   const { preferences } = usePreferences();
+  const { data: providers } = useProviders();
 
   // ---- Undo/redo history ----
   const { handleUndo, handleRedo, canUndo, canRedo } = useFlowHistory({
@@ -116,6 +118,7 @@ const FlowEditor = ({
   // ---- Node management (Steps → ReactFlow nodes, handlers, field-mapping sync) ----
   const {
     stepsToNodes,
+    stepToNodeData,
     syncInputMappingsToConnections,
     stableHandleStepDelete,
     stableHandleStepEdit,
@@ -126,6 +129,7 @@ const FlowEditor = ({
     selectedStepId,
     credentialIssueStepIds,
     nodeWidth: preferences.nodeWidth,
+    providers,
     onStepsChange,
     onConnectionsChange,
     onStepSelect,
@@ -177,7 +181,7 @@ const FlowEditor = ({
     if (!hasFitViewRef.current && nodes.length > 0) {
       hasFitViewRef.current = true;
       setTimeout(() => {
-        fitView({ padding: isMobile ? 0.4 : 0.2, duration: FIT_VIEW_DURATION });
+        fitView(fitViewOptions(isMobile));
       }, TIMEOUTS.LAYOUT_SETTLE);
     }
   }, [nodes.length, fitView, isMobile]);
@@ -218,25 +222,7 @@ const FlowEditor = ({
         return {
           ...node,
           position: newPosition,
-          data: {
-            label: step.name,
-            description: step.description,
-            type: step.type?.toLowerCase(),
-            executionMode: step.execution_mode,
-            serviceType: step.service_id,
-            providerId: step.provider_id,
-            serviceId: step.service_id,
-            warnings: step.warnings,
-            isSelected: selectedStepId === step.id,
-            onDelete: stableHandleStepDelete,
-            onEdit: stableHandleStepEdit,
-            onToggleMode: stableHandleStepToggleMode,
-            nodeWidth: preferences.nodeWidth,
-            hasCredentialIssue: credentialIssueStepIds.includes(step.id),
-            hasIteration: step.iteration_config?.enabled,
-            iterationMode: step.iteration_config?.execution_mode,
-            isManualTrigger: step.trigger_type === 'manual',
-          },
+          data: stepToNodeData(step),
         };
       });
 
@@ -250,25 +236,7 @@ const FlowEditor = ({
               x: DEFAULT_NODE_X + Math.random() * 200,
               y: DEFAULT_NODE_Y + Math.random() * 200,
             },
-          data: {
-            label: step.name,
-            description: step.description,
-            type: step.type?.toLowerCase(),
-            executionMode: step.execution_mode,
-            serviceType: step.service_id,
-            providerId: step.provider_id,
-            serviceId: step.service_id,
-            warnings: step.warnings,
-            isSelected: selectedStepId === step.id,
-            onDelete: stableHandleStepDelete,
-            onEdit: stableHandleStepEdit,
-            onToggleMode: stableHandleStepToggleMode,
-            nodeWidth: preferences.nodeWidth,
-            hasCredentialIssue: credentialIssueStepIds.includes(step.id),
-            hasIteration: step.iteration_config?.enabled,
-            iterationMode: step.iteration_config?.execution_mode,
-            isManualTrigger: step.trigger_type === 'manual',
-          },
+          data: stepToNodeData(step),
         }));
         return [...updatedNodes, ...newNodes];
       }
@@ -281,6 +249,7 @@ const FlowEditor = ({
   }, [
     steps,
     stepsToNodes,
+    stepToNodeData,
     selectedStepId,
     connections,
     preferences.nodeWidth,
@@ -515,11 +484,11 @@ const FlowEditor = ({
                 onAddStep();
                 setTimeout(
                   () =>
-                    fitView({ padding: isMobile ? 0.4 : 0.2, duration: FIT_VIEW_DURATION }),
+                    fitView(fitViewOptions(isMobile)),
                   TIMEOUTS.LAYOUT_SETTLE,
                 );
               }}
-              title="Add Step"
+              title="Add Node"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -560,7 +529,7 @@ const FlowEditor = ({
           {/* Fit View */}
           <ControlButton
             onClick={() =>
-              fitView({ padding: isMobile ? 0.4 : 0.2, duration: FIT_VIEW_DURATION })
+              fitView(fitViewOptions(isMobile))
             }
             title="Fit View"
           >

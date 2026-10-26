@@ -345,7 +345,7 @@ export default function RecordEditor({
       return (
         <div className="px-4 py-8 text-center text-secondary">
           <Code className="mx-auto h-8 w-8 mb-2 opacity-50" />
-          <p>Values from previous step</p>
+          <p>Values from previous node</p>
           <p className="text-xs mt-1">Use JSON mode to configure record fields with expressions</p>
         </div>
       );

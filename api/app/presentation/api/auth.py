@@ -14,7 +14,7 @@ from app.domain.organization.repository import (
     OrganizationRepository,
     UserRepository,
 )
-from app.domain.organization.models import Organization, User, Role
+from app.domain.organization.models import User, Role
 from app.infrastructure.auth.jwt import (
     create_access_token,
     create_refresh_token,
@@ -26,6 +26,9 @@ from app.infrastructure.auth.password import (
     is_one_time_hash,
 )
 from app.application.services.audit_service import AuditService
+from app.application.services.organization.org_creation import (
+    create_organization_with_generated_slug,
+)
 from app.domain.audit.models import (
     AuditAction,
     AuditActorType,
@@ -48,6 +51,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Stands in for a failed sign-in's typed name when it names no user.
+UNKNOWN_LOGIN_USERNAME = "[unknown user]"
+
 
 class RegisterRequest(BaseModel):
     first_name: str
@@ -58,14 +64,6 @@ class RegisterRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
-
-
-def generate_unique_slug(first_name: str, last_name: str) -> str:
-    """URL-safe slug like 'john-doe-abc123' (random suffix ensures uniqueness)."""
-    base_slug = f"{first_name.lower()}-{last_name.lower()}"
-    base_slug = "".join(c if c.isalnum() or c == "-" else "" for c in base_slug)
-    random_suffix = str(uuid.uuid4())[:6]
-    return f"{base_slug}-{random_suffix}"
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -93,15 +91,9 @@ async def register(
         )
 
     org_name = f"{request.first_name} {request.last_name}'s Organization"
-    org_slug = generate_unique_slug(request.first_name, request.last_name)
-
-    organization = Organization.create(
-        name=org_name,
-        slug=org_slug,
-        description=None,
+    organization, _ = await create_organization_with_generated_slug(
+        organization_repository, name=org_name
     )
-
-    organization = await organization_repository.create(organization)
 
     hashed_password = hash_password(request.password)
 
@@ -176,18 +168,20 @@ async def login_for_access_token(
         user = await user_repository.get_by_email(form_data.username)
 
     if not user or not verify_password(form_data.password, user.hashed_password):
+        attempted_username = form_data.username[:255] if user else UNKNOWN_LOGIN_USERNAME
         try:
             await audit_service.log_event(
                 actor_id=None,
                 actor_type=AuditActorType.ANONYMOUS,
                 action=AuditAction.LOGIN_FAILED,
                 resource_type=ResourceType.USER,
+                resource_name=attempted_username,
                 severity=AuditSeverity.WARNING,
                 category=AuditCategory.SECURITY,
                 status=AuditStatus.FAILED,
                 error_message="Invalid credentials",
                 metadata={
-                    "attempted_username": form_data.username,
+                    "attempted_username": attempted_username,
                     "ip_address": request.client.host if request.client else None,
                     "user_agent": request.headers.get("user-agent"),
                 },

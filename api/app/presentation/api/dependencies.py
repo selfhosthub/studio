@@ -2,6 +2,7 @@
 
 """FastAPI dependency injection wiring for all API endpoints."""
 
+import functools
 import logging
 import re
 from typing import Annotated, Any, AsyncGenerator, Optional
@@ -135,7 +136,6 @@ from app.domain.audit.repository import (
     AuditEventRepository as AuditEventRepositoryABC,
 )
 from app.infrastructure.repositories.audit_repository import (
-    AuditEventRepository,
     SessionPerCallAuditEventRepository,
 )
 from app.infrastructure.repositories.org_file_repository import (
@@ -239,11 +239,17 @@ def get_adapter_registry() -> AdapterRegistry:
     return adapter_registry
 
 
-def _get_status_publisher(conn: Request | WebSocket) -> DirectJobStatusPublisher:
-    """Create a status publisher wired to the result processor."""
+def _get_status_publisher(
+    conn: Request | WebSocket, session: Optional[AsyncSession] = None
+) -> DirectJobStatusPublisher:
+    """Create a status publisher wired to the result processor, on the given session when one is passed."""
     result_processor = getattr(conn.app.state, "result_processor", None)
     if result_processor is None:
         raise RuntimeError("result_processor not initialized on app.state")
+    if session is not None:
+        return DirectJobStatusPublisher(
+            functools.partial(result_processor.process_result_in_session, session)
+        )
     return DirectJobStatusPublisher(result_processor.process_result)
 
 
@@ -345,6 +351,13 @@ async def get_user_repository_for_member_write(
 async def get_workflow_repository(
     session: AsyncSession = Depends(get_db_session_rls),
 ) -> AsyncGenerator[WorkflowRepository, None]:
+    yield SQLAlchemyWorkflowRepository(session)
+
+
+async def get_workflow_repository_bypass(
+    session: AsyncSession = Depends(get_db_session_service),
+) -> AsyncGenerator[WorkflowRepository, None]:
+    """Without RLS. Only for super_admin cross-org access."""
     yield SQLAlchemyWorkflowRepository(session)
 
 
@@ -564,7 +577,7 @@ async def get_instance_service(
     iteration_execution_repo = SQLAlchemyIterationExecutionRepository(session)
     prompt_repo = SQLAlchemyPromptRepository(session)
     prompt_service = PromptService(repository=prompt_repo)
-    status_publisher = _get_status_publisher(request)
+    status_publisher = _get_status_publisher(request, session)
     job_enqueue_service = JobEnqueueService(
         workflow_repository=workflow_repo_for_enqueue,
         credential_repository=credential_repo,
@@ -576,6 +589,8 @@ async def get_instance_service(
         status_publisher=status_publisher,
         iteration_execution_repository=iteration_execution_repo,
         step_execution_repository=step_execution_repo,
+        notification_repository=SQLAlchemyNotificationRepository(session),
+        user_repository=SQLAlchemyUserRepository(session),
     )
 
     return InstanceService(
@@ -626,6 +641,8 @@ async def get_instance_service_bypass(
         status_publisher=status_publisher,
         iteration_execution_repository=iteration_execution_repo,
         step_execution_repository=step_execution_repo,
+        notification_repository=SQLAlchemyNotificationRepository(session),
+        user_repository=SQLAlchemyUserRepository(session),
     )
 
     return InstanceService(
@@ -678,7 +695,7 @@ async def get_org_file_service_bypass(
     session: AsyncSession = Depends(get_db_session_service),
     event_bus: EventBus = Depends(get_event_bus),
 ) -> OrgFileService:
-    """Service posture. Only for worker endpoints, which carry no user org context."""
+    """Service posture. For worker endpoints and the super-admin stats and storage routes, which read across orgs."""
     resource_repo = SQLAlchemyOrgFileRepository(session)
     instance_repo = SQLAlchemyInstanceRepository(session)
     workflow_repo = SQLAlchemyWorkflowRepository(session)
@@ -724,7 +741,7 @@ async def get_queue_service_bypass(
     )
 
 
-def get_audit_repository() -> "AuditEventRepositoryABC":
+async def get_audit_repository() -> "AuditEventRepositoryABC":
     """Audit writes run on their own short-lived session, never the request's.
 
     They must commit independently of the request transaction (log-then-raise
@@ -757,8 +774,9 @@ async def get_public_content_service(
 
 
 async def get_system_health_service(
-    session: AsyncSession = Depends(get_db_session),
+    session: AsyncSession = Depends(get_db_session_service),
 ) -> SystemHealthService:
+    """Service posture. Every route on this service is super-admin only and reads across orgs."""
     return SystemHealthService(session=session)
 
 
@@ -811,7 +829,9 @@ async def get_webhook_service_public(
 
 
 async def _log_access_denied_org_audit(
-    user: CurrentUser, requested_org_id: str
+    user: CurrentUser,
+    requested_org_id: str,
+    audit_repository: Optional["AuditEventRepositoryABC"],
 ) -> None:
     """Log organization access denied to audit DB."""
     try:
@@ -828,25 +848,23 @@ async def _log_access_denied_org_audit(
         user_id_str = user.get("id") or user.get("sub") or ""
         user_org_id = user.get("org_id")
 
-        async for session in get_db_session():
-            repo = AuditEventRepository(session)
-            svc = AuditService(repo)
-            await svc.log_event(
-                actor_id=UUID(str(user_id_str)) if user_id_str else None,
-                actor_type=AuditActorType(user.get("role") or "user"),
-                action=AuditAction.ACCESS_DENIED,
-                resource_type=ResourceType.ORGANIZATION,
-                organization_id=UUID(user_org_id) if user_org_id else None,
-                severity=AuditSeverity.WARNING,
-                category=AuditCategory.SECURITY,
-                status=AuditStatus.FAILED,
-                error_message=f"Org '{user_org_id}' cannot access org '{requested_org_id}'",
-                metadata={
-                    "denial_type": "organization",
-                    "user_org_id": str(user_org_id) if user_org_id else None,
-                    "requested_org_id": requested_org_id,
-                },
-            )
+        repository = audit_repository or await get_audit_repository()
+        await AuditService(repository).log_event(
+            actor_id=UUID(str(user_id_str)) if user_id_str else None,
+            actor_type=AuditActorType(user.get("role") or "user"),
+            action=AuditAction.ACCESS_DENIED,
+            resource_type=ResourceType.ORGANIZATION,
+            organization_id=UUID(user_org_id) if user_org_id else None,
+            severity=AuditSeverity.WARNING,
+            category=AuditCategory.SECURITY,
+            status=AuditStatus.FAILED,
+            error_message=f"Org '{user_org_id}' cannot access org '{requested_org_id}'",
+            metadata={
+                "denial_type": "organization",
+                "user_org_id": str(user_org_id) if user_org_id else None,
+                "requested_org_id": requested_org_id,
+            },
+        )
     except Exception:
         import logging
 
@@ -855,14 +873,18 @@ async def _log_access_denied_org_audit(
         )
 
 
-async def validate_organization_access(organization_id: str, user: CurrentUser) -> None:
+async def validate_organization_access(
+    organization_id: str,
+    user: CurrentUser,
+    audit_repository: Optional["AuditEventRepositoryABC"] = None,
+) -> None:
     """Hard org boundary - even super_admin cannot access another org's operational data."""
     from fastapi import HTTPException, status
 
     user_org_id = user.get("org_id")
 
     if user_org_id != organization_id:
-        await _log_access_denied_org_audit(user, organization_id)
+        await _log_access_denied_org_audit(user, organization_id, audit_repository)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this organization",
@@ -870,7 +892,9 @@ async def validate_organization_access(organization_id: str, user: CurrentUser) 
 
 
 async def validate_organization_access_or_super_admin(
-    organization_id: str, user: CurrentUser
+    organization_id: str,
+    user: CurrentUser,
+    audit_repository: Optional["AuditEventRepositoryABC"] = None,
 ) -> None:
     """Like validate_organization_access but super_admin may pass through for read-only support access."""
     from fastapi import HTTPException, status
@@ -882,7 +906,7 @@ async def validate_organization_access_or_super_admin(
         return
 
     if user_org_id != organization_id:
-        await _log_access_denied_org_audit(user, organization_id)
+        await _log_access_denied_org_audit(user, organization_id, audit_repository)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this organization",
@@ -892,18 +916,22 @@ async def validate_organization_access_or_super_admin(
 async def verify_org_access(
     organization_id: UUID,
     user: CurrentUser = Depends(get_current_user),
+    audit_repository: "AuditEventRepositoryABC" = Depends(get_audit_repository),
 ) -> UUID:
     """Dependency for org_id path param. Super_admin passes; others restricted to own org."""
-    await validate_organization_access_or_super_admin(str(organization_id), user)
+    await validate_organization_access_or_super_admin(
+        str(organization_id), user, audit_repository
+    )
     return organization_id
 
 
 async def verify_org_access_strict(
     organization_id: UUID,
     user: CurrentUser = Depends(get_current_user),
+    audit_repository: "AuditEventRepositoryABC" = Depends(get_audit_repository),
 ) -> UUID:
     """Strict variant - even super_admin cannot cross org boundaries."""
-    await validate_organization_access(str(organization_id), user)
+    await validate_organization_access(str(organization_id), user, audit_repository)
     return organization_id
 
 
@@ -948,6 +976,8 @@ async def get_instance_service_for_ws(
         status_publisher=status_publisher,
         iteration_execution_repository=iteration_execution_repo,
         step_execution_repository=step_execution_repo,
+        notification_repository=SQLAlchemyNotificationRepository(session),
+        user_repository=SQLAlchemyUserRepository(session),
     )
 
     return InstanceService(

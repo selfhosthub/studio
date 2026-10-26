@@ -9,6 +9,8 @@ import logging
 import re
 from typing import Any
 
+import pydantic_core
+
 from app.domain.common.exceptions import DomainException
 from app.infrastructure.logging.request_context import get_request_context
 
@@ -36,6 +38,17 @@ def generic_error_message() -> str:
     return _GENERIC + _reference_suffix()
 
 
+def _wrapped_domain_exception(
+    e: pydantic_core.ValidationError,
+) -> DomainException | None:
+    """Return the first DomainException a model validator raised, if any."""
+    for err in e.errors():
+        inner = (err.get("ctx") or {}).get("error")
+        if isinstance(inner, DomainException):
+            return inner
+    return None
+
+
 def safe_error_message(e: BaseException | Any) -> str:
     """Classify an exception into a client-safe message.
 
@@ -44,6 +57,9 @@ def safe_error_message(e: BaseException | Any) -> str:
     """
     if not isinstance(e, BaseException):
         return generic_error_message()
+
+    if isinstance(e, pydantic_core.ValidationError):
+        e = _wrapped_domain_exception(e) or e
 
     if isinstance(e, DomainException):
         message = str(e)

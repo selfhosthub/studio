@@ -2,17 +2,20 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { generateWorkflowWebhookToken, regenerateWorkflowWebhookToken, deleteWorkflowWebhookToken, getWorkflowFormSchema } from '@/shared/api';
-import { buildWebhookUrl, buildCurlCommand, buildTriggerSampleBody, generateSecureToken } from '@/shared/lib/webhook-utils';
+import { buildCurlCommand, buildTriggerSampleBody, generateSecureToken } from '@/shared/lib/webhook-utils';
 import { useToast } from '@/features/toast';
-import { TIMEOUTS, CONFIGURED_SENTINEL } from '@/shared/lib/constants';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
+import { CONFIGURED_SENTINEL } from '@/shared/lib/constants';
+import { useCopyToClipboard } from '@/shared/hooks/useCopyToClipboard';
 
-export function useWebhookConfig(workflowId: string, webhookToken: string | null) {
+export function useWebhookConfig(workflowId: string, webhookToken: string | null, webhookUrl: string | null | undefined) {
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const [webhookTokenLoading, setWebhookTokenLoading] = useState(false);
-  const [copiedWebhookUrl, setCopiedWebhookUrl] = useState(false);
-  const [copiedCurlCommand, setCopiedCurlCommand] = useState(false);
-  const [copiedSigningSecret, setCopiedSigningSecret] = useState(false);
+  const { copied: copiedWebhookUrl, copy: copyWebhookUrl } = useCopyToClipboard();
+  const { copied: copiedCurlCommand, copy: copyCurlCommand } = useCopyToClipboard();
+  const { copied: copiedSigningSecret, copy: copySigningSecret } = useCopyToClipboard();
   const [webhookMethod, setWebhookMethod] = useState<'POST' | 'GET'>('POST');
   const [webhookAuthType, setWebhookAuthType] = useState<'none' | 'header' | 'jwt' | 'hmac'>('none');
   const [webhookAuthHeaderValue, setWebhookAuthHeaderValue] = useState('');
@@ -22,8 +25,6 @@ export function useWebhookConfig(workflowId: string, webhookToken: string | null
   const [showHmacHelpModal, setShowHmacHelpModal] = useState(false);
   // Pre-populate the curl body with field_id-keyed defaults from the form schema.
   const [sampleBody, setSampleBody] = useState('{"key": "value"}');
-
-  const webhookUrl = buildWebhookUrl(webhookToken);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +66,7 @@ export function useWebhookConfig(workflowId: string, webhookToken: string | null
     }
   }, []);
 
-  const handleGenerateToken = useCallback(async (): Promise<{ webhook_token: string; webhook_secret: string } | null> => {
+  const handleGenerateToken = useCallback(async (): Promise<{ webhook_token: string; webhook_secret: string; webhook_url: string } | null> => {
     try {
       setWebhookTokenLoading(true);
       const response = await generateWorkflowWebhookToken(workflowId);
@@ -78,10 +79,15 @@ export function useWebhookConfig(workflowId: string, webhookToken: string | null
     }
   }, [workflowId, toast]);
 
-  const handleRegenerateToken = useCallback(async (): Promise<{ webhook_token: string; webhook_secret: string } | null> => {
+  const handleRegenerateToken = useCallback(async (): Promise<{ webhook_token: string; webhook_secret: string; webhook_url: string } | null> => {
     if (!webhookToken) return null;
 
-    if (!confirm('Are you sure you want to regenerate the webhook URL? The old URL will stop working immediately and any integrations using it will break.')) {
+    if (!(await confirm({
+      title: 'Regenerate webhook URL',
+      message: 'Are you sure you want to regenerate the webhook URL? The old URL will stop working immediately and any integrations using it will break.',
+      confirmLabel: 'Regenerate',
+      variant: 'danger',
+    }))) {
       return null;
     }
 
@@ -96,7 +102,7 @@ export function useWebhookConfig(workflowId: string, webhookToken: string | null
     } finally {
       setWebhookTokenLoading(false);
     }
-  }, [workflowId, webhookToken, toast]);
+  }, [confirm, workflowId, webhookToken, toast]);
 
   const handleDeleteToken = useCallback(async (): Promise<boolean> => {
     if (!webhookToken) return false;
@@ -113,22 +119,21 @@ export function useWebhookConfig(workflowId: string, webhookToken: string | null
     }
   }, [workflowId, webhookToken, toast]);
 
-  const handleCopyWebhookUrl = useCallback(() => {
-    if (webhookUrl) {
-      navigator.clipboard.writeText(webhookUrl);
-      setCopiedWebhookUrl(true);
-      setTimeout(() => setCopiedWebhookUrl(false), TIMEOUTS.COPY_FEEDBACK);
-    }
-  }, [webhookUrl]);
+  const handleCopyWebhookUrl = useCallback(async () => {
+    if (webhookUrl) await copyWebhookUrl(webhookUrl);
+  }, [webhookUrl, copyWebhookUrl]);
 
-  const handleCopyCurlCommand = useCallback(() => {
+  const handleCopyCurlCommand = useCallback(async () => {
     if (webhookUrl) {
-      const curlCommand = buildCurlCommand(webhookUrl, webhookMethod, webhookAuthType, webhookAuthHeaderValue, webhookJwtSecret, sampleBody);
-      navigator.clipboard.writeText(curlCommand);
-      setCopiedCurlCommand(true);
-      setTimeout(() => setCopiedCurlCommand(false), TIMEOUTS.COPY_FEEDBACK);
+      await copyCurlCommand(
+        buildCurlCommand(webhookUrl, webhookMethod, webhookAuthType, webhookAuthHeaderValue, webhookJwtSecret, sampleBody),
+      );
     }
-  }, [webhookUrl, webhookMethod, webhookAuthType, webhookAuthHeaderValue, webhookJwtSecret, sampleBody]);
+  }, [webhookUrl, webhookMethod, webhookAuthType, webhookAuthHeaderValue, webhookJwtSecret, sampleBody, copyCurlCommand]);
+
+  const handleCopySigningSecret = useCallback(async (secret: string) => {
+    await copySigningSecret(secret);
+  }, [copySigningSecret]);
 
   const handleGenerateAuthToken = useCallback(() => {
     setGeneratingAuth(true);
@@ -150,7 +155,7 @@ export function useWebhookConfig(workflowId: string, webhookToken: string | null
     setWebhookJwtSecret,
     webhookMethod,
     setWebhookMethod,
-    webhookUrl,
+    webhookUrl: webhookUrl ?? '',
     handleGenerateToken,
     handleRegenerateToken,
     handleDeleteToken,
@@ -160,7 +165,7 @@ export function useWebhookConfig(workflowId: string, webhookToken: string | null
     handleCopyCurlCommand,
     copiedCurlCommand,
     copiedSigningSecret,
-    setCopiedSigningSecret,
+    handleCopySigningSecret,
     showWebhookAuthValue,
     setShowWebhookAuthValue,
     generatingAuth,

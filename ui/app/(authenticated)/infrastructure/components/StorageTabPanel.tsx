@@ -3,10 +3,15 @@
 'use client';
 
 import Link from 'next/link';
-import { HardDrive, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import { Pagination } from '@/shared/ui';
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
-import type { SystemHealthResponse, PaginatedStorageResponse, StorageSortField, SortOrder } from '@/shared/api';
+import { HardDrive, RefreshCw } from 'lucide-react';
+import { ResourceTable, type ResourceColumnConfig } from '@/shared/ui';
+import type {
+  SystemHealthResponse,
+  PaginatedStorageResponse,
+  OrganizationStorageItem,
+  StorageSortField,
+  SortOrder,
+} from '@/shared/api';
 
 interface StorageTabPanelProps {
   health: SystemHealthResponse;
@@ -22,10 +27,57 @@ interface StorageTabPanelProps {
   onRefresh: () => void;
 }
 
-function SortIcon({ field, sortBy, sortOrder }: { field: StorageSortField; sortBy: StorageSortField; sortOrder: SortOrder }) {
-  if (sortBy !== field) return <ChevronsUpDown className="w-3 h-3 ml-1 opacity-40" />;
-  return sortOrder === 'asc' ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />;
-}
+export const storageColumns: ResourceColumnConfig<OrganizationStorageItem>[] = [
+  {
+    key: 'name',
+    header: 'Organization',
+    sortValue: (org) => org.organization_name,
+    render: (org) => (
+      <Link
+        href={`/organizations/${org.organization_id}`}
+        className="block hover:bg-hover rounded -m-1 p-1 transition-colors"
+      >
+        <div className="text-sm font-medium text-primary hover:text-info">{org.organization_name}</div>
+        <div className="text-xs text-muted">{org.organization_slug}</div>
+      </Link>
+    ),
+  },
+  { key: 'files', header: 'Files', align: 'right', cellClassName: 'text-secondary', sortValue: (org) => org.files, render: (org) => org.files.toLocaleString() },
+  { key: 'size_bytes', header: 'Size', align: 'right', cellClassName: 'text-secondary', sortValue: (org) => org.size_bytes, render: (org) => org.size_formatted },
+  { key: 'limit', header: 'Limit', align: 'right', headerClassName: 'text-muted', cellClassName: 'text-secondary', render: (org) => org.storage_limit_formatted || '-' }, // defaults-ok
+  {
+    key: 'usage_percent',
+    header: 'Percent used',
+    align: 'right',
+    headerClassName: 'md:min-w-[180px]',
+    sortValue: (org) => org.usage_percent,
+    render: (org) => (
+      org.usage_percent !== null && org.usage_percent !== undefined ? (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-2 bg-input rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${ // css-check-ignore: no semantic token for yellow
+                org.usage_percent > 90 ? 'bg-danger' :
+                org.usage_percent > 75 ? 'bg-yellow-500' :
+                'bg-success'
+              }`}
+              style={{ width: `${Math.min(org.usage_percent, 100)}%` }} // css-check-ignore
+            />
+          </div>
+          <span className={`text-xs font-medium w-12 text-right ${
+            org.usage_percent > 90 ? 'text-danger' :
+            org.usage_percent > 75 ? 'text-warning' :
+            'text-success'
+          }`}>
+            {org.usage_percent.toFixed(1)}%
+          </span>
+        </div>
+      ) : (
+        <span className="text-muted text-right block">No limit</span>
+      )
+    ),
+  },
+];
 
 export function StorageTabPanel({
   health,
@@ -40,6 +92,12 @@ export function StorageTabPanel({
   onPageSizeChange,
   onRefresh,
 }: StorageTabPanelProps) {
+  // Limit and percent columns show once any organization has a storage limit
+  const hasLimits = storageData?.items.some((org) => org.storage_limit_bytes != null) ?? false;
+  const columns = storageColumns.map((col) =>
+    col.key === 'limit' || col.key === 'usage_percent' ? { ...col, visible: hasLimits } : col,
+  );
+
   return (
     <div className="space-y-6">
       {/* Storage Overview */}
@@ -98,109 +156,30 @@ export function StorageTabPanel({
               <p className="mt-2 text-sm text-muted">Loading organization storage...</p>
             </div>
           ) : storageData ? (
-            <>
-              <div className="flex justify-end mb-4">
-                <Pagination
-                  currentPage={storagePage}
-                  totalPages={storageData.total_pages || 1}
-                  totalCount={storageData.total}
-                  pageSize={storagePageSize}
-                  onPageChange={(p) => onPageChange(p, storagePageSize)}
-                  onPageSizeChange={onPageSizeChange}
-                  pageSizeOptions={PAGE_SIZE_OPTIONS}
-                  position="top"
-                />
-              </div>
-
-              <div className="overflow-x-auto rounded-lg border border-primary">
-                <table className="min-w-full divide-y divide-theme">
-                  <thead className="bg-card">
-                    <tr>
-                      <th className="table-sort-header text-left" onClick={() => onSort('name')}>
-                        <span className="inline-flex items-center">
-                          Organization <SortIcon field="name" sortBy={storageSortBy} sortOrder={storageSortOrder} />
-                        </span>
-                      </th>
-                      <th className="table-sort-header text-right" onClick={() => onSort('files')}>
-                        <span className="inline-flex items-center justify-end">
-                          Files <SortIcon field="files" sortBy={storageSortBy} sortOrder={storageSortOrder} />
-                        </span>
-                      </th>
-                      <th className="table-sort-header text-right" onClick={() => onSort('size_bytes')}>
-                        <span className="inline-flex items-center justify-end">
-                          Usage <SortIcon field="size_bytes" sortBy={storageSortBy} sortOrder={storageSortOrder} />
-                        </span>
-                      </th>
-                      <th className="px-4 py-2.5 text-right text-xs font-medium text-muted uppercase">Limit</th>
-                      <th className="table-sort-header text-right min-w-[180px]" onClick={() => onSort('usage_percent')}>
-                        <span className="inline-flex items-center justify-end">
-                          Usage <SortIcon field="usage_percent" sortBy={storageSortBy} sortOrder={storageSortOrder} />
-                        </span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-page divide-y divide-theme">
-                    {storageData.items.length > 0 ? (
-                      storageData.items.map((org) => (
-                        <tr key={org.organization_id}>
-                          <td className="px-4 py-2">
-                            <Link
-                              href={`/organizations/${org.organization_id}`}
-                              className="block hover:bg-hover rounded -m-1 p-1 transition-colors"
-                            >
-                              <div className="text-sm font-medium text-primary hover:text-info">{org.organization_name}</div>
-                              <div className="text-xs text-muted">{org.organization_slug}</div>
-                            </Link>
-                          </td>
-                          <td className="px-4 py-2 text-sm text-right text-secondary">{org.files.toLocaleString()}</td>
-                          <td className="px-4 py-2 text-sm text-right text-secondary">{org.size_formatted}</td>
-                          <td className="px-4 py-2 text-sm text-right text-secondary">{org.storage_limit_formatted || '-'}</td>
-                          <td className="px-4 py-2 text-sm">
-                            {org.usage_percent !== null && org.usage_percent !== undefined ? (
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 h-2 bg-input rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all ${ // css-check-ignore: no semantic token for yellow
-                                      org.usage_percent > 90 ? 'bg-danger' :
-                                      org.usage_percent > 75 ? 'bg-yellow-500' :
-                                      'bg-success'
-                                    }`}
-                                    style={{ width: `${Math.min(org.usage_percent, 100)}%` }}
-                                  />
-                                </div>
-                                <span className={`text-xs font-medium w-12 text-right ${
-                                  org.usage_percent > 90 ? 'text-danger' :
-                                  org.usage_percent > 75 ? 'text-warning' :
-                                  'text-success'
-                                }`}>
-                                  {org.usage_percent.toFixed(1)}%
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-muted text-right block">No limit</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-muted">No organizations found</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <Pagination
-                currentPage={storagePage}
-                totalPages={storageData.total_pages || 1}
-                totalCount={storageData.total}
-                pageSize={storagePageSize}
-                onPageChange={(p) => onPageChange(p, storagePageSize)}
-                itemLabel="organization"
-                position="bottom"
-              />
-            </>
+            <ResourceTable
+              data={storageData.items}
+              getItemId={(org) => org.organization_id}
+              columns={columns}
+              prefPage="infra-storage"
+              sort={{
+                field: storageSortBy,
+                direction: storageSortOrder,
+                onChange: (next) => onSort(next.field as StorageSortField),
+                server: true,
+              }}
+              pagination={{
+                itemLabel: 'organization',
+                server: {
+                  currentPage: storagePage,
+                  totalCount: storageData.total,
+                  pageSize: storagePageSize,
+                  onPageChange: (p) => onPageChange(p, storagePageSize),
+                  onPageSizeChange,
+                },
+              }}
+              emptyMessage="No organizations found"
+              containerClassName="mb-0"
+            />
           ) : (
             <div className="text-center py-8 text-muted">
               <HardDrive className="w-12 h-12 mx-auto mb-4 opacity-50" />

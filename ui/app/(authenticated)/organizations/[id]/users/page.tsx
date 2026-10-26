@@ -6,15 +6,15 @@ import {
   ActionButton,
   StatusBadge,
   SearchInput,
-  Pagination,
   LoadingState,
   ErrorState,
   EmptyState,
   Modal,
   UserAvatar,
+  ResourceTable,
+  type ResourceColumnConfig,
 } from "@/shared/ui";
 import { useState, useEffect, useMemo } from "react";
-import { PAGINATION } from '@/shared/lib/constants';
 import { useRouter, useParams } from "next/navigation";
 import {
   getOrganizationMembers,
@@ -26,13 +26,14 @@ import {
 import { useUser } from "@/entities/user";
 import { useToast } from "@/features/toast";
 import { Users } from "lucide-react";
-import { PAGE_SIZE_OPTIONS } from '@/shared/lib/pagination';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 
 export default function OrganizationUsersPage() {
   const router = useRouter();
   const params = useParams();
   const { user } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const orgId = params.id as string;
 
   const [members, setMembers] = useState<any[]>([]);
@@ -40,10 +41,7 @@ export default function OrganizationUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
-  // Search and pagination state
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGINATION.DEFAULT_PAGE_SIZE);
   const [inviteForm, setInviteForm] = useState({
     email: '',
     username: '',
@@ -103,7 +101,7 @@ export default function OrganizationUsersPage() {
       })
       .catch((err) => {
         console.error('Failed to fetch members:', err);
-        setError('Failed to load members');
+        setError('Failed to load users');
       })
       .finally(() => setLoading(false));
   }, [orgId, canView, user]);
@@ -119,22 +117,7 @@ export default function OrganizationUsersPage() {
     );
   }, [members, searchTerm]);
 
-  // Reset page when search changes (adjust during render, not in an effect).
-  const [prevSearchTerm, setPrevSearchTerm] = useState(searchTerm);
-  if (searchTerm !== prevSearchTerm) {
-    setPrevSearchTerm(searchTerm);
-    setCurrentPage(1);
-  }
-
-  // Pagination calculations
   const totalCount = filteredMembers.length;
-  const totalPages = Math.ceil(totalCount / pageSize) || 1;
-
-  // Apply pagination
-  const paginatedMembers = filteredMembers.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
 
   // Handle edit user - open modal
   const handleEditUser = (member: any) => {
@@ -218,9 +201,14 @@ export default function OrganizationUsersPage() {
     }
   };
 
-  // Handle remove member
-  const handleRemoveMember = async (userId: string, username: string) => {
-    if (!confirm(`Are you sure you want to remove ${username} from this organization?`)) {
+  // Handle deactivate member
+  const handleDeactivateMember = async (userId: string, username: string) => {
+    if (!(await confirm({
+      title: 'Deactivate user',
+      message: `Deactivate ${username}? They cannot sign in until an admin sets them Active again. Their email and username stay reserved.`,
+      confirmLabel: 'Deactivate',
+      variant: 'warning',
+    }))) {
       return;
     }
 
@@ -228,12 +216,24 @@ export default function OrganizationUsersPage() {
       await removeOrganizationMember(orgId, userId);
       const members = await getOrganizationMembers(orgId);
       setMembers(members);
-      toast({ title: 'Member removed', variant: 'success' });
+      toast({ title: 'User deactivated', variant: 'success' });
     } catch (err: unknown) {
-      console.error('Failed to remove member:', err);
-      toast({ title: 'Remove failed', description: err instanceof Error ? err.message : 'Failed to remove member', variant: 'destructive' });
+      console.error('Failed to deactivate member:', err);
+      toast({ title: 'Deactivate failed', description: err instanceof Error ? err.message : 'Failed to deactivate user', variant: 'destructive' });
     }
   };
+
+  const updateInviteForm = (patch: Partial<typeof inviteForm>) => {
+    setInviteForm({ ...inviteForm, ...patch });
+    setInviteError(null);
+  };
+
+  const updateEditForm = (patch: Partial<typeof editForm>) => {
+    setEditForm({ ...editForm, ...patch });
+    setEditError(null);
+  };
+
+  const isEditingSelf = editingUser?.id === user?.id;
 
   // Handle invite user
   const handleInviteUser = async (e: React.FormEvent) => {
@@ -270,7 +270,7 @@ export default function OrganizationUsersPage() {
         inviteForm.first_name || undefined,
         inviteForm.last_name || undefined
       );
-      toast({ title: 'User created', description: 'User created and added to organization successfully!', variant: 'success' });
+      toast({ title: 'User added', variant: 'success' });
       setShowInviteModal(false);
       setInviteForm({ email: '', username: '', first_name: '', last_name: '', password: '', confirmPassword: '', role: 'user' });
       // Reload members list
@@ -278,22 +278,122 @@ export default function OrganizationUsersPage() {
       setMembers(members);
     } catch (err: unknown) {
       console.error('Failed to create user:', err);
-      setInviteError(err instanceof Error ? err.message : 'Failed to create user');
+      setInviteError(err instanceof Error ? err.message : 'Failed to add user');
     }
   };
+
+  const adminCount = members.filter(m => m.role === 'admin').length;
+
+  const columns: ResourceColumnConfig<any>[] = [
+    {
+      key: 'user',
+      header: 'User',
+      sortValue: (member) => (member.first_name && member.last_name
+        ? `${member.first_name} ${member.last_name}`
+        : member.username),
+      render: (member) => (
+        <div className="flex items-center">
+          <UserAvatar user={member} sizeClassName="w-8 h-8" />
+          <div className="ml-3">
+            <div className="text-sm font-medium text-primary">
+              {member.first_name && member.last_name
+                ? `${member.first_name} ${member.last_name}`
+                : member.username}
+            </div>
+            <div className="text-sm text-secondary">@{member.username}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'email',
+      header: 'Email',
+      sortValue: (member) => member.email,
+      cellClassName: 'whitespace-nowrap text-sm text-secondary',
+      render: (member) => member.email,
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      sortValue: (member) => member.role,
+      cellClassName: 'md:whitespace-nowrap',
+      render: (member) => (
+        <StatusBadge
+          status={member.role}
+          variant={member.role === 'admin' ? 'warning' : member.role === 'super_admin' ? 'error' : 'default'}
+        />
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortValue: (member) => member.is_active !== false,
+      priority: 'primary',
+      cellClassName: 'md:whitespace-nowrap',
+      render: (member) => (
+        <StatusBadge
+          status={member.is_active !== false ? 'active' : 'inactive'}
+          variant={member.is_active !== false ? 'success' : 'default'}
+        />
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      visible: canManageUsers,
+      cellClassName: 'md:whitespace-nowrap text-sm',
+      render: (member) => {
+        const isMemberSuperAdmin = member.role === 'super_admin';
+        const isCurrentUserSuperAdmin = user?.role === 'super_admin';
+        // Check if member is the only admin in the org
+        const isOnlyAdmin = member.role === 'admin' && adminCount === 1;
+        // Hide deactivate for super_admin users, sole org admins, yourself and inactive members
+        const canDeactivate = !isMemberSuperAdmin && !isOnlyAdmin && member.id !== user?.id && member.is_active !== false;
+        // Super admins can edit anyone; others can edit non-super_admins
+        const canEdit = canManageUsers && (isCurrentUserSuperAdmin || !isMemberSuperAdmin);
+        // Super admins can reset anyone's password; org admins only non-admin users. Never self.
+        const canResetPassword = member.id !== user?.id &&
+          (isCurrentUserSuperAdmin || member.role === 'user');
+
+        return (
+          <div className="flex justify-end gap-2 items-center max-md:flex-col max-md:items-stretch">
+            {canEdit && (
+              <ActionButton variant="change" onClick={() => handleEditUser(member)}>
+                Edit
+              </ActionButton>
+            )}
+            {canResetPassword && (
+              <ActionButton variant="warning" onClick={() => handleResetPasswordClick(member)}>
+                Reset password
+              </ActionButton>
+            )}
+            {canDeactivate && (
+              <ActionButton
+                variant="warning"
+                onClick={() => handleDeactivateMember(member.id, member.username)}
+              >
+                Deactivate
+              </ActionButton>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
 
   if (!canView) {
     return null;
   }
 
   if (loading) {
-    return <LoadingState message="Loading members..." />;
+    return <LoadingState message="Loading users..." />;
   }
 
   if (error) {
     return (
       <ErrorState
-        title="Error Loading Members"
+        title="Error Loading Users"
         message={error}
         onRetry={() => window.location.reload()}
         retryLabel="Try Again"
@@ -308,160 +408,48 @@ export default function OrganizationUsersPage() {
         <div className="px-4 py-5 sm:px-6 flex justify-between items-start">
           <div>
             <h3 className="text-lg leading-6 font-medium text-primary">
-              Members ({totalCount})
+              Users ({totalCount})
             </h3>
             <p className="mt-1 max-w-2xl text-sm text-secondary">
-              {canManageUsers ? 'Manage organization members' : 'View organization members'}
+              {canManageUsers ? 'Manage organization users' : 'View organization users'}
             </p>
           </div>
           {canManageUsers && (
             <ActionButton variant="active" onClick={() => setShowInviteModal(true)}>
-              Invite User
+              Add User
             </ActionButton>
           )}
         </div>
 
-        {/* Search and Pagination Controls */}
         <div className="px-4 py-4 border-t border-primary">
-          <div className="flex items-center justify-between gap-4">
-            <SearchInput
-              value={searchTerm}
-              onChange={setSearchTerm}
-              placeholder="Search members..."
-            />
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalCount={totalCount}
-              pageSize={pageSize}
-              onPageChange={setCurrentPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setCurrentPage(1);
-              }}
-              pageSizeOptions={PAGE_SIZE_OPTIONS}
-              position="top"
-            />
-          </div>
+          <ResourceTable
+            data={filteredMembers}
+            getItemId={(member) => member.id}
+            tieBreaker="user"
+            columns={columns}
+            prefPage="organization-users"
+            pagination={{ itemLabel: 'user' }}
+            pageResetKey={searchTerm}
+            toolbar={
+              <SearchInput
+                value={searchTerm}
+                onChange={setSearchTerm}
+                placeholder="Search users..."
+              />
+            }
+            emptyState={
+              <EmptyState
+                icon={<Users className="h-12 w-12" />}
+                title="No users found"
+                description={searchTerm ? 'Try adjusting your search term.' : 'No users in this organization.'}
+              />
+            }
+          />
         </div>
-
-        <div className="border-t border-primary">
-          {paginatedMembers.length === 0 ? (
-            <EmptyState
-              icon={<Users className="h-12 w-12" />}
-              title="No members found"
-              description={searchTerm ? 'Try adjusting your search term.' : 'No members in this organization.'}
-            />
-          ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-primary">
-              <thead className="bg-surface">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">User</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Email</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Role</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase">Status</th>
-                  {canManageUsers && (
-                    <th className="px-4 py-3 text-right text-xs font-medium text-secondary uppercase">Actions</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="bg-card divide-y divide-primary">
-                {paginatedMembers.map((member) => {
-                  const isMemberSuperAdmin = member.role === 'super_admin';
-                  const isCurrentUserSuperAdmin = user?.role === 'super_admin';
-                  // Check if member is the only admin in the org
-                  const adminCount = members.filter(m => m.role === 'admin').length;
-                  const isOnlyAdmin = member.role === 'admin' && adminCount === 1;
-                  // Hide remove for super_admin users and sole org admins
-                  const canRemove = !isMemberSuperAdmin && !isOnlyAdmin;
-                  // Super admins can edit anyone; others can edit non-super_admins
-                  const canEdit = canManageUsers && (isCurrentUserSuperAdmin || !isMemberSuperAdmin);
-                  // Super admins can reset anyone's password; org admins only non-admin users. Never self.
-                  const canResetPassword = member.id !== user?.id &&
-                    (isCurrentUserSuperAdmin || member.role === 'user');
-
-                  return (
-                    <tr key={member.id}>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <UserAvatar user={member} sizeClassName="w-8 h-8" />
-                          <div className="ml-3">
-                            <div className="text-sm font-medium text-primary">
-                              {member.first_name && member.last_name
-                                ? `${member.first_name} ${member.last_name}`
-                                : member.username}
-                            </div>
-                            <div className="text-sm text-secondary">@{member.username}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-secondary">
-                        {member.email}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <StatusBadge
-                          status={member.role}
-                          variant={member.role === 'admin' ? 'warning' : member.role === 'super_admin' ? 'error' : 'default'}
-                        />
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <StatusBadge
-                          status={member.is_active !== false ? 'active' : 'inactive'}
-                          variant={member.is_active !== false ? 'success' : 'default'}
-                        />
-                      </td>
-                      {canManageUsers && (
-                        <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
-                          <div className="flex justify-end gap-2">
-                            {canEdit && (
-                              <ActionButton variant="change" onClick={() => handleEditUser(member)}>
-                                Edit
-                              </ActionButton>
-                            )}
-                            {canResetPassword && (
-                              <ActionButton variant="warning" onClick={() => handleResetPasswordClick(member)}>
-                                Reset password
-                              </ActionButton>
-                            )}
-                            {canRemove && (
-                              <ActionButton
-                                variant="destructive"
-                                onClick={() => handleRemoveMember(member.id, member.username)}
-                              >
-                                Remove
-                              </ActionButton>
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          )}
-        </div>
-
-        {/* Pagination Controls - Bottom */}
-        {paginatedMembers.length > 0 && (
-          <div className="px-4 py-4 border-t border-primary">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalCount={totalCount}
-              pageSize={pageSize}
-              onPageChange={setCurrentPage}
-              itemLabel="member"
-              position="bottom"
-            />
-          </div>
-        )}
       </div>
 
       {/* Invite User Modal */}
-      <Modal isOpen={showInviteModal} onClose={() => { setShowInviteModal(false); setInviteError(null); }} title="Invite User to Organization" size="md">
+      <Modal isOpen={showInviteModal} onClose={() => { setShowInviteModal(false); setInviteError(null); }} title="Add User" size="md">
         <form onSubmit={handleInviteUser}>
           <div className="p-4 space-y-4">
             {inviteError && (
@@ -472,14 +460,14 @@ export default function OrganizationUsersPage() {
 
             <div>
               <label htmlFor="email" className="form-label">
-                Email Address *
+                Email *
               </label>
               <input
                 type="email"
                 id="email"
                 required
                 value={inviteForm.email}
-                onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                onChange={(e) => updateInviteForm({ email: e.target.value })}
                 className="form-input"
                 placeholder="user@example.com"
               />
@@ -493,7 +481,7 @@ export default function OrganizationUsersPage() {
                 type="text"
                 id="username"
                 value={inviteForm.username}
-                onChange={(e) => setInviteForm({ ...inviteForm, username: e.target.value })}
+                onChange={(e) => updateInviteForm({ username: e.target.value })}
                 className="form-input"
                 placeholder="Defaults to email prefix"
               />
@@ -511,7 +499,7 @@ export default function OrganizationUsersPage() {
                   type="text"
                   id="first_name"
                   value={inviteForm.first_name}
-                  onChange={(e) => setInviteForm({ ...inviteForm, first_name: e.target.value })}
+                  onChange={(e) => updateInviteForm({ first_name: e.target.value })}
                   className="form-input"
                 />
               </div>
@@ -523,7 +511,7 @@ export default function OrganizationUsersPage() {
                   type="text"
                   id="last_name"
                   value={inviteForm.last_name}
-                  onChange={(e) => setInviteForm({ ...inviteForm, last_name: e.target.value })}
+                  onChange={(e) => updateInviteForm({ last_name: e.target.value })}
                   className="form-input"
                 />
               </div>
@@ -531,14 +519,15 @@ export default function OrganizationUsersPage() {
 
             <div>
               <label htmlFor="password" className="form-label">
-                Temporary Password *
+                Password *
               </label>
               <input
                 type="password"
                 id="password"
                 required
+                minLength={8}
                 value={inviteForm.password}
-                onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
+                onChange={(e) => updateInviteForm({ password: e.target.value })}
                 className="form-input"
                 placeholder="Minimum 8 characters"
               />
@@ -552,14 +541,12 @@ export default function OrganizationUsersPage() {
                 type="password"
                 id="confirmPassword"
                 required
+                minLength={8}
                 value={inviteForm.confirmPassword}
-                onChange={(e) => setInviteForm({ ...inviteForm, confirmPassword: e.target.value })}
+                onChange={(e) => updateInviteForm({ confirmPassword: e.target.value })}
                 className="form-input"
                 placeholder="Re-enter password"
               />
-              <p className="mt-1 text-xs text-secondary">
-                User should change this password on first login
-              </p>
             </div>
 
             <div>
@@ -569,7 +556,7 @@ export default function OrganizationUsersPage() {
               <select
                 id="role"
                 value={inviteForm.role}
-                onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value as 'user' | 'admin' | 'super_admin' })}
+                onChange={(e) => updateInviteForm({ role: e.target.value as 'user' | 'admin' | 'super_admin' })}
                 className="form-input"
               >
                 <option value="user">User</option>
@@ -585,7 +572,7 @@ export default function OrganizationUsersPage() {
               type="submit"
               className="btn-primary w-full sm:ml-3 sm:w-auto"
             >
-              Invite User
+              Add User
             </button>
             <button
               type="button"
@@ -594,7 +581,7 @@ export default function OrganizationUsersPage() {
                 setInviteError(null);
                 setInviteForm({ email: '', username: '', first_name: '', last_name: '', password: '', confirmPassword: '', role: 'user' });
               }}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-primary shadow-sm px-4 py-2 bg-card text-base font-medium text-secondary hover:bg-surface focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              className="btn-cancel mt-3 w-full inline-flex justify-center text-base sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
             </button>
@@ -621,7 +608,7 @@ export default function OrganizationUsersPage() {
                   type="text"
                   id="edit-first-name"
                   value={editForm.first_name}
-                  onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                  onChange={(e) => updateEditForm({ first_name: e.target.value })}
                   className="form-input"
                 />
               </div>
@@ -633,7 +620,7 @@ export default function OrganizationUsersPage() {
                   type="text"
                   id="edit-last-name"
                   value={editForm.last_name}
-                  onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                  onChange={(e) => updateEditForm({ last_name: e.target.value })}
                   className="form-input"
                 />
               </div>
@@ -647,7 +634,7 @@ export default function OrganizationUsersPage() {
                 type="text"
                 id="edit-username"
                 value={editForm.username}
-                onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                onChange={(e) => updateEditForm({ username: e.target.value })}
                 className="form-input"
               />
             </div>
@@ -660,7 +647,7 @@ export default function OrganizationUsersPage() {
                 type="email"
                 id="edit-email"
                 value={editForm.email}
-                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                onChange={(e) => updateEditForm({ email: e.target.value })}
                 className="form-input"
               />
             </div>
@@ -669,8 +656,7 @@ export default function OrganizationUsersPage() {
               // Super admins cannot have their role changed via org management
               // They are a platform-level concept, not an org-level one
               const isEditingSuperAdmin = editingUser?.role === 'super_admin';
-              const canChangeRole = !isEditingSuperAdmin;
-              const canChangeStatus = !isEditingSuperAdmin;
+              const canChangeStatus = !isEditingSuperAdmin && !isEditingSelf;
 
               return (
                 <>
@@ -686,7 +672,8 @@ export default function OrganizationUsersPage() {
                       <select
                         id="edit-role"
                         value={editForm.role}
-                        onChange={(e) => setEditForm({ ...editForm, role: e.target.value as 'user' | 'admin' })}
+                        onChange={(e) => updateEditForm({ role: e.target.value as 'user' | 'admin' })}
+                        disabled={isEditingSelf}
                         className="form-input"
                       >
                         <option value="user">User</option>
@@ -707,7 +694,7 @@ export default function OrganizationUsersPage() {
                     <select
                       id="edit-status"
                       value={editForm.is_active ? 'active' : 'inactive'}
-                      onChange={(e) => setEditForm({ ...editForm, is_active: e.target.value === 'active' })}
+                      onChange={(e) => updateEditForm({ is_active: e.target.value === 'active' })}
                       className="mt-1 block w-full rounded-md border border-primary shadow-sm focus:border-info focus:ring-blue-500 bg-surface sm:text-sm px-3 py-2 disabled:opacity-60 disabled:cursor-not-allowed"
                       disabled={!canChangeStatus}
                     >
@@ -717,6 +704,11 @@ export default function OrganizationUsersPage() {
                     {isEditingSuperAdmin && (
                       <p className="mt-1 text-xs text-secondary">
                         Super admin status is managed at the platform level
+                      </p>
+                    )}
+                    {isEditingSelf && !isEditingSuperAdmin && (
+                      <p className="mt-1 text-xs text-secondary">
+                        You cannot change your own role or status
                       </p>
                     )}
                   </div>
@@ -730,7 +722,7 @@ export default function OrganizationUsersPage() {
               disabled={editSaving}
               className="btn-primary w-full sm:ml-3 sm:w-auto"
             >
-              {editSaving ? 'Saving...' : 'Save Changes'}
+              {editSaving ? 'Saving...' : 'Save'}
             </button>
             <button
               type="button"
@@ -738,7 +730,7 @@ export default function OrganizationUsersPage() {
                 setEditingUser(null);
                 setEditError(null);
               }}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-primary shadow-sm px-4 py-2 bg-card text-base font-medium text-secondary hover:bg-surface focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              className="btn-cancel mt-3 w-full inline-flex justify-center text-base sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
             </button>
@@ -768,6 +760,7 @@ export default function OrganizationUsersPage() {
                 type="password"
                 id="reset-password"
                 required
+                minLength={8}
                 value={resetForm.password}
                 onChange={(e) => setResetForm({ ...resetForm, password: e.target.value })}
                 className="form-input"
@@ -783,6 +776,7 @@ export default function OrganizationUsersPage() {
                 type="password"
                 id="reset-confirm-password"
                 required
+                minLength={8}
                 value={resetForm.confirmPassword}
                 onChange={(e) => setResetForm({ ...resetForm, confirmPassword: e.target.value })}
                 className="form-input"
@@ -804,7 +798,7 @@ export default function OrganizationUsersPage() {
                 setResetUser(null);
                 setResetError(null);
               }}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-primary shadow-sm px-4 py-2 bg-card text-base font-medium text-secondary hover:bg-surface focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              className="btn-cancel mt-3 w-full inline-flex justify-center text-base sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
             </button>

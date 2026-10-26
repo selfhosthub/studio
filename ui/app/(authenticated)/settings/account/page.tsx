@@ -3,12 +3,15 @@
 'use client';
 
 import { changePassword } from '@/shared/api';
+import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
 import { useState } from 'react';
 
 export default function AccountPage() {
   const { toast } = useToast();
+  const { mustChangePassword } = useUser();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   // Handle password form submission
   const handlePasswordSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -43,6 +46,7 @@ export default function AccountPage() {
       await changePassword(currentPassword, newPassword);
 
       toast({ title: 'Password updated successfully', variant: 'success' });
+      setPasswordChanged(true);
       form.reset();
     } catch (err) {
       console.error('Failed to update password:', err);
@@ -67,6 +71,11 @@ export default function AccountPage() {
             </p>
           </div>
           <div className="mt-5 md:mt-0 md:col-span-2">
+            {mustChangePassword && !passwordChanged && (
+              <div className="alert alert-info mb-6">
+                <p className="text-sm">Your administrator set a one-time password. Choose a new password to continue.</p>
+              </div>
+            )}
             <form onSubmit={handlePasswordSubmit} className="space-y-6">
               <div>
                 <label htmlFor="current_password" className="form-label">

@@ -5,7 +5,8 @@
 import { MarkdownEditor } from '@/shared/ui/MarkdownEditor';
 import { MediaPicker } from '@/features/files';
 import { useSiteSettings } from './hooks/useSiteSettings';
-import type { TabId, PageVisibility } from './types';
+import { SITE_TABS } from './types';
+import type { PageVisibility } from './types';
 
 const AVAILABLE_ICONS = [
   { value: 'workflow', label: 'Workflow' },
@@ -28,19 +29,6 @@ const AVAILABLE_ICONS = [
   { value: 'monitor', label: 'Monitor' },
   { value: 'cpu', label: 'CPU' },
   { value: 'plug', label: 'Plug' },
-];
-
-const tabs: { id: TabId; label: string }[] = [
-  { id: 'visibility', label: 'Page Visibility' },
-  { id: 'hero', label: 'Hero Section' },
-  { id: 'compliance', label: 'Subscription Compliance' },
-  { id: 'disclosures', label: 'Disclosures' },
-  { id: 'features', label: 'Feature Blocks' },
-  { id: 'testimonials', label: 'Testimonials' },
-  { id: 'about', label: 'About Story' },
-  { id: 'contact', label: 'Contact Info' },
-  { id: 'privacy', label: 'Privacy Policy' },
-  { id: 'terms', label: 'Terms of Service' },
 ];
 
 export default function SiteSettingsPage() {
@@ -78,7 +66,7 @@ export default function SiteSettingsPage() {
             className="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto scrollbar-hide px-6"
             aria-label="Tabs"
           >
-            {tabs.map((tab) => (
+            {SITE_TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => s.setActiveTab(tab.id)}
@@ -122,7 +110,7 @@ export default function SiteSettingsPage() {
                         <span className="text-sm font-medium text-secondary">
                           Testimonial #{index + 1}
                         </span>
-                        <button onClick={() => s.removeTestimonial(index)} className="link-danger text-sm">
+                        <button onClick={() => s.removeTestimonial(index)} className="link-subtle text-sm">
                           Remove
                         </button>
                       </div>
@@ -259,7 +247,6 @@ export default function SiteSettingsPage() {
                   >
                     <option value="">None (hidden)</option>
                     <option value="/register">Register</option>
-                    <option value="/pricing">Pricing</option>
                   </select>
                 </div>
               </div>
@@ -273,7 +260,7 @@ export default function SiteSettingsPage() {
                 <div>
                   <h3 className="section-title">Home Page Feature Blocks</h3>
                   <p className="mt-1 text-sm text-muted">
-                    Manage feature blocks displayed on the home page. Drag to reorder.
+                    Manage feature blocks displayed on the home page. Use the arrows to reorder.
                   </p>
                 </div>
                 <button onClick={s.addFeature} className="btn-primary">
@@ -319,7 +306,7 @@ export default function SiteSettingsPage() {
                             </button>
                           </div>
                         </div>
-                        <button onClick={() => s.removeFeature(index)} className="link-danger text-sm">
+                        <button onClick={() => s.removeFeature(index)} className="link-subtle text-sm">
                           Remove
                         </button>
                       </div>
@@ -408,7 +395,7 @@ export default function SiteSettingsPage() {
                                 onClick={() => {
                                   s.updateFeature(index, 'thumbnail', '');
                                 }}
-                                className="link-danger text-sm mb-1"
+                                className="link-subtle text-sm mb-1"
                                 title="Remove thumbnail"
                               >
                                 Remove
@@ -444,7 +431,7 @@ export default function SiteSettingsPage() {
               <div>
                 <h3 className="section-title">Terms of Service</h3>
                 <p className="mt-1 text-sm text-muted">
-                  Edit the Terms of Service content. Supports Markdown formatting.
+                  Write your Terms of Service in Markdown. The public page and its links stay hidden until this has content.
                 </p>
               </div>
               <div>
@@ -476,7 +463,7 @@ export default function SiteSettingsPage() {
               <div>
                 <h3 className="section-title">Privacy Policy</h3>
                 <p className="mt-1 text-sm text-muted">
-                  Edit the Privacy Policy content. Supports Markdown formatting.
+                  Write your Privacy Policy in Markdown. The public page and its links stay hidden until this has content.
                 </p>
               </div>
               <div>
@@ -601,14 +588,6 @@ export default function SiteSettingsPage() {
                 <h3 className="section-title">Page Visibility</h3>
                 <p className="mt-1 text-sm text-muted">
                   Control which public pages are visible on the site. Disabled pages will show a 404 error.
-                </p>
-              </div>
-
-              <div className="alert alert-info">
-                <p className="text-sm alert-info-text">
-                  <strong>Note:</strong> The Pricing page visibility is controlled by your billing configuration.
-                  When billing plans are created, the Pricing page is automatically enabled.
-                  Manage plans under <strong>Billing → Plans</strong>.
                 </p>
               </div>
 
@@ -906,10 +885,8 @@ export default function SiteSettingsPage() {
                       </label>
                       <button
                         type="button"
-                        onClick={() => {
-                          s.setDisclosures(s.disclosures.filter((_, i) => i !== index));
-                        }}
-                        className="p-1.5 text-muted hover:text-danger transition-colors"
+                        onClick={() => s.removeDisclosure(index)}
+                        className="p-1.5 text-muted hover:text-primary transition-colors"
                         title="Remove disclosure"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
@@ -951,9 +928,9 @@ export default function SiteSettingsPage() {
             <button
               onClick={s.handleSave}
               disabled={s.isSaving}
-              className={`btn-primary${s.isSaving ? 'btn-disabled' : ''}`}
+              className={`btn-primary${s.isSaving ? ' btn-disabled' : ''}`}
             >
-              {s.isSaving ? 'Saving...' : 'Save Changes'}
+              {s.isSaving ? 'Saving...' : 'Save'}
             </button>
           </div>
         </div>

@@ -3,10 +3,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { PAGINATION } from '@/shared/lib/constants';
-import { useSearchParams } from 'next/navigation';
+import { DEFAULT_PAGE_SIZE } from '@/shared/lib/pagination';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { isPageSize, oneOf, useListPref, type ListPrefGuard } from '@/shared/hooks/useListPref';
 import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 import {
   getSystemHealth,
   deregisterWorker,
@@ -19,23 +21,77 @@ import {
   type SortOrder,
 } from '@/shared/api';
 
-export type TabId = 'messaging' | 'queue' | 'workers' | 'storage' | 'database';
+export const TAB_IDS = ['queue', 'workers', 'storage', 'database', 'messaging'] as const;
+export type TabId = (typeof TAB_IDS)[number];
+
+const DEFAULT_TAB: TabId = 'queue';
+
+export const REFRESH_INTERVALS = [
+  { label: 'Off', value: 0 },
+  { label: '5s', value: 5000 },
+  { label: '10s', value: 10000 },
+  { label: '30s', value: 30000 },
+  { label: '1m', value: 60000 },
+  { label: '5m', value: 300000 },
+];
+
+const isRefreshInterval: ListPrefGuard<number> = (value): value is number =>
+  REFRESH_INTERVALS.some((interval) => interval.value === value);
+const isStorageSortField = oneOf<StorageSortField>(['name', 'files', 'size_bytes', 'usage_percent']);
+const isSortOrder = oneOf<SortOrder>(['asc', 'desc']);
+const isTabId = oneOf(TAB_IDS);
+
+// Maps a ?tab= value to a tab; jobs is the old name for the queue tab
+function tabFromParam(param: string | null): TabId | null {
+  if (param === 'jobs') return 'queue';
+  return isTabId(param) ? param : null;
+}
 
 export function useInfrastructureData() {
   const { user } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [health, setHealth] = useState<SystemHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshInterval, setRefreshInterval] = useState(0);
+  const [refreshInterval, setRefreshInterval] = useListPref('infrastructure', 'refreshInterval', 0, isRefreshInterval);
 
-  const tabParam = searchParams.get('tab') as TabId | null;
-  const resolvedTab = (tabParam as string) === 'jobs' ? 'queue' as TabId : tabParam; // ?tab=jobs was the old name for the queue tab
-  const [activeTab, setActiveTab] = useState<TabId>(
-    resolvedTab && ['messaging', 'queue', 'workers', 'storage', 'database'].includes(resolvedTab) ? resolvedTab : 'queue'
-  );
+  const tabParam = searchParams.get('tab');
+  const urlTab = tabFromParam(tabParam);
+  const [storedTab, setStoredTab] = useListPref('infrastructure', 'tab', DEFAULT_TAB, isTabId);
+  const [activeTab, setActiveTabState] = useState<TabId>(urlTab ?? storedTab);
+
+  const replaceTabInUrl = useCallback((tab: TabId) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', tab);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [searchParams, pathname, router]);
+
+  // Follows the URL when it names a different tab, as on back and forward
+  const [seenTabParam, setSeenTabParam] = useState(tabParam);
+  if (tabParam !== seenTabParam) {
+    setSeenTabParam(tabParam);
+    if (urlTab) setActiveTabState(urlTab);
+  }
+
+  // Writes the shown tab into a URL that names none, or names it by an old or unknown value
+  useEffect(() => {
+    if (tabParam !== urlTab || !urlTab) replaceTabInUrl(activeTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs only when the URL changes, never on a tab click
+  }, [tabParam]);
+
+  useEffect(() => {
+    setStoredTab(activeTab);
+  }, [activeTab, setStoredTab]);
+
+  const setActiveTab = useCallback((tab: TabId) => {
+    setActiveTabState(tab);
+    replaceTabInUrl(tab);
+  }, [replaceTabInUrl]);
 
   // Database tab state
   const [dbStats, setDbStats] = useState<DatabaseStats | null>(null);
@@ -44,10 +100,10 @@ export function useInfrastructureData() {
   // Storage tab state
   const [storageData, setStorageData] = useState<PaginatedStorageResponse | null>(null);
   const [storagePage, setStoragePage] = useState(1);
-  const [storagePageSize, setStoragePageSize] = useState(PAGINATION.COMPACT_PAGE_SIZE);
+  const [storagePageSize, setStoragePageSize] = useListPref('infra-storage', 'pageSize', DEFAULT_PAGE_SIZE, isPageSize);
   const [storageLoading, setStorageLoading] = useState(false);
-  const [storageSortBy, setStorageSortBy] = useState<StorageSortField>('size_bytes');
-  const [storageSortOrder, setStorageSortOrder] = useState<SortOrder>('desc');
+  const [storageSortBy, setStorageSortBy] = useListPref<StorageSortField>('infra-storage', 'sortBy', 'size_bytes', isStorageSortField);
+  const [storageSortOrder, setStorageSortOrder] = useListPref<SortOrder>('infra-storage', 'sortOrder', 'desc', isSortOrder);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -79,7 +135,7 @@ export function useInfrastructureData() {
 
   const fetchStorageData = useCallback(async (
     page: number = 1,
-    pageSize: number = PAGINATION.DEFAULT_PAGE_SIZE,
+    pageSize: number = DEFAULT_PAGE_SIZE,
     sortBy: StorageSortField = 'size_bytes',
     sortOrder: SortOrder = 'desc'
   ) => {
@@ -96,14 +152,19 @@ export function useInfrastructureData() {
   }, []);
 
   const handleStorageSort = useCallback((field: StorageSortField) => {
-    const newOrder: SortOrder = storageSortBy === field && storageSortOrder === 'desc' ? 'asc' : 'desc';
+    const newOrder: SortOrder = storageSortBy === field && storageSortOrder === 'asc' ? 'desc' : 'asc';
     setStorageSortBy(field);
     setStorageSortOrder(newOrder);
     fetchStorageData(1, storagePageSize, field, newOrder);
-  }, [storageSortBy, storageSortOrder, storagePageSize, fetchStorageData]);
+  }, [storageSortBy, storageSortOrder, storagePageSize, fetchStorageData, setStorageSortBy, setStorageSortOrder]);
 
   const handleDeregisterWorker = useCallback(async (workerId: string, workerName: string) => {
-    if (!confirm(`Are you sure you want to deregister worker "${workerName}"? The worker will be notified to stop gracefully.`)) {
+    if (!(await confirm({
+      title: 'Deregister worker',
+      message: `Are you sure you want to deregister worker "${workerName}"? The worker will be notified to stop gracefully.`,
+      confirmLabel: 'Deregister',
+      variant: 'danger',
+    }))) {
       return;
     }
     try {
@@ -113,7 +174,7 @@ export function useInfrastructureData() {
       console.error('Failed to deregister worker:', err);
       toast({ title: 'Deregister failed', description: err instanceof Error ? err.message : 'Failed to deregister worker', variant: 'destructive' });
     }
-  }, [fetchHealth, toast]);
+  }, [confirm, fetchHealth, toast]);
 
   // Initial fetch
   useEffect(() => {
@@ -126,21 +187,24 @@ export function useInfrastructureData() {
     if (activeTab === 'database' && !dbStats && !dbLoading) {
       void (async () => { await fetchDatabaseStats(); })();
     } else if (activeTab === 'storage' && !storageData && !storageLoading) {
-      void (async () => { await fetchStorageData(1); })();
+      void (async () => { await fetchStorageData(1, storagePageSize, storageSortBy, storageSortOrder); })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dbStats, dbLoading, storageData, storageLoading are intentionally excluded to prevent refetching when data arrives
   }, [activeTab, isSuperAdmin, fetchHealth, fetchDatabaseStats, fetchStorageData]);
 
+  // Reloads the health snapshot and the data of the open panel
+  const refresh = useCallback(() => {
+    fetchHealth();
+    if (activeTab === 'database') fetchDatabaseStats();
+    else if (activeTab === 'storage') fetchStorageData(storagePage, storagePageSize, storageSortBy, storageSortOrder);
+  }, [activeTab, storagePage, storagePageSize, storageSortBy, storageSortOrder, fetchHealth, fetchDatabaseStats, fetchStorageData]);
+
   // Auto-refresh
   useEffect(() => {
     if (refreshInterval === 0 || !isSuperAdmin) return;
-    const interval = setInterval(() => {
-      fetchHealth();
-      if (activeTab === 'database') fetchDatabaseStats();
-      else if (activeTab === 'storage') fetchStorageData(storagePage, storagePageSize, storageSortBy, storageSortOrder);
-    }, refreshInterval);
+    const interval = setInterval(refresh, refreshInterval);
     return () => clearInterval(interval);
-  }, [refreshInterval, isSuperAdmin, activeTab, storagePage, storagePageSize, storageSortBy, storageSortOrder, fetchHealth, fetchDatabaseStats, fetchStorageData]);
+  }, [refreshInterval, isSuperAdmin, refresh]);
 
   return {
     health,
@@ -152,6 +216,7 @@ export function useInfrastructureData() {
     setActiveTab,
     isSuperAdmin,
     fetchHealth,
+    refresh,
 
     // Database
     dbStats,

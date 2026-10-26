@@ -116,7 +116,7 @@ function InlineEditor({
       </button>
       <button
         onClick={onCancel}
-        className="p-0.5 text-danger hover:text-danger"
+        className="btn-cancel p-0.5! rounded"
         title="Cancel"
       >
         <X className="w-3 h-3" />

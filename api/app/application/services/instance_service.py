@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, UTC
 from typing import Any, Dict, List, Optional, Protocol
 
-from app.domain.instance.models import Instance, InstanceStatus
+from app.domain.instance.models import RUNNING_STATUSES, Instance, InstanceStatus
 from app.domain.instance.iteration_execution import IterationExecutionStatus
 from app.domain.instance.repository import InstanceRepository
 from app.domain.instance.iteration_execution_repository import (
@@ -134,10 +134,13 @@ class InstanceService:
             audit_service=audit_service,
             state_transition_service=self._state_transition,
             iteration_execution_repository=iteration_execution_repository,
+            notifier=notifier,
         )
 
-    async def create_instance(self, instance_data: InstanceCreate) -> InstanceResponse:
-        return await self._lifecycle.create_instance(instance_data)
+    async def create_instance(
+        self, instance_data: InstanceCreate, actor_id: Optional[uuid.UUID] = None
+    ) -> InstanceResponse:
+        return await self._lifecycle.create_instance(instance_data, actor_id=actor_id)
 
     async def start_instance(self, instance_id: uuid.UUID) -> InstanceResponse:
         """Validate credentials and enqueue the first step (or wait for form input)."""
@@ -148,6 +151,7 @@ class InstanceService:
                 instance.workflow_snapshot
             )
             if not has_form_inputs:
+                await self._announce_started(instance)
                 await self._enqueue_first_step_and_handle_result(instance)
             else:
                 logger.info(
@@ -155,6 +159,15 @@ class InstanceService:
                 )
 
         return InstanceResponse.from_domain(instance)
+
+    async def _announce_started(self, instance: Instance) -> None:
+        """Announce the run started, before its first step can finish."""
+        if self._notifier:
+            await self._notifier.announce_state_change(
+                instance=instance,
+                action_type="processing_started",
+                session=getattr(self.instance_repository, "session", None),
+            )
 
     async def _enqueue_first_step_and_handle_result(self, instance: Instance) -> None:
         """Enqueue the first step, honoring execution_mode stop/skip semantics."""
@@ -196,17 +209,8 @@ class InstanceService:
                     if first_step_entity:
                         first_step_entity.skip()
                         await self.step_execution_repository.update(first_step_entity)
+                        instance.step_entities[first_step_id] = first_step_entity
                     await self.instance_repository.update(instance)
-
-                    next_jobs = (
-                        await self.job_enqueue_service.enqueue_ready_steps_after_skip(
-                            instance_id=instance.id,
-                            organization_id=instance.organization_id,
-                            workflow_snapshot=workflow_snapshot,
-                            skipped_step_ids={first_step_id},
-                            instance_parameters=instance.input_data or {},
-                        )
-                    )
 
                     if self._notifier:
                         await self._notifier.announce_state_change(
@@ -215,40 +219,9 @@ class InstanceService:
                             step_id=first_step_id,
                         )
 
-                    if next_jobs == ["STOP"]:
-                        instance.status = InstanceStatus.COMPLETED
-                        instance.completed_at = datetime.now(UTC)
-                        await self.instance_repository.update(instance)
-                        logger.info(
-                            f"Instance {instance.id} completed (next step after skip has stop mode)"
-                        )
-                        if self._notifier:
-                            await self._notifier.announce_state_change(
-                                instance=instance,
-                                action_type="completed",
-                                session=getattr(
-                                    self.instance_repository, "session", None
-                                ),
-                            )
-                    elif not next_jobs:
-                        instance.status = InstanceStatus.COMPLETED
-                        instance.completed_at = datetime.now(UTC)
-                        await self.instance_repository.update(instance)
-                        logger.info(
-                            f"Instance {instance.id} completed (no steps after skip)"
-                        )
-                        if self._notifier:
-                            await self._notifier.announce_state_change(
-                                instance=instance,
-                                action_type="completed",
-                                session=getattr(
-                                    self.instance_repository, "session", None
-                                ),
-                            )
-                    else:
-                        logger.debug(
-                            f"First step {first_step_id} skipped, enqueued {len(next_jobs)} next steps"
-                        )
+                    await self._orchestration.advance_after_step(
+                        instance, first_step_id
+                    )
             else:
                 logger.debug(f"Enqueued first step for instance {instance.id}")
         except Exception as e:
@@ -258,9 +231,13 @@ class InstanceService:
             raise
 
     async def submit_form_and_start(
-        self, instance_id: uuid.UUID, form_values: Dict[str, Any]
+        self,
+        instance_id: uuid.UUID,
+        form_values: Dict[str, Any],
+        announce_start: bool = False,
+        input_aliases: Optional[Dict[str, str]] = None,
     ) -> InstanceResponse:
-        """Persist form values, inject them into the snapshot, and start the instance."""
+        """Inject form values into the snapshot, persist them without secret ones or their input_aliases copies, and start the instance."""
         instance = await self.instance_repository.get_by_id(instance_id)
         if not instance:
             raise EntityNotFoundError(
@@ -277,14 +254,17 @@ class InstanceService:
                     code="UNKNOWN_FORM_FIELDS",
                 )
 
-        current_input = instance.input_data or {}
-        current_input["form_values"] = form_values
-        instance.input_data = current_input
-
+        sealed: List[str] = []
         if instance.workflow_snapshot and instance.workflow_snapshot.get("steps"):
-            await self._orchestration.inject_form_values_into_snapshot(
+            sealed = await self._orchestration.inject_form_values_into_snapshot(
                 instance, form_values
             )
+
+        dropped = {(input_aliases or {}).get(key) for key in sealed}
+        instance.input_data = {
+            **{k: v for k, v in (instance.input_data or {}).items() if k not in dropped},
+            "form_values": {k: v for k, v in form_values.items() if k not in sealed},
+        }
 
         await self._lifecycle.validate_workflow_credentials(
             instance.workflow_id, instance.organization_id
@@ -298,6 +278,8 @@ class InstanceService:
         for event in events:
             await self.event_bus.publish(event)
 
+        if announce_start:
+            await self._announce_started(instance)
         await self._enqueue_first_step_and_handle_result(instance)
 
         return InstanceResponse.from_domain(instance)
@@ -406,7 +388,7 @@ class InstanceService:
             )
         if step.status != StepExecutionStatus.WAITING_FOR_WEBHOOK:
             raise BusinessRuleViolation(
-                "Check Status only applies to a step awaiting a provider callback."
+                "Check Status only applies to a node awaiting a provider callback."
             )
 
         workflow = await self.workflow_repository.get_by_id(instance.workflow_id)
@@ -414,7 +396,7 @@ class InstanceService:
         job = step_config.job if step_config else None
         if job is None:
             raise BusinessRuleViolation(
-                "Cannot resolve the step's provider configuration to poll."
+                "Cannot resolve the node's provider configuration to poll."
             )
         service_id = job.service_id or ""
         provider_id = str(job.provider_id) if job.provider_id else None
@@ -488,17 +470,12 @@ class InstanceService:
         workflow_id: Optional[uuid.UUID] = None,
         status: Optional[str] = None,
     ) -> List[InstanceResponse]:
-        PROCESSING_STATUSES = [
-            InstanceStatus.PROCESSING,
-            InstanceStatus.WAITING_FOR_APPROVAL,
-            InstanceStatus.WAITING_FOR_MANUAL_TRIGGER,
-        ]
 
         status_enum = None
         statuses_list = None
         if status:
             if status == "processing":
-                statuses_list = PROCESSING_STATUSES
+                statuses_list = sorted(RUNNING_STATUSES)
             else:
                 try:
                     status_enum = InstanceStatus(status)
@@ -531,46 +508,37 @@ class InstanceService:
         limit: int = 25,
         workflow_id: Optional[uuid.UUID] = None,
         status: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        sort_order: str = "desc",
     ) -> PaginatedInstanceResponse:
-        PROCESSING_STATUSES = [
-            InstanceStatus.PROCESSING,
-            InstanceStatus.WAITING_FOR_APPROVAL,
-            InstanceStatus.WAITING_FOR_MANUAL_TRIGGER,
-        ]
 
         status_enum = None
         statuses_list = None
         if status:
             if status == "processing":
-                statuses_list = PROCESSING_STATUSES
+                statuses_list = sorted(RUNNING_STATUSES)
             else:
                 try:
                     status_enum = InstanceStatus(status)
                 except ValueError:
                     pass
 
-        if workflow_id:
-            instances = await self.instance_repository.list_by_workflow(
-                workflow_id=workflow_id,
-                status=status_enum,
-                statuses=statuses_list,
-                skip=skip,
-                limit=limit,
-            )
-            total = len(instances) + skip
-        else:
-            instances = await self.instance_repository.list_by_organization(
-                organization_id=organization_id,
-                status=status_enum,
-                statuses=statuses_list,
-                skip=skip,
-                limit=limit,
-            )
-            total = await self.instance_repository.count_by_organization(
-                organization_id=organization_id,
-                status=status_enum,
-                statuses=statuses_list,
-            )
+        instances = await self.instance_repository.list_by_organization(
+            organization_id=organization_id,
+            status=status_enum,
+            statuses=statuses_list,
+            skip=skip,
+            limit=limit,
+            workflow_id=workflow_id,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+        total = await self.instance_repository.count_by_organization(
+            organization_id=organization_id,
+            status=status_enum,
+            statuses=statuses_list,
+            workflow_id=workflow_id,
+        )
 
         return PaginatedInstanceResponse(
             items=[InstanceResponse.from_domain(inst) for inst in instances],

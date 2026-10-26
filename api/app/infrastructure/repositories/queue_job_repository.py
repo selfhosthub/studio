@@ -26,6 +26,7 @@ from app.domain.instance_step.models import StepExecutionStatus
 from app.domain.queue.models import QueuedJob
 from app.domain.queue.repository import QueuedJobRepository
 from app.infrastructure.persistence.models import QueuedJobModel
+from app.infrastructure.security.step_secrets import open_job_payload, seal_job_payload
 
 
 class SQLAlchemyQueuedJobRepository(QueuedJobRepository):
@@ -50,7 +51,7 @@ class SQLAlchemyQueuedJobRepository(QueuedJobRepository):
             instance_id=model.instance_id,
             priority=model.priority,
             status=model.status,
-            input_data=model.payload,
+            input_data=open_job_payload(model.payload),
             output_data=model.output_data,  # Now a proper column
             error_message=model.error_message,  # Now a proper column
             resource_requirements=resource_req,
@@ -96,7 +97,7 @@ class SQLAlchemyQueuedJobRepository(QueuedJobRepository):
             instance_id=job.instance_id,
             priority=job.priority,
             status=job.status,  # type: ignore[assignment]  - domain enum assigned to SA column; SA type stubs expect Column type
-            payload=job.input_data,
+            payload=seal_job_payload(job.input_data),
             resource_requirements=(
                 job.resource_requirements.model_dump()
                 if job.resource_requirements
@@ -155,7 +156,7 @@ class SQLAlchemyQueuedJobRepository(QueuedJobRepository):
         db_job.completed_at = job.completed_at
         db_job.retry_count = job.retry_count
 
-        db_job.payload = job.input_data
+        db_job.payload = seal_job_payload(job.input_data)
 
         if job.timeout_seconds:
             db_job.timeout_at = job.enqueued_at + timedelta(seconds=job.timeout_seconds)

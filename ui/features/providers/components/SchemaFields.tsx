@@ -8,6 +8,8 @@ interface SchemaFieldsProps {
   schemaValues: Record<string, string>;
   setSchemaValues: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   idPrefix?: string;
+  /** Edit mode: fields start empty and a blank field keeps the stored value. */
+  isEdit?: boolean;
 }
 
 /**
@@ -19,6 +21,7 @@ export function SchemaFields({
   schemaValues,
   setSchemaValues,
   idPrefix = 'schema',
+  isEdit = false,
 }: SchemaFieldsProps) {
   return (
     <div className="space-y-4">
@@ -74,17 +77,17 @@ export function SchemaFields({
 
             <div>
               <label htmlFor={`${idPrefix}_${fieldKey}`} className="form-label">
-                {fieldSchema.title || fieldKey} {isRequired && '*'}
+                {fieldSchema.title || fieldKey} {isRequired && !isEdit && '*'}
               </label>
               <input
                 type={isPassword ? 'password' : 'text'}
                 id={`${idPrefix}_${fieldKey}`}
-                required={isRequired && !isReadonly}
+                required={isRequired && !isReadonly && !isEdit}
                 disabled={isReadonly}
                 value={schemaValues[fieldKey] || ''}
                 onChange={(e) => setSchemaValues({ ...schemaValues, [fieldKey]: e.target.value })}
                 className={`form-input-mono${isReadonly ? ' opacity-50 cursor-not-allowed' : ''}`}
-                placeholder={fieldSchema.ui?.placeholder || fieldSchema.examples?.[0] || ''}
+                placeholder={isEdit ? 'Leave blank to keep the current value' : fieldSchema.ui?.placeholder || fieldSchema.examples?.[0] || ''}
                 autoComplete="off"
               />
 

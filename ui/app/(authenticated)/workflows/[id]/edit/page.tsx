@@ -3,7 +3,7 @@
 'use client';
 
 import React, { Suspense, useState, use } from 'react';
-import { Step } from '@/entities/workflow';
+import { Step, canRunWorkflow } from '@/entities/workflow';
 import Link from 'next/link';
 import { validateDependencies, topologicalSortSteps, findDisconnectedSteps } from '@/shared/lib/step-utils';
 import { updateWorkflow, exportWorkflow } from '@/shared/api';
@@ -13,6 +13,7 @@ import { WorkflowStepConfig } from '@/app/(authenticated)/workflows/components/W
 import { usePreferences } from '@/entities/preferences';
 import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 import { TIMEOUTS } from '@/shared/lib/constants';
 import { useReturnTo } from '@/shared/hooks/useReturnTo';
 
@@ -45,6 +46,7 @@ function WorkflowEditPageContent({ id }: { id: string }) {
   const router = useRouter();
   const { returnTo } = useReturnTo('/workflows/list');
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { preferences } = usePreferences();
   const { user } = useUser();
   const isSuperAdmin = user?.role === 'super_admin';
@@ -63,10 +65,10 @@ function WorkflowEditPageContent({ id }: { id: string }) {
     },
   });
 
-  const webhook = useWebhookConfig(id, workflow?.webhook_token);
+  const webhook = useWebhookConfig(id, workflow?.webhook_token, workflow?.webhook_url);
   const { credentialCheck, credentialCheckLoading, refreshCredentialCheck } = useCredentialCheck(workflow?.id);
 
-  const { hasUnsavedChanges, markSaved, markInitialState } = useUnsavedChanges({
+  const { hasUnsavedChanges, markSaved, markInitialState, rebaseStep } = useUnsavedChanges({
     workflow,
     webhookAuthType: webhook.webhookAuthType,
     webhookAuthHeaderValue: webhook.webhookAuthHeaderValue,
@@ -89,7 +91,7 @@ function WorkflowEditPageContent({ id }: { id: string }) {
     if (workflow.trigger_type === 'webhook' && workflow.webhook_token && newTriggerType !== 'webhook') {
       const success = await webhook.handleDeleteToken();
       if (success) {
-        setWorkflow((prev: any) => ({ ...prev, webhook_token: null, webhook_secret: null, trigger_type: newTriggerType }));
+        setWorkflow((prev: any) => ({ ...prev, webhook_token: null, webhook_url: null, webhook_secret: null, trigger_type: newTriggerType }));
       }
       return;
     }
@@ -103,14 +105,14 @@ function WorkflowEditPageContent({ id }: { id: string }) {
   const handleGenerateWebhookToken = async () => {
     const result = await webhook.handleGenerateToken();
     if (result) {
-      setWorkflow((prev: any) => ({ ...prev, webhook_token: result.webhook_token, webhook_secret: result.webhook_secret, trigger_type: 'webhook' }));
+      setWorkflow((prev: any) => ({ ...prev, webhook_token: result.webhook_token, webhook_url: result.webhook_url, webhook_secret: result.webhook_secret, trigger_type: 'webhook' }));
     }
   };
 
   const handleRegenerateWebhookToken = async () => {
     const result = await webhook.handleRegenerateToken();
     if (result) {
-      setWorkflow((prev: any) => ({ ...prev, webhook_token: result.webhook_token, webhook_secret: result.webhook_secret }));
+      setWorkflow((prev: any) => ({ ...prev, webhook_token: result.webhook_token, webhook_url: result.webhook_url, webhook_secret: result.webhook_secret }));
     }
   };
 
@@ -185,7 +187,11 @@ function WorkflowEditPageContent({ id }: { id: string }) {
     const disconnected = findDisconnectedSteps(stepsRecord);
     if (disconnected.length > 0) {
       const names = disconnected.map((id) => stepsRecord[id].name || id).join(', ');
-      if (!confirm(`These steps aren't connected to the workflow and won't run:\n\n${names}\n\nSave anyway?`)) {
+      if (!(await confirm({
+        title: 'Save workflow',
+        message: `These nodes aren't connected to the workflow and won't run:\n\n${names}\n\nSave anyway?`,
+        confirmLabel: 'Save anyway',
+      }))) {
         return;
       }
     }
@@ -241,9 +247,8 @@ function WorkflowEditPageContent({ id }: { id: string }) {
     router.push(`/run/${workflow.id}`);
   };
 
-  // Run is only available for active workflows, and never to super-admins;
-  // missing status defaults to active.
-  const canRun = !isSuperAdmin && (workflow?.status ?? 'active') === 'active'; // defaults-ok
+  // Run is never available to super-admins.
+  const canRun = !isSuperAdmin && canRunWorkflow(workflow ?? {}, user?.id);
 
   const handleExport = async () => {
     if (!workflow) return;
@@ -372,8 +377,11 @@ function WorkflowEditPageContent({ id }: { id: string }) {
           stepConfigContent={steps.selectedStep ? (
             <WorkflowStepConfig
               step={steps.selectedStep}
-              onUpdate={steps.updateStep}
-              onRemove={() => { steps.removeStep(steps.selectedStep!.id); setSelectedStepId(null); }}
+              onUpdate={(updatedStep, options) => {
+                if (options?.materialized) rebaseStep(steps.selectedStep, updatedStep);
+                steps.updateStep(updatedStep);
+              }}
+              onRemove={async () => { if (await steps.removeStep(steps.selectedStep!.id)) setSelectedStepId(null); }}
               onDuplicate={steps.duplicateStep}
               previousSteps={connections.previousSteps}
               allSteps={steps.allStepsRecord}

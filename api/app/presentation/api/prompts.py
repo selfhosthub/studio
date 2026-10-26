@@ -4,6 +4,7 @@
 
 import json
 import logging
+import re
 from typing import List, Optional
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dtos.prompt_dto import (
     AssembleRequestDTO,
@@ -27,7 +29,9 @@ from app.application.dtos.prompt_dto import (
 )
 from app.application.services.audit_service import AuditService
 from app.application.services.prompt_service import PromptService
+from app.application.services.prompt_usage import count_workflows_using_prompt
 from app.config.settings import settings
+from app.config.sources import DEFAULT_TIER
 from app.domain.audit.models import (
     AuditAction,
     AuditActorType,
@@ -41,12 +45,15 @@ from app.presentation.api.dependencies import (
     CurrentUser,
     get_audit_service,
     get_current_user,
+    get_db_session,
     get_prompt_service,
     require_admin,
     require_super_admin,
     require_user,
 )
+from app.domain.provider.models import PackageType
 from app.infrastructure.errors import safe_error_message
+from app.infrastructure.services.package_version_service import PackageVersionService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -57,6 +64,25 @@ class PromptImportResponse(BaseModel):
 
     prompt: PromptResponseDTO
     warnings: List[str] = []
+
+
+_COPY_SUFFIX_RE = re.compile(r"-copy-\d+$")
+
+
+async def _with_tiers(
+    db: AsyncSession, prompts: List[PromptResponseDTO]
+) -> List[PromptResponseDTO]:
+    """Set tier on marketplace prompts from the platform catalog entry for their slug."""
+    marketplace = [p for p in prompts if p.source == PromptSource.MARKETPLACE]
+    if not marketplace:
+        return prompts
+    tiers = {
+        pv.slug: pv.json_content.get("catalog_entry", {}).get("tier", DEFAULT_TIER)
+        for pv in await PackageVersionService.list_active(db, PackageType.PROMPT)
+    }
+    for p in marketplace:
+        p.tier = tiers.get(_COPY_SUFFIX_RE.sub("", p.slug), DEFAULT_TIER)
+    return prompts
 
 
 def _default_scope_for(user: CurrentUser) -> PromptScope:
@@ -76,6 +102,7 @@ async def list_personal_prompts(
     limit: int = Query(settings.API_PAGE_LIMIT_DEFAULT, ge=1, le=settings.API_PAGE_MAX),
     user: CurrentUser = Depends(get_current_user),
     service: PromptService = Depends(get_prompt_service),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """List prompts the current user created personally (scope=personal)."""
     org_id = user["org_id"]
@@ -85,7 +112,7 @@ async def list_personal_prompts(
         skip=skip,
         limit=limit,
     )
-    return [service._to_response(p) for p in prompts]
+    return await _with_tiers(db, [service._to_response(p) for p in prompts])
 
 
 @router.get("/pending-publish", response_model=List[PromptResponseDTO])
@@ -94,6 +121,7 @@ async def list_pending_publish(
     limit: int = Query(settings.API_PAGE_LIMIT_DEFAULT, ge=1, le=settings.API_PAGE_MAX),
     user: CurrentUser = Depends(require_admin),
     service: PromptService = Depends(get_prompt_service),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """List prompts pending publish approval (admin only)."""
     org_id = user["org_id"]
@@ -102,7 +130,7 @@ async def list_pending_publish(
         skip=skip,
         limit=limit,
     )
-    return [service._to_response(p) for p in prompts]
+    return await _with_tiers(db, [service._to_response(p) for p in prompts])
 
 
 @router.get("/", response_model=List[PromptResponseDTO])
@@ -115,15 +143,17 @@ async def list_prompts(
     ),
     user: CurrentUser = Depends(get_current_user),
     service: PromptService = Depends(get_prompt_service),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """List prompts for the organization, optionally filtered by scope."""
     org_id = user["org_id"]
     scope_filter = PromptScope(scope) if scope else None
-    return await service.list_prompts(
+    prompts = await service.list_prompts(
         organization_id=UUID(org_id),
         category=category,
         scope=scope_filter,
     )
+    return await _with_tiers(db, prompts)
 
 
 @router.get("/{prompt_id}", response_model=PromptResponseDTO)
@@ -131,15 +161,33 @@ async def get_prompt(
     prompt_id: UUID,
     user: CurrentUser = Depends(get_current_user),
     service: PromptService = Depends(get_prompt_service),
+    db: AsyncSession = Depends(get_db_session),
 ):
     org_id = user["org_id"]
     try:
-        return await service.get_prompt(
+        prompt = await service.get_prompt(
             prompt_id=prompt_id,
             organization_id=UUID(org_id),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=safe_error_message(e))
+    return (await _with_tiers(db, [prompt]))[0]
+
+
+class PromptUsageResponse(BaseModel):
+    workflow_count: int
+
+
+@router.get("/{prompt_id}/usage", response_model=PromptUsageResponse)
+async def get_prompt_usage(
+    prompt_id: UUID,
+    user: CurrentUser = Depends(get_current_user),
+    service: PromptService = Depends(get_prompt_service),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """How many workflows map this prompt into a step, for the delete confirm."""
+    await service.get_prompt(prompt_id=prompt_id, organization_id=UUID(user["org_id"]))
+    return PromptUsageResponse(workflow_count=await count_workflows_using_prompt(db, prompt_id))
 
 
 @router.post(
@@ -234,17 +282,19 @@ async def update_prompt(
     dto: PromptUpdateDTO,
     user: CurrentUser = Depends(get_current_user),
     service: PromptService = Depends(get_prompt_service),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Update a prompt."""
     org_id = user["org_id"]
     try:
-        return await service.update_prompt(
+        prompt = await service.update_prompt(
             prompt_id=prompt_id,
             dto=dto,
             organization_id=UUID(org_id),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=safe_error_message(e))
+    return (await _with_tiers(db, [prompt]))[0]
 
 
 @router.delete("/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)

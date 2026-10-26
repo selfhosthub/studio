@@ -3,6 +3,9 @@
 'use client';
 
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
+import { DIALOG_PANEL_HEIGHT_CLASS, DIALOG_SCROLL_CLASS, DIALOG_WRAPPER_CLASS } from './dialogLayout';
+
+const FULLSCREEN_PANEL_CLASS = 'fixed inset-0 bg-black flex flex-col transition duration-200 ease-out data-[closed]:opacity-0';
 
 interface ModalProps {
   isOpen: boolean;
@@ -53,7 +56,7 @@ export function Modal({
       <Dialog open={isOpen} onClose={handleClose} className="relative z-50">
         <DialogPanel
           transition
-          className={panelClassName ?? 'fixed inset-0 bg-black/90 flex flex-col transition duration-200 ease-out data-[closed]:opacity-0'}
+          className={panelClassName ?? FULLSCREEN_PANEL_CLASS}
         >
           {children}
         </DialogPanel>
@@ -70,17 +73,20 @@ export function Modal({
       />
 
       {/* Panel wrapper */}
-      <div className="fixed inset-0 flex items-center justify-center p-4">
+      <div className={DIALOG_WRAPPER_CLASS}>
         <DialogPanel
           transition
-          className={panelClassName ?? `${sizeClasses[size]} w-full bg-card rounded-lg shadow-xl transition duration-200 ease-out data-[closed]:opacity-0 data-[closed]:scale-95`}
+          className={`${panelClassName ?? `${sizeClasses[size]} w-full bg-card rounded-lg shadow-xl transition duration-200 ease-out data-[closed]:opacity-0 data-[closed]:scale-95`} flex flex-col ${DIALOG_PANEL_HEIGHT_CLASS}`}
         >
           {title && (
-            <DialogTitle className="text-lg font-semibold p-4 border-b">
+            <DialogTitle className="shrink-0 text-lg font-semibold p-4 border-b">
               {title}
             </DialogTitle>
           )}
-          {children}
+          {/* Scrolls when the content is taller than the viewport; the title stays in view */}
+          <div data-testid="modal-body" className={`flex min-h-0 flex-1 flex-col ${DIALOG_SCROLL_CLASS}`}>
+            {children}
+          </div>
         </DialogPanel>
       </div>
     </Dialog>

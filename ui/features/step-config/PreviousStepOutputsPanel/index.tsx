@@ -51,7 +51,7 @@ export function PreviousStepOutputsPanel({
               INPUT
             </h3>
             <p className="text-muted text-xs">
-              {previousSteps.length} step{previousSteps.length !== 1 ? 's' : ''} · {totalOutputs} field{totalOutputs !== 1 ? 's' : ''}
+              {previousSteps.length} node{previousSteps.length !== 1 ? 's' : ''} · {totalOutputs} field{totalOutputs !== 1 ? 's' : ''}
             </p>
           </div>
 

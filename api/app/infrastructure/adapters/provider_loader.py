@@ -155,10 +155,12 @@ class ProviderLoader:
         self, session: AsyncSession, provider_id: UUID
     ) -> list[Dict[str, Any]]:
         result = await session.execute(
-            select(ProviderServiceModel).where(
+            select(ProviderServiceModel)
+            .where(
                 ProviderServiceModel.provider_id == provider_id,
                 ProviderServiceModel.is_active == True,
             )
+            .order_by(ProviderServiceModel.position, ProviderServiceModel.service_id)
         )
         services = result.scalars().all()
 
@@ -204,10 +206,12 @@ async def register_single_provider(
         provider_config = build_adapter_provider_config(provider_model)
 
         services_result = await session.execute(
-            select(ProviderServiceModel).where(
+            select(ProviderServiceModel)
+            .where(
                 ProviderServiceModel.provider_id == provider_id,
                 ProviderServiceModel.is_active == True,
             )
+            .order_by(ProviderServiceModel.position, ProviderServiceModel.service_id)
         )
         services = services_result.scalars().all()
         service_ids = [service.service_id for service in services]

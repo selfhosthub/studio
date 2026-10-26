@@ -7,6 +7,7 @@ import { X, Download, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Maxi
 import { OrgFile } from '@/shared/types/api';
 import { apiFetchBlob } from '@/shared/api';
 import { formatFileSize } from '@/shared/lib/format-utils';
+import { getFileName } from '@/shared/lib/file-name';
 import { Modal } from '@/shared/ui';
 
 interface FileViewerModalProps {
@@ -47,6 +48,7 @@ export default function FileViewerModal({
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const fileName = getFileName(resource);
 
   const isImage = resource.mime_type.startsWith('image/');
   const isVideo = resource.mime_type.startsWith('video/');
@@ -148,7 +150,7 @@ export default function FileViewerModal({
         <div className="flex flex-col items-center justify-center h-full text-white">
           <p className="text-danger mb-4">{error}</p>
           <button
-            onClick={() => onDownload(resource.id, resource.display_name)}
+            onClick={() => onDownload(resource.id, fileName)}
             className="btn-primary flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
@@ -164,7 +166,7 @@ export default function FileViewerModal({
           <FileText className="w-16 h-16 text-muted mb-4" />
           <p className="text-muted mb-4">Preview not available for this file type</p>
           <button
-            onClick={() => onDownload(resource.id, resource.display_name)}
+            onClick={() => onDownload(resource.id, fileName)}
             className="btn-primary flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
@@ -229,7 +231,7 @@ export default function FileViewerModal({
           <iframe
             src={blobUrl}
             className="w-full h-full rounded-lg"
-            title={resource.display_name}
+            title={fileName}
           />
         </div>
       );
@@ -243,7 +245,7 @@ export default function FileViewerModal({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-black/50">
         <div className="flex items-center gap-4">
-          <h2 className="text-white font-medium break-all">{resource.display_name}</h2>
+          <h2 className="text-white font-medium break-all">{fileName}</h2>
           <span className={`text-xs px-2 py-1 rounded${getSourceColor(resource.source)}`}>
             {getSourceLabel(resource.source)}
           </span>
@@ -260,7 +262,7 @@ export default function FileViewerModal({
           <span className="text-secondary">•</span>
           <span className="text-muted text-sm">{resource.mime_type}</span>
           <button
-            onClick={() => onDownload(resource.id, resource.display_name)}
+            onClick={() => onDownload(resource.id, fileName)}
             className="ml-4 p-2 text-muted hover:text-white hover:bg-card/10 rounded-lg transition-colors"
             title="Download"
           >

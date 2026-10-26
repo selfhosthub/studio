@@ -121,7 +121,7 @@ export default function UserFilePicker({
       setError(null);
       try {
         const data = await getFiles(1, 100); // Get up to 100 files
-        setFiles(asOutputResources(data || []));
+        setFiles(asOutputResources(data?.items || []));
       } catch (err) {
         console.error('Failed to fetch user files:', err);
         setError('Failed to load files');

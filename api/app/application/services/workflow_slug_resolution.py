@@ -75,7 +75,7 @@ def resolve_step_slugs(
                     target[field] = provider_slug_to_uuid[slug]
                 else:
                     warnings.append(
-                        f"Step '{step_id}': Provider {slug} is not installed"
+                        f"Node '{step_id}': Provider {slug} is not installed"
                     )
 
         job = step_data.get("job")
@@ -83,6 +83,10 @@ def resolve_step_slugs(
             for field in ROUTING_FIELDS:
                 if field in job and field not in step_data:
                     step_data[field] = job.pop(field)
+
+        for target in targets:
+            if isinstance(target.get("service_type"), str):
+                target["service_type"] = target["service_type"].lower()
 
         input_mappings = step_data.get("input_mappings")
         if isinstance(input_mappings, dict):
@@ -102,7 +106,7 @@ def resolve_step_slugs(
                     del mapping["promptSlug"]
                 else:
                     warnings.append(
-                        f"Step '{step_id}': AI prompt {slug} is not installed"
+                        f"Node '{step_id}': AI prompt {slug} is not installed"
                     )
 
         resolved[step_id] = step_data

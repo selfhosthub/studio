@@ -9,6 +9,7 @@ import {
 } from '@/shared/api';
 import { useUser } from '@/entities/user';
 import { useToast } from '@/features/toast';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 import type {
   Credential,
   ProviderInfo,
@@ -23,6 +24,7 @@ export function useCredentialData({ providerId }: UseCredentialDataOptions) {
   const searchParams = useSearchParams();
   const { user, status: authStatus } = useUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -43,6 +45,7 @@ export function useCredentialData({ providerId }: UseCredentialDataOptions) {
   const credentialSchema = provider?.client_metadata?.credential_schema;
   const hasCredentialSchema = !!(credentialSchema?.properties &&
     Object.keys(credentialSchema.properties).length > 0);
+  const providerAuthType = provider?.config?.auth?.type;
 
   // Handle OAuth callback success/error in URL
   useEffect(() => {
@@ -103,7 +106,14 @@ export function useCredentialData({ providerId }: UseCredentialDataOptions) {
 
   // Delete credential
   const handleDeleteCredential = async (credentialId: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete the credential "${name}"?`)) {
+    if (!(await confirm({
+      title: 'Delete credential',
+      message:
+        `Are you sure you want to delete the credential "${name}"?\n\n` +
+        'Workflows that use it will fail until they get another credential.',
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) {
       return;
     }
 
@@ -136,6 +146,7 @@ export function useCredentialData({ providerId }: UseCredentialDataOptions) {
     supportsOAuth,
     credentialSchema,
     hasCredentialSchema,
+    providerAuthType,
 
     // Actions
     handleDeleteCredential,

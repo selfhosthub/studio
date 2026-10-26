@@ -22,7 +22,7 @@ export function TriggerChangeModal({ isOpen, onClose, onConfirm }: TriggerChange
           <button
             type="button"
             onClick={onClose}
-            className="btn-secondary"
+            className="btn-cancel"
           >
             Cancel
           </button>

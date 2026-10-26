@@ -118,10 +118,12 @@ export default function OrganizationLayout({
         <div className="sm:flex sm:items-center mb-8">
           <div className="sm:flex-auto">
             <h1 className="text-2xl font-semibold text-primary">
-              Organization Management
+              {isAdminOrSuper ? 'Organization Management' : 'Organization'}
             </h1>
             <p className="mt-2 text-sm text-secondary">
-              Manage organization settings, users, and permissions.
+              {isAdminOrSuper
+                ? 'Manage organization settings, users, and permissions.'
+                : "Your organization's details. Only an admin can change them."}
             </p>
           </div>
         </div>

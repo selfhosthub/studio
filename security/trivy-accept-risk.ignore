@@ -14,33 +14,7 @@ CVE-2026-4372 exp:2026-10-31
 CVE-2026-5241 exp:2026-10-31
 CVE-2026-9856 exp:2026-10-31
 
-# starlette 0.52.1, transitive tail of gradio (itself pinned by chatterbox-tts
-# and uninstalled from the audio image at build; starlette stays). Ships in
-# studio-worker-audio.
-CVE-2026-48818 exp:2026-10-31
-CVE-2026-54283 exp:2026-10-31
-
-# cloudflared 2026.8.1 bundles Go stdlib 1.26.4 (read from the binary's build
-# info, not from release notes). Fixed in Go 1.26.5 and 1.26.6, but no
-# cloudflared release carries either: 2026.8.2, built 2026-08-14, is still on
-# 1.26.4. Building cloudflared from source was ruled out 2026-08-14.
-# Ships in studio-core and studio-full.
-GHSA-hrxh-6v49-42gf exp:2026-09-30
-CVE-2026-39822 exp:2026-09-30
-CVE-2026-39821 exp:2026-09-30
-CVE-2026-46600 exp:2026-09-30
-# Same binary, same Go 1.26.4, disclosed since the 1.6.0 train. Fixed in Go
-# 1.26.6, which no cloudflared release carries yet.
-CVE-2026-33818 exp:2026-09-30
-CVE-2026-56853 exp:2026-09-30
-CVE-2026-56858 exp:2026-09-30
-CVE-2026-56859 exp:2026-09-30
-CVE-2026-56860 exp:2026-09-30
-CVE-2026-56862 exp:2026-09-30
-
-  # Same cloudflared binary, its bundled Go libraries rather than the stdlib:
-  # golang.org/x/crypto 0.53.0 and google.golang.org/grpc 1.81.1. No cloudflared
-  # release ships the fixed versions. Ships in studio-core and studio-full.
-  CVE-2026-56854 exp:2026-09-30
-  CVE-2026-84304 exp:2026-09-30
-  CVE-2026-84445 exp:2026-09-30
+# cloudflared 2026.10.3 bundles github.com/klauspost/compress 1.18.0; fixed in
+# 1.18.7, which no cloudflared release carries yet. Ships in studio-core and
+# studio-full. Accepted by Kawika 2026-10-25.
+CVE-2026-63209 exp:2026-11-30

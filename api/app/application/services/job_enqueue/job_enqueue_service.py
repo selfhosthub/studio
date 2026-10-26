@@ -17,6 +17,12 @@ from studio_workers.contracts.webhook_completion import WEBHOOK_MODE
 from app.application.services.image_presets import apply_image_presets
 from app.application.services.job_enqueue.variable_resolver import VariableResolver
 from app.infrastructure.errors import safe_error_message
+from app.infrastructure.security.step_secrets import (
+    open_step_parameters,
+    step_secret_paths,
+    with_secret_values,
+    without_secret_values,
+)
 from app.application.services.job_enqueue.input_mapping_service import (
     get_input_mappings,
     apply_input_mappings,
@@ -51,7 +57,8 @@ from app.domain.instance.iteration_execution_repository import (
     IterationExecutionRepository,
 )
 from app.domain.instance_step.step_execution_repository import StepExecutionRepository
-from app.domain.organization.repository import OrganizationRepository
+from app.domain.notification.repository import NotificationRepository
+from app.domain.organization.repository import OrganizationRepository, UserRepository
 from app.domain.provider.repository import (
     ProviderCredentialRepository,
     ProviderRepository,
@@ -75,6 +82,14 @@ logger = logging.getLogger(__name__)
 WARN_NO_WORKERS = settings.WARN_NO_WORKERS
 
 
+def _snapshot_workflow_id(workflow_snapshot: Dict[str, Any]) -> Optional[uuid.UUID]:
+    """The workflow id recorded on an instance's snapshot, or None when absent or malformed."""
+    try:
+        return uuid.UUID(str(workflow_snapshot["workflow_id"]))
+    except (KeyError, ValueError):
+        return None
+
+
 class JobEnqueueService:
 
     def __init__(
@@ -90,6 +105,8 @@ class JobEnqueueService:
         prompt_service: Optional[Any] = None,
         iteration_execution_repository: Optional[IterationExecutionRepository] = None,
         step_execution_repository: Optional[StepExecutionRepository] = None,
+        notification_repository: Optional[NotificationRepository] = None,
+        user_repository: Optional[UserRepository] = None,
     ):
         self.workflow_repository = workflow_repository
         self.credential_repository = credential_repository
@@ -114,6 +131,9 @@ class JobEnqueueService:
         self._inline_executor = InlineServiceExecutor(
             credential_repository=credential_repository,
             status_publisher=self.status_publisher,
+            notification_repository=notification_repository,
+            user_repository=user_repository,
+            workflow_repository=workflow_repository,
         )
         self._iteration_enqueuer = IterationJobEnqueuer(
             variable_resolver=self._variable_resolver,
@@ -146,7 +166,7 @@ class JobEnqueueService:
         original_step_config = steps.get(step_id)
 
         if not original_step_config:
-            raise ValueError(f"Step {step_id} not found in workflow snapshot")
+            raise ValueError(f"Node {step_id} not found in workflow snapshot")
 
         # Scope the context to this step's transitive dependency closure. The
         # completed-step set is keyed in JSONB order and can include forward or
@@ -160,8 +180,9 @@ class JobEnqueueService:
             if key in closure
         }
 
-        # Deep copy to avoid mutating the shared snapshot.
-        step_config = copy.deepcopy(original_step_config)
+        # Deep copy to avoid mutating the shared snapshot; secret parameters are decrypted for this run only.
+        step_config = open_step_parameters(copy.deepcopy(original_step_config))
+        secret_paths = step_secret_paths(step_config)
 
         # Extract early for routing decisions.
         _job = step_config.get("job") or {}
@@ -171,7 +192,11 @@ class JobEnqueueService:
             resolved_step_config = step_config
             if "job" not in resolved_step_config:
                 resolved_step_config["job"] = {}
-            resolved_step_config["job"]["parameters"] = pre_resolved_parameters
+            resolved_step_config["job"]["parameters"] = with_secret_values(
+                pre_resolved_parameters,
+                resolved_step_config["job"].get("parameters") or {},
+                secret_paths,
+            )
             _prompt_variables: Dict[str, str] = {}
             logger.debug(
                 f"Step {step_id}: passthrough mode - using pre-resolved parameters, "
@@ -420,7 +445,13 @@ class JobEnqueueService:
                 service_id=service_id,
                 resolved_step_config=resolved_step_config,
                 park_for_webhook=hints.get("pause_status") == "WAITING_FOR_WEBHOOK",
+                workflow_id=_snapshot_workflow_id(workflow_snapshot),
+                workflow_name=workflow_snapshot.get("name"),
             )
+
+        # The worker reads pause and stop behaviour from the step's orchestrator_hints.
+        if hints:
+            resolved_step_config["orchestrator_hints"] = hints
 
         # Merge schema defaults for missing parameters (safety net for old/programmatic workflows)
         if endpoint.parameter_schema:
@@ -473,7 +504,7 @@ class JobEnqueueService:
                 dropped = [k for k in job_params if k not in projected]
                 if dropped:
                     logger.debug(
-                        f"Step {step_id}: dropped {len(dropped)} undeclared params: {dropped}"
+                        f"Step {step_id}: dropped {len(dropped)} undeclared params"
                     )
                 resolved_step_config["job"]["parameters"] = projected
 
@@ -590,7 +621,9 @@ class JobEnqueueService:
 
         # Build request_body for debugging visibility (resolved parameters = actual API request)
         job_config = resolved_step_config.get("job") or {}
-        request_body = job_config.get("parameters") or {}
+        request_body = without_secret_values(
+            job_config.get("parameters") or {}, secret_paths
+        )
 
         # Build input_data for debugging visibility (pre-resolution data = what went INTO building the request)
         # - parameters: original step params with {{ }} expressions before resolution
@@ -600,7 +633,9 @@ class JobEnqueueService:
         original_params = original_job.get("parameters", {})
         step_input_data: Dict[str, Any] = {}
         if original_params:
-            step_input_data["parameters"] = original_params
+            step_input_data["parameters"] = without_secret_values(
+                original_params, secret_paths
+            )
         if _prompt_variables:
             step_input_data["prompt_variables"] = _prompt_variables
         if input_data:
@@ -738,61 +773,6 @@ class JobEnqueueService:
     ) -> list[str]:
         """Return steps whose dependencies are all satisfied."""
         return get_ready_steps(workflow_snapshot, completed_step_ids, running_step_ids)
-
-    async def enqueue_ready_steps_after_skip(
-        self,
-        instance_id: uuid.UUID,
-        organization_id: uuid.UUID,
-        workflow_snapshot: Dict[str, Any],
-        skipped_step_ids: set[str],
-        instance_parameters: Optional[Dict[str, Any]] = None,
-    ) -> list[str]:
-        """Find and enqueue all ready steps after one or more steps were skipped.
-
-        Returns a list of job IDs, or ["STOP"] if a stop step was found.
-        """
-        steps = workflow_snapshot.get("steps", {})
-
-        # Build completed set (skipped steps count as completed)
-        completed_step_ids = set(skipped_step_ids)
-
-        # Also treat all 'skip' mode steps as completed
-        for step_id_key, step_config in steps.items():
-            if isinstance(step_config, dict):
-                exec_mode = step_config.get("execution_mode")
-                if exec_mode == "skip":
-                    completed_step_ids.add(step_id_key)
-
-        # Find ready steps
-        ready_steps = get_ready_steps(
-            workflow_snapshot=workflow_snapshot,
-            completed_step_ids=completed_step_ids,
-            running_step_ids=set(),
-        )
-
-        if not ready_steps:
-            logger.debug(f"No ready steps found after skipping {skipped_step_ids}")
-            return []
-
-        # Enqueue all ready steps
-        enqueued_job_ids = []
-        for ready_step_id in ready_steps:
-            try:
-                job_id = await self.enqueue_step(
-                    instance_id=instance_id,
-                    step_id=ready_step_id,
-                    organization_id=organization_id,
-                    workflow_snapshot=workflow_snapshot,
-                    instance_parameters=instance_parameters,
-                    previous_step_results={},
-                )
-                enqueued_job_ids.append(job_id)
-                logger.debug(f"Enqueued step {ready_step_id} after skip")
-            except Exception as e:
-                logger.error(f"Failed to enqueue step {ready_step_id} after skip: {e}")
-                raise
-
-        return enqueued_job_ids
 
     async def _enqueue_to_postgres(
         self,

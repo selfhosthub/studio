@@ -85,6 +85,8 @@ export type SelectedItem =
  * Props for InstanceSimpleView component
  */
 export interface InstanceSimpleViewProps {
+  /** False hides every run-changing action from a user who neither owns the run nor administers it. */
+  canControlRun?: boolean;
   instance: any; // Keep as any for compatibility with existing page
   jobs: Job[];
   orderedSteps: WorkflowStep[];
@@ -104,9 +106,9 @@ export interface InstanceSimpleViewProps {
   onDownloadResource: (resourceId: string, filename: string) => void;
   onUploadFilesToStep?: (stepId: string, jobId: string, files: File[]) => Promise<void>;
   onFormSubmit: (values: Record<string, any>) => void;
-  onRegenerateResources: (stepId: string, jobId: string, resourceIds: string[]) => void;
+  onRegenerateResources: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
   onRegenerateIteration: (stepId: string, jobId: string, iterationIndex: number) => void;
-  onDeleteResources: (stepId: string, jobId: string, resourceIds: string[]) => void;
+  onDeleteResources?: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
   onSelectVariant: (jobId: string, resourceId: string) => void;
   onUpdateJobResult?: (jobId: string, result: Record<string, any>) => Promise<void>;
   canCancel: boolean;
@@ -184,6 +186,8 @@ export interface OrgSettingsShape {
  * Props for the StepPanel component
  */
 export interface StepPanelProps {
+  /** False hides every run-changing action from a user who neither owns the run nor administers it. */
+  canControlRun?: boolean;
   selectedStep: WorkflowStep;
   selectedStepExecution: Job | undefined;
   jobs: Job[];
@@ -221,9 +225,9 @@ export interface StepPanelProps {
   onRerunAndContinue: (jobId: string) => void;
   onRerunStepOnly: (instanceId: string, stepId: string) => void;
   onCheckWebhookStatus: (instanceId: string, stepId: string) => void;
-  onRegenerateResources: (stepId: string, jobId: string, resourceIds: string[]) => void;
+  onRegenerateResources: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
   onRegenerateIteration: (stepId: string, jobId: string, iterationIndex: number) => void;
-  onDeleteResources: (stepId: string, jobId: string, resourceIds: string[]) => void;
+  onDeleteResources?: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
   onSelectVariant: (jobId: string, resourceId: string) => void;
   onDownloadResource: (resourceId: string, filename: string) => void;
   onUploadFilesToStep?: (stepId: string, jobId: string, files: File[]) => Promise<void>;
@@ -255,6 +259,8 @@ export interface StepPanelProps {
  * Props for the StepHeaderActions component
  */
 export interface StepHeaderActionsProps {
+  /** False hides every run-changing action from a user who neither owns the run nor administers it. */
+  canControlRun?: boolean;
   selectedStep: WorkflowStep;
   selectedStepExecution: Job | undefined;
   stepJobs: Job[];
@@ -279,6 +285,8 @@ export interface StepHeaderActionsProps {
  * Props for the StepFileToolbar component
  */
 export interface StepFileToolbarProps {
+  /** False hides every run-changing action from a user who neither owns the run nor administers it. */
+  canControlRun?: boolean;
   selectedStep: WorkflowStep;
   selectedStepExecution: Job | undefined;
   instance: Instance;
@@ -293,8 +301,8 @@ export interface StepFileToolbarProps {
   setFlattenIterations: (value: boolean) => void;
   orgSettings: OrgSettingsShape;
   updateSettings: (updates: Partial<OrgSettingsShape>) => void;
-  onRegenerateResources: (stepId: string, jobId: string, resourceIds: string[]) => void;
-  onDeleteResources: (stepId: string, jobId: string, resourceIds: string[]) => void;
+  onRegenerateResources: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
+  onDeleteResources?: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
   handleDownloadFiles: (resources: OrgFile[]) => Promise<void>;
   toggleResourceSelection: (stepId: string, resourceId: string) => void;
   clearSelection: (stepId: string) => void;
@@ -333,6 +341,8 @@ export interface StepDataViewerProps {
  * Props for the ResourceGrid component
  */
 export interface ResourceGridProps {
+  /** False hides every run-changing action from a user who neither owns the run nor administers it. */
+  canControlRun?: boolean;
   hasIterations: boolean;
   flattenIterations: boolean;
   groups: IterationGroup[];
@@ -352,6 +362,6 @@ export interface ResourceGridProps {
   handleStepDragEnd: (event: DragEndEvent, stepId: string, resources: OrgFile[]) => Promise<void>;
   setViewingResource: (value: { resource: OrgFile; allResources: OrgFile[] } | null) => void;
   onDownloadResource: (resourceId: string, filename: string) => void;
-  onDeleteResources?: (stepId: string, jobId: string, resourceIds: string[]) => void;
-  onRegenerateResources?: (stepId: string, jobId: string, resourceIds: string[]) => void;
+  onDeleteResources?: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
+  onRegenerateResources?: (stepId: string, jobId: string, resourceIds: string[]) => Promise<boolean>;
 }

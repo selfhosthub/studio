@@ -3,11 +3,12 @@
 """Periodic schedule-trigger tick: fire workflows whose next_run_at is due.
 
 Runs in the single API process (the same in-process scheduler that runs cleanup),
-so there is exactly one ticker — no distributed-lock needed. Each cycle opens a
+so there is exactly one ticker - no distributed-lock needed. Each cycle opens a
 fresh non-RLS session (system scheduler spans all orgs), fires every due workflow
 through the shared TriggerDispatcher, then advances next_run_at from its RRULE.
 A workflow that fails to fire is logged and skipped; its next_run_at still advances
-so one bad run doesn't wedge the schedule.
+so one bad run doesn't wedge the schedule. A fire the dispatcher rejects (a required
+field with no default) also sends the org admins a failure notification.
 """
 
 import logging
@@ -23,6 +24,7 @@ from app.application.services.trigger_runtime import (
     build_form_field_resolver,
     build_system_instance_service,
 )
+from app.domain.common.exceptions import BusinessRuleViolation
 from app.infrastructure.errors import safe_error_message
 from app.infrastructure.repositories.workflow_repository import (
     SQLAlchemyWorkflowRepository,
@@ -74,9 +76,20 @@ def build_schedule_callback(
                                 organization_id=instance.organization_id,
                                 instance_id=instance.id,
                                 workflow_id=instance.workflow_id,
-                                workflow_name=getattr(
-                                    instance, "workflow_name", None
-                                ),
+                                workflow_name=workflow.name,
+                            )
+                    except BusinessRuleViolation as e:
+                        logger.error(
+                            f"Schedule fire rejected for workflow {workflow.id}: "
+                            f"{safe_error_message(e)}"
+                        )
+                        if notifier is not None:
+                            await notifier.announce_schedule_failed(
+                                session=session,
+                                organization_id=workflow.organization_id,
+                                workflow_id=workflow.id,
+                                workflow_name=workflow.name,
+                                error=safe_error_message(e),
                             )
                     except Exception as e:
                         logger.error(

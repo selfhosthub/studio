@@ -136,7 +136,7 @@ export function EditorSettingsPanel({
               </button>
             ))}
           </div>
-          <p className="form-helper">Blur intensity when editing a step</p>
+          <p className="form-helper">Blur intensity when editing a node</p>
         </div>
 
         {/* Show Grid Toggle */}

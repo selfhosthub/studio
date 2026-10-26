@@ -117,7 +117,9 @@ class ProviderInstaller:
             )
 
             services_installed = []
-            for service_slug, service_data in provider_data.get("services", {}).items():
+            for position, (service_slug, service_data) in enumerate(
+                provider_data.get("services", {}).items()
+            ):
                 # service_id has provider.service shape for global uniqueness.
                 full_service_id = f"{slug}.{service_slug}"
                 await self._upsert_service(
@@ -127,6 +129,7 @@ class ProviderInstaller:
                     service_data,
                     version,
                     created_by,
+                    position,
                 )
                 services_installed.append(full_service_id)
 
@@ -299,6 +302,7 @@ class ProviderInstaller:
         service_data: dict[str, Any],
         version: str,
         created_by: uuid.UUID,
+        position: int,
     ) -> uuid.UUID:
 
         ui_hints = service_data.get("ui_hints") or {}
@@ -381,6 +385,7 @@ class ProviderInstaller:
             existing.parameter_title = service_data.get("parameter_title")
             existing.client_metadata = svc_client_metadata
             existing.version = version
+            existing.position = position
             await session.flush()
             return existing.id
 
@@ -402,6 +407,7 @@ class ProviderInstaller:
             parameter_title=service_data.get("parameter_title"),
             client_metadata=svc_client_metadata,
             version=version,
+            position=position,
             created_by=created_by,
         )
         session.add(service)

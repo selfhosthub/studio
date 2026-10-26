@@ -236,7 +236,7 @@ export interface RotateTriggerSecretKeyResponse {
   shared_by_count: number;
 }
 
-/** Deliberately rotate a shared `workflow_trigger` secret's API key from the
+/** Deliberately rotate a trigger `api_key` secret's key from the
  *  Secrets page (admin only). Every workflow sharing it gets the new key. */
 export async function regenerateTriggerSecretKey(
   secretId: string,

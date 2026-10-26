@@ -18,12 +18,22 @@ from app.domain.instance.models import Instance
 from app.domain.instance_step.models import StepExecutionStatus
 from app.domain.instance_step.step_execution import StepExecution
 from app.infrastructure.security.redaction import redact_sensitive_data
+from app.infrastructure.security.step_secrets import strip_step_secrets
 
 # NOTE: `derive_instance_step_status_dict` and `order_steps_topologically` are
 # imported inside `InstanceResponse.from_domain` to avoid a circular import.
 # `app/application/services/__init__.py` imports `instance_service`, which
 # imports this DTO module - pulling the helpers in at module load time would
 # bounce through that cycle. Function-local imports keep the cycle broken.
+
+
+def _snapshot_without_secrets(
+    snapshot: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Copy of a workflow snapshot with step secrets removed."""
+    if not snapshot or not isinstance(snapshot.get("steps"), dict):
+        return snapshot
+    return {**snapshot, "steps": strip_step_secrets(snapshot["steps"])}
 
 
 class InstanceBase(BaseModel):
@@ -137,7 +147,7 @@ class InstanceResponse(BaseModel):
             completed_at=instance.completed_at,
             current_step_ids=instance.current_step_ids,
             step_status=step_status,
-            workflow_snapshot=instance.workflow_snapshot,
+            workflow_snapshot=_snapshot_without_secrets(instance.workflow_snapshot),
             error_message=error_message,
             failed_step_ids=instance.failed_step_ids,
             error_data=instance.error_data,
@@ -320,6 +330,9 @@ class StepExecutionResponse(BaseModel):
             merged_parameters.update(step_job_params)
         if isinstance(step_params_override, dict):
             merged_parameters.update(step_params_override)
+        merged_parameters.update(
+            redact_sensitive_data(step.parameters, include_pii=False) or {}
+        )
 
         name_value = (
             config.get("name")

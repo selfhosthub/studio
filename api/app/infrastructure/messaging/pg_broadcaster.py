@@ -44,6 +44,9 @@ ALL_CHANNELS = (CHANNEL_ORG, CHANNEL_INST, CHANNEL_USER, CHANNEL_GLOBAL)
 _RECONNECT_BASE = 1.0
 _RECONNECT_MAX = 30.0
 
+# Seconds the messaging probe waits for the listen connection to answer
+PROBE_TIMEOUT_SECONDS = 2.0
+
 
 def _raw_dsn(url: str) -> str:
     """Strip SQLAlchemy driver prefix so asyncpg can use it."""
@@ -58,6 +61,8 @@ class PgBroadcaster:
         self._conn: asyncpg.Connection | None = None
         self._task: asyncio.Task | None = None
         self._stopping = False
+        # Serializes probes, since one asyncpg connection runs one query at a time
+        self._probe_lock = asyncio.Lock()
 
     async def start(self) -> None:
         self._stopping = False
@@ -76,6 +81,28 @@ class PgBroadcaster:
             await self._conn.close()
         self._conn = None
         logger.info("PgBroadcaster stopped")
+
+    async def probe(self, timeout_seconds: float = PROBE_TIMEOUT_SECONDS) -> dict[str, str]:
+        """Grade the listen connection as healthy, degraded (reconnecting) or down."""
+        if self._task is None or self._task.done():
+            return {"status": "down", "message": "Listener is not running"}
+        conn = self._conn
+        if conn is None or conn.is_closed():
+            return {"status": "degraded", "message": "Listener is reconnecting"}
+        try:
+            async with self._probe_lock:
+                await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return {
+                "status": "down",
+                "message": f"Listener gave no answer within {timeout_seconds:g}s",
+            }
+        except Exception as e:
+            return {"status": "down", "message": f"Listener check failed: {type(e).__name__}"}
+        return {
+            "status": "healthy",
+            "message": f"Listening on {len(ALL_CHANNELS)} channels",
+        }
 
     async def _run(self) -> None:
         delay = _RECONNECT_BASE

@@ -12,7 +12,6 @@ from app.domain.common.value_objects import Role
 
 class OrganizationCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    slug: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     settings: Optional[Dict[str, Any]] = None
 

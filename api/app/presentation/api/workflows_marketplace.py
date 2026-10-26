@@ -50,6 +50,7 @@ from app.infrastructure.repositories.marketplace_catalog_repository import (
     SQLAlchemyMarketplaceCatalogRepository,
 )
 from app.infrastructure.services.package_version_service import PackageVersionService
+from app.infrastructure.security.step_secrets import drop_step_secrets
 from app.domain.common.value_objects import PromptSource
 from app.infrastructure.persistence.models import PromptModel
 from app.config import catalog as cat_config
@@ -1100,7 +1101,9 @@ async def _org_copy_workflow(
     source_steps = workflow_data.get("steps")
     source_steps = source_steps if isinstance(source_steps, dict) else {}
     steps, _ = resolve_step_slugs(
-        {k: v for k, v in source_steps.items() if isinstance(v, dict)},
+        drop_step_secrets(
+            {k: v for k, v in source_steps.items() if isinstance(v, dict)}
+        ),
         slug_to_uuid,
         prompt_slug_to_uuid,
     )
@@ -1122,8 +1125,7 @@ async def _org_copy_workflow(
     # Create the workflow in the org
     workflow_name = catalog_entry.get("display_name", workflow_id)
     if force and existing_copies:
-        # First existing copy is "Foo", next forced copy becomes "Foo (copy 2)", etc.
-        workflow_name = f"{workflow_name} (copy {len(existing_copies) + 1})"
+        workflow_name = await service.next_copy_name(org_uuid, workflow_name)
 
     command = WorkflowCreate(
         name=workflow_name,

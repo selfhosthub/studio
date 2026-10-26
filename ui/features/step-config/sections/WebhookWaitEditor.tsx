@@ -2,16 +2,22 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Copy, RefreshCw, Link, Clock, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { TIMEOUTS } from '@/shared/lib/constants';
+import { useCopyToClipboard } from '@/shared/hooks/useCopyToClipboard';
+import { generateStepWebhookToken, regenerateStepWebhookToken, getStepWebhookToken } from '@/shared/api';
+import { useUser } from '@/entities/user';
 
 interface WebhookWaitEditorProps {
   workflowId: string;
   stepId: string;
   parameters: Record<string, any>;
   onParametersChange: (parameters: Record<string, any>) => void;
+  clientMetadata?: Record<string, any> | null;
+  onClientMetadataChange: (clientMetadata: Record<string, any>) => void;
 }
+
+const AUTH_TYPE_LABELS: Record<string, string> = { none: 'None', header: 'API Key Header', jwt: 'JWT Token' };
 
 // Generate a secure random token (client-side)
 function generateSecureToken(length: number = 32): string {
@@ -25,52 +31,69 @@ export default function WebhookWaitEditor({
   stepId,
   parameters,
   onParametersChange,
+  clientMetadata,
+  onClientMetadataChange,
 }: WebhookWaitEditorProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopyToClipboard();
+  const { user } = useUser();
+  const canManage = user?.role === 'admin' || user?.role === 'super_admin';
   const [showAuthValue, setShowAuthValue] = useState(false);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [loadedUrl, setLoadedUrl] = useState<{ token: string; url: string | null } | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
-  // Get values from parameters
-  const webhookToken = parameters?.webhook_token || null;
+  // Callback token lives in step client_metadata, where the incoming webhook route resolves it
+  const webhookToken = clientMetadata?.webhook_token || null;
   const authType = parameters?.webhook_auth_type || 'none';
   const authHeaderValue = parameters?.webhook_auth_header_value || '';
   const jwtSecret = parameters?.webhook_jwt_secret || '';
 
-  // Build the full webhook URL
-  const webhookUrl = useMemo(() => {
-    if (!webhookToken) return null;
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-    return `${baseUrl}/api/v1/webhooks/incoming/${webhookToken}`;
-  }, [webhookToken]);
+  const webhookUrl = webhookToken && loadedUrl && loadedUrl.token === webhookToken ? loadedUrl.url : null;
 
-  // Generate new token
-  const handleGenerate = useCallback(() => {
-    onParametersChange({
-      ...parameters,
-      webhook_token: generateSecureToken(32),
-    });
-  }, [parameters, onParametersChange]);
+  // Loads the public callback URL the API builds for the saved token
+  useEffect(() => {
+    if (!webhookToken) return;
+    let cancelled = false;
+    getStepWebhookToken(workflowId, stepId)
+      .then((result) => {
+        if (!cancelled) setLoadedUrl({ token: webhookToken, url: result?.webhook_url ?? null });
+      })
+      .catch(() => {
+        if (!cancelled) setLoadedUrl({ token: webhookToken, url: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId, stepId, webhookToken]);
 
-  // Regenerate token
-  const handleRegenerate = useCallback(() => {
-    onParametersChange({
-      ...parameters,
-      webhook_token: generateSecureToken(32),
-    });
+  // Mints or rotates the token on the API and mirrors it into the step's client_metadata
+  const applyToken = useCallback(async (mint: typeof generateStepWebhookToken) => {
+    setTokenError(null);
+    try {
+      const result = await mint(workflowId, stepId);
+      setLoadedUrl({ token: result.webhook_token, url: result.webhook_url });
+      onClientMetadataChange({
+        ...(clientMetadata || {}),
+        webhook_token: result.webhook_token,
+        webhook_secret: result.webhook_secret,
+      });
+    } catch (err: unknown) {
+      const status = err instanceof Error && 'status' in err ? (err as Error & { status: number }).status : null;
+      setTokenError(status === 404 ? 'Save the workflow with this node first, then generate the callback URL.' : 'Could not generate the callback URL. Try again.');
+    }
+  }, [workflowId, stepId, clientMetadata, onClientMetadataChange]);
+
+  const handleGenerate = useCallback(() => applyToken(generateStepWebhookToken), [applyToken]);
+
+  const handleRegenerate = useCallback(async () => {
     setShowRegenerateConfirm(false);
-  }, [parameters, onParametersChange]);
+    await applyToken(regenerateStepWebhookToken);
+  }, [applyToken]);
 
   // Copy URL to clipboard
   const handleCopy = useCallback(async () => {
-    if (!webhookUrl) return;
-    try {
-      await navigator.clipboard.writeText(webhookUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), TIMEOUTS.COPY_FEEDBACK);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  }, [webhookUrl]);
+    if (webhookUrl) await copy(webhookUrl);
+  }, [webhookUrl, copy]);
 
   // Handle auth type change
   const handleAuthTypeChange = (newAuthType: string) => {
@@ -144,12 +167,21 @@ export default function WebhookWaitEditor({
           </h4>
         </div>
 
-        {webhookUrl ? (
+        {!canManage ? (
+          <div className="space-y-2" data-testid="callback-url-readonly">
+            <p className="text-sm text-secondary">
+              {clientMetadata?.has_webhook_token
+                ? 'A callback URL is configured for this node. Ask an admin to view or regenerate it.'
+                : 'No callback URL yet. Ask an admin to generate one.'}
+            </p>
+            <p className="text-xs text-secondary">Auth: {AUTH_TYPE_LABELS[authType] ?? authType}</p>
+          </div>
+        ) : webhookToken ? (
           <div className="space-y-3">
             {/* URL Display */}
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs bg-card text-primary p-2 rounded border border-primary overflow-x-auto break-all">
-                {webhookUrl}
+                {webhookUrl === null ? 'Loading...' : webhookUrl}
               </code>
               <button
                 onClick={handleCopy}
@@ -169,8 +201,8 @@ export default function WebhookWaitEditor({
                 className="form-select text-xs py-1 px-1.5 w-32 flex-shrink-0"
               >
                 <option value="none">None</option>
-                <option value="header">Header Auth</option>
-                <option value="jwt">JWT Auth</option>
+                <option value="header">API Key Header</option>
+                <option value="jwt">JWT Token</option>
               </select>
 
               {authType === 'header' && (
@@ -267,7 +299,7 @@ export default function WebhookWaitEditor({
                       </button>
                       <button
                         onClick={() => setShowRegenerateConfirm(false)}
-                        className="px-3 py-1 text-xs bg-input text-secondary rounded hover:bg-surface"
+                        className="btn-cancel text-xs"
                       >
                         Cancel
                       </button>
@@ -278,8 +310,9 @@ export default function WebhookWaitEditor({
             )}
 
             <p className="text-muted text-xs">
-              External systems should POST to this URL to resume the workflow at this step.
+              External systems should POST to this URL to resume the workflow at this node.
             </p>
+            {tokenError && <p className="text-xs text-danger">{tokenError}</p>}
           </div>
         ) : (
           <div className="space-y-3">
@@ -293,6 +326,7 @@ export default function WebhookWaitEditor({
               <Link size={14} />
               Generate Callback URL
             </button>
+            {tokenError && <p className="text-xs text-danger">{tokenError}</p>}
           </div>
         )}
       </div>
@@ -342,9 +376,9 @@ export default function WebhookWaitEditor({
           How it works
         </h5>
         <ol className="text-xs text-info space-y-1 list-decimal list-inside">
-          <li>When the workflow reaches this step, it pauses and waits</li>
+          <li>When the workflow reaches this node, it pauses and waits</li>
           <li>An external system calls the callback URL with data</li>
-          <li>The workflow resumes with the callback payload available to subsequent steps</li>
+          <li>The workflow resumes with the callback payload available to subsequent nodes</li>
         </ol>
       </div>
     </div>

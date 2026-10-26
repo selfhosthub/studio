@@ -17,7 +17,7 @@ export default function InstancesActivePage() {
     <div className="flex items-center justify-center py-12">
       <div className="text-center">
         <div className="spinner-md"></div>
-        <p className="mt-2 text-sm text-secondary">Redirecting to processing instances...</p>
+        <p className="mt-2 text-sm text-secondary">Redirecting to running instances...</p>
       </div>
     </div>
   );

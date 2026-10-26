@@ -2,12 +2,15 @@
 
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { getWorkflows } from '@/shared/api';
 import type { WorkflowResponse } from '@/shared/types/api';
 import { useUser } from '@/entities/user';
+import { ResourceTable, SearchInput } from '@/shared/ui';
+import type { ResourceColumnConfig } from '@/shared/ui';
+import { formatDate } from '@/shared/lib/dateFormatter';
 
 function WorkflowCreateContent() {
   const searchParams = useSearchParams();
@@ -15,6 +18,16 @@ function WorkflowCreateContent() {
   const { user } = useUser();
 
   const [workflows, setWorkflows] = useState<WorkflowResponse[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const sortedWorkflows = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    const matching = q
+      ? workflows.filter(
+          (w) => w.name?.toLowerCase().includes(q) || w.description?.toLowerCase().includes(q),
+        )
+      : workflows;
+    return [...matching].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [workflows, searchTerm]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState('');
@@ -71,6 +84,69 @@ function WorkflowCreateContent() {
     const queryString = params.toString();
     window.location.href = `/workflows/builder${queryString ? `?${queryString}` : ''}`;
   };
+
+  const columns: ResourceColumnConfig<WorkflowResponse>[] = [
+    {
+      key: 'select',
+      priority: 'primary',
+      header: <span className="sr-only">Select</span>,
+      headerClassName: 'w-12',
+      cellClassName: 'whitespace-nowrap',
+      render: (workflow) => (
+        <input
+          type="radio"
+          aria-label={`Select ${workflow.name}`}
+          checked={selectedWorkflow === workflow.id}
+          onChange={() => setSelectedWorkflow(workflow.id)}
+          className="h-4 w-4 text-info focus:ring-blue-500"
+        />
+      ),
+    },
+    {
+      key: 'name',
+      header: 'Name',
+      sortValue: (workflow) => workflow.name,
+      render: (workflow) => (
+        <span className="text-sm font-medium text-primary">
+          {workflow.name}
+        </span>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      sortValue: (workflow) => workflow.description,
+      render: (workflow) => (
+        <span className="text-sm text-secondary line-clamp-2">
+          {workflow.description || '-' /* defaults-ok */}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cellClassName: 'whitespace-nowrap',
+      sortValue: (workflow) => workflow.status,
+      render: (workflow) => (
+        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+          workflow.status === 'active' || workflow.status === 'published'
+            ? 'bg-success-subtle text-success'
+            : workflow.status === 'draft'
+            ? 'bg-warning-subtle text-warning'
+            : 'bg-card text-primary dark:text-muted'
+        }`}>
+          {workflow.status || 'draft' /* defaults-ok */}
+        </span>
+      ),
+    },
+    {
+      key: 'updated_at',
+      header: 'Updated',
+      cellClassName: 'whitespace-nowrap text-sm text-secondary',
+      sortValue: (workflow) => workflow.updated_at,
+      render: (workflow) => formatDate(workflow.updated_at, { time: false }),
+    },
+  ];
 
   if (loading) {
     return (
@@ -182,91 +258,39 @@ function WorkflowCreateContent() {
                 Select Workflow to Duplicate
               </label>
 
-              {/* Workflows Table */}
-              {workflows.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-primary">
-                    <thead className="bg-card">
-                      <tr>
-                        <th className="w-12 px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
+              <SearchInput
+                value={searchTerm}
+                onChange={setSearchTerm}
+                placeholder="Search workflows..."
+                className="mb-3"
+              />
 
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Name
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Description
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Updated
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-card divide-y divide-primary">
-                      {workflows.map((workflow) => (
-                        <tr
-                          key={workflow.id}
-                          onClick={() => setSelectedWorkflow(workflow.id)}
-                          className={`cursor-pointer transition ${
-                            selectedWorkflow === workflow.id
-                              ? 'bg-info-subtle'
-                              : 'hover:bg-surface'
-                          }`}
-                        >
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="radio"
-                              checked={selectedWorkflow === workflow.id}
-                              onChange={() => setSelectedWorkflow(workflow.id)}
-                              className="h-4 w-4 text-info focus:ring-blue-500"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-sm font-medium text-primary">
-                              {workflow.name}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="text-sm text-secondary line-clamp-2">
-                              {workflow.description || '-'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                              workflow.status === 'active' || workflow.status === 'published'
-                                ? 'bg-success-subtle text-success'
-                                : workflow.status === 'draft'
-                                ? 'bg-warning-subtle text-warning'
-                                : 'bg-card text-primary dark:text-muted'
-                            }`}>
-                              {workflow.status || 'draft'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-secondary">
-                            {new Date(workflow.updated_at).toLocaleDateString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center p-8 bg-card rounded-md">
-                  <p className="text-muted">
-                    No workflows found
-                  </p>
-                </div>
-              )}
+              <ResourceTable
+                data={sortedWorkflows}
+                getItemId={(w) => w.id}
+                columns={columns}
+                nameColumn="name"
+                prefPage="workflows-templates"
+                pagination={{ itemLabel: 'workflow' }}
+                onRowClick={(w) => setSelectedWorkflow(w.id)}
+                rowClassName={(w) => (selectedWorkflow === w.id ? 'bg-info-subtle' : '')}
+                ariaLabel="Workflows to duplicate"
+                pageResetKey={searchTerm}
+                emptyState={
+                  <div className="text-center p-8 bg-card rounded-md">
+                    <p className="text-muted">
+                      No workflows found
+                    </p>
+                  </div>
+                }
+              />
             </div>
           )}
 
           <div className="flex justify-end space-x-2">
             <Link
               href="/workflows"
-              className="px-4 py-2 border border-primary rounded-md shadow-sm text-sm font-medium text-secondary bg-card hover:bg-surface"
+              className="btn-cancel text-sm inline-flex items-center"
             >
               Cancel
             </Link>

@@ -18,6 +18,8 @@ import { TIMEOUTS } from '@/shared/lib/constants';
 import type { InstanceResponse, OrgFile } from '@/shared/types/api';
 import { asOutputResources } from '@/shared/api/files';
 import { useToast } from '@/features/toast/provider';
+import { useUser } from '@/entities/user';
+import { useConfirm } from '@/shared/ui/ConfirmDialog';
 import type { Job } from '../lib/types';
 
 interface UseInstanceResourcesParams {
@@ -47,6 +49,9 @@ export function useInstanceResources({
   setJobResources,
 }: UseInstanceResourcesParams) {
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const { user } = useUser();
+  const canDeleteFiles = user?.role === 'admin' || user?.role === 'super_admin';
   // Selection state
   const [selectedResources, setSelectedResources] = useState<Record<string, Set<string>>>({});
 
@@ -137,7 +142,12 @@ export function useInstanceResources({
     const selectedIds = Array.from(selectedResources[stepId] || []);
     if (selectedIds.length === 0) return;
 
-    if (!confirm(`Delete ${selectedIds.length} selected file${selectedIds.length > 1 ? 's' : ''}? This cannot be undone.`)) {
+    if (!(await confirm({
+      title: 'Delete files',
+      message: `Delete ${selectedIds.length} selected file${selectedIds.length > 1 ? 's' : ''}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) {
       return;
     }
 
@@ -156,15 +166,22 @@ export function useInstanceResources({
     } finally {
       setDeletingResources(false);
     }
-  }, [selectedResources, setJobResources, clearStepSelection, toast]);
+  }, [confirm, selectedResources, setJobResources, clearStepSelection, toast]);
 
   // --- Delete (ID-based, for SimpleView) ---
 
-  const handleDeleteResourcesWithIds = useCallback(async (stepId: string, jobId: string, resourceIds: string[]) => {
-    if (resourceIds.length === 0) return;
+  const handleDeleteResourcesWithIds = useCallback(async (stepId: string, jobId: string, resourceIds: string[]): Promise<boolean> => {
+    if (resourceIds.length === 0) return false;
 
-    if (!confirm(`Delete ${resourceIds.length} selected file${resourceIds.length > 1 ? 's' : ''}? This cannot be undone.`)) {
-      return;
+    if (!(await confirm({
+      title: resourceIds.length === 1 ? 'Delete file' : 'Delete files',
+      message: resourceIds.length === 1
+        ? 'Delete this file? This cannot be undone.'
+        : `Delete ${resourceIds.length} selected files? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) {
+      return false;
     }
 
     setDeletingResources(true);
@@ -181,13 +198,15 @@ export function useInstanceResources({
       const jobsData = await getJobsForInstance(instanceId);
       setJobs(jobsData);
       toast({ title: `Deleted ${resourceIds.length} file${resourceIds.length > 1 ? 's' : ''}`, variant: 'success' });
+      return true;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       toast({ title: `Failed to delete files: ${message}`, variant: 'destructive' });
+      return false;
     } finally {
       setDeletingResources(false);
     }
-  }, [instanceId, setInstance, setJobs, setJobResources, toast]);
+  }, [confirm, instanceId, setInstance, setJobs, setJobResources, toast]);
 
   // --- Regenerate (selection-based) ---
 
@@ -195,7 +214,13 @@ export function useInstanceResources({
     const selectedIds = Array.from(selectedResources[stepId] || []);
     if (selectedIds.length === 0) return;
 
-    if (!confirm(`Regenerate ${selectedIds.length} selected file${selectedIds.length > 1 ? 's' : ''} with new seeds? The old files will be deleted.`)) {
+    if (!(await confirm({
+      title: 'Regenerate files',
+      message: selectedIds.length === 1
+        ? 'Regenerate 1 selected file with a new seed? A new variant is generated and the existing file stays.'
+        : `Regenerate ${selectedIds.length} selected files with new seeds? A new variant is generated for each and the existing files stay.`,
+      confirmLabel: 'Regenerate',
+    }))) {
       return;
     }
 
@@ -232,15 +257,21 @@ export function useInstanceResources({
     } finally {
       setRegeneratingResources(false);
     }
-  }, [instanceId, jobs, jobResources, selectedResources, setInstance, setJobs, setJobResources, clearStepSelection, toast]);
+  }, [confirm, instanceId, jobs, jobResources, selectedResources, setInstance, setJobs, setJobResources, clearStepSelection, toast]);
 
   // --- Regenerate (ID-based, for SimpleView) ---
 
-  const handleRegenerateResourcesWithIds = useCallback(async (stepId: string, jobId: string, resourceIds: string[]) => {
-    if (resourceIds.length === 0) return;
+  const handleRegenerateResourcesWithIds = useCallback(async (stepId: string, jobId: string, resourceIds: string[]): Promise<boolean> => {
+    if (resourceIds.length === 0) return false;
 
-    if (!confirm(`Regenerate ${resourceIds.length} selected file${resourceIds.length > 1 ? 's' : ''} with new seeds? The old files will be deleted.`)) {
-      return;
+    if (!(await confirm({
+      title: resourceIds.length === 1 ? 'Regenerate file' : 'Regenerate files',
+      message: resourceIds.length === 1
+        ? 'Regenerate this file with a new seed? A new variant is generated and the existing file stays.'
+        : `Regenerate ${resourceIds.length} selected files with new seeds? A new variant is generated for each and the existing files stay.`,
+      confirmLabel: 'Regenerate',
+    }))) {
+      return false;
     }
 
     setRegeneratingResources(true);
@@ -269,13 +300,15 @@ export function useInstanceResources({
       setInstance(updatedInstance);
       const jobsData = await getJobsForInstance(instanceId);
       setJobs(jobsData);
+      return true;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       toast({ title: `Failed to regenerate: ${message}`, variant: 'destructive' });
+      return false;
     } finally {
       setRegeneratingResources(false);
     }
-  }, [instanceId, jobs, jobResources, setInstance, setJobs, setJobResources, toast]);
+  }, [confirm, instanceId, jobs, jobResources, setInstance, setJobs, setJobResources, toast]);
 
   // --- Select variant (keep-variants) ---
 
@@ -315,7 +348,11 @@ export function useInstanceResources({
   // --- Regenerate iteration ---
 
   const handleRegenerateIteration = useCallback(async (stepId: string, jobId: string, iterationIndex: number) => {
-    if (!confirm(`Regenerate iteration ${iterationIndex + 1}? Existing files for this iteration will be deleted.`)) {
+    if (!(await confirm({
+      title: 'Regenerate iteration',
+      message: `Regenerate iteration ${iterationIndex + 1}? A new variant is generated and the existing files stay.`,
+      confirmLabel: 'Regenerate',
+    }))) {
       return;
     }
 
@@ -349,7 +386,7 @@ export function useInstanceResources({
     } finally {
       setRegeneratingResources(false);
     }
-  }, [instanceId, jobs, setInstance, setJobs, setJobResources, toast]);
+  }, [confirm, instanceId, jobs, setInstance, setJobs, setJobResources, toast]);
 
   return {
     // Selection
@@ -373,8 +410,8 @@ export function useInstanceResources({
     // Handlers
     handleDownloadResource,
     handleUploadFilesToStep,
-    handleDeleteSelectedResources,
-    handleDeleteResourcesWithIds,
+    handleDeleteSelectedResources: canDeleteFiles ? handleDeleteSelectedResources : undefined,
+    handleDeleteResourcesWithIds: canDeleteFiles ? handleDeleteResourcesWithIds : undefined,
     handleRegenerateSelectedResources,
     handleRegenerateResourcesWithIds,
     handleRegenerateIteration,

@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Step } from '@/entities/workflow';
 import { getProviders, getProviderServices, getProviderService, getPrompt } from '@/shared/api';
 import { getStepTypeFieldRules } from '@/shared/types/stepTypeInfo';
@@ -15,9 +15,14 @@ import type { ParameterUiState, SectionConfig } from '../types';
 // strict typing here would require typing the API surface first.
 type AnyRecord = Record<string, any>;
 
+// materialized: the update only fills schema defaults and service outputs; the user changed nothing.
+export interface StepUpdateOptions {
+  materialized?: boolean;
+}
+
 interface UseStepConfigDataArgs {
   step: Step;
-  onUpdate: (updatedStep: Step) => void;
+  onUpdate: (updatedStep: Step, options?: StepUpdateOptions) => void;
   allSteps?: Record<string, Step>;
 }
 
@@ -77,6 +82,10 @@ export function useStepConfigData({ step, onUpdate, allSteps }: UseStepConfigDat
 
   // Guards against update loops when the user switches steps.
   const syncedStepIdRef = useRef<string | null>(null);
+
+  // True once the user has interacted with this step's panel.
+  const [userEdited, setUserEdited] = useState(false);
+  const markEdited = useCallback(() => setUserEdited(true), []);
 
   const fieldRules = getStepTypeFieldRules(stepType);
 
@@ -404,6 +413,7 @@ export function useStepConfigData({ step, onUpdate, allSteps }: UseStepConfigDat
   const [prevStepId, setPrevStepId] = useState(step.id);
   if (step.id !== prevStepId) {
     setPrevStepId(step.id);
+    setUserEdited(false);
     setName(step.name);
     setProviderType((step as AnyRecord).service_type || step.job?.service_type || '');
     setProviderId(step.provider_id || '');
@@ -439,7 +449,7 @@ export function useStepConfigData({ step, onUpdate, allSteps }: UseStepConfigDat
     const uiStateMatch = JSON.stringify(step.config?.parameter_ui_state || {}) === JSON.stringify(parameterUiState);
     const inputMappingsMatch = JSON.stringify(step.input_mappings || {}) === JSON.stringify(inputMappings);
 
-    if (step.name === name &&
+    const configMatch = step.name === name &&
         ((step as AnyRecord).service_type || step.job?.service_type || '') === providerType &&
         (step.provider_id || '') === providerId &&
         (step.job?.credential_id || '') === credentialId &&
@@ -448,8 +458,14 @@ export function useStepConfigData({ step, onUpdate, allSteps }: UseStepConfigDat
         (step.config?.secret_id || null) === selectedSecretId &&
         JSON.stringify(step.job?.parameters || {}) === JSON.stringify(parameters) &&
         outputsMatch &&
-        uiStateMatch &&
-        inputMappingsMatch) {
+        inputMappingsMatch;
+    if (configMatch && uiStateMatch) {
+      return;
+    }
+    const updateOptions: StepUpdateOptions = { materialized: !userEdited };
+    if (configMatch) {
+      // Only the section view state moved; keep the step's job as stored
+      onUpdate({ ...step, config: { ...step.config, parameter_ui_state: parameterUiState } }, updateOptions);
       return;
     }
     onUpdate({
@@ -476,11 +492,12 @@ export function useStepConfigData({ step, onUpdate, allSteps }: UseStepConfigDat
         parameters,
         timeout_seconds: step.job?.timeout_seconds || 30,
       },
-    });
+    }, updateOptions);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onUpdate/step excluded to prevent infinite loop
   }, [name, providerId, credentialId, credentialProviderId, serviceId, selectedSecretId, parameters, outputFields, inputMappings, providerType, parameterUiState]);
 
   return {
+    markEdited,
     name, setName,
     stepType,
     providerType, setProviderType,

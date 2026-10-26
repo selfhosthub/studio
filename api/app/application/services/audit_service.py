@@ -213,6 +213,7 @@ class AuditService:
         organization_id: UUID,
         credential_id: UUID,
         credential_name: str,
+        changes: Dict[str, Any],
         provider_name: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[AuditEvent]:
@@ -230,7 +231,7 @@ class AuditService:
             organization_id=organization_id,
             severity=AuditSeverity.INFO,
             category=AuditCategory.SECURITY,
-            changes={"value": {"changed": True}},
+            changes=changes,
             metadata=event_metadata,
         )
 
@@ -460,6 +461,7 @@ class AuditService:
         actor_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
     ) -> List[AuditEvent]:
         return await self.repository.list_by_organization(
             organization_id=organization_id,
@@ -472,6 +474,7 @@ class AuditService:
             actor_id=actor_id,
             start_date=start_date,
             end_date=end_date,
+            search=search,
         )
 
     async def list_system_events(
@@ -510,6 +513,7 @@ class AuditService:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         include_system_events: bool = True,
+        search: Optional[str] = None,
     ) -> List[AuditEvent]:
         # super_admin only.
         return await self.repository.list_all_events(
@@ -524,6 +528,7 @@ class AuditService:
             start_date=start_date,
             end_date=end_date,
             include_system_events=include_system_events,
+            search=search,
         )
 
     async def get_resource_history(
@@ -560,16 +565,24 @@ class AuditService:
         self,
         organization_id: Optional[UUID] = None,
         resource_type: Optional[str] = None,
+        action: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
+        actor_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        include_system_events: bool = True,
+        search: Optional[str] = None,
     ) -> int:
         return await self.repository.count_all(
             organization_id=organization_id,
             resource_type=resource_type,
+            action=action,
             severity=severity,
             category=category,
+            actor_id=actor_id,
             start_date=start_date,
             end_date=end_date,
+            include_system_events=include_system_events,
+            search=search,
         )

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { formatDate } from "@/shared/lib/dateFormatter";
 import { ArrowLeft } from "lucide-react";
 import { getProviderResource } from "@/shared/api";
+import { formatStatus } from "@/shared/lib/format-utils";
 
 export default function ResourceDetailsPage() {
   // Next.js 15+: params is async, use useParams() hook for client components
@@ -115,7 +116,7 @@ export default function ResourceDetailsPage() {
 
           <div className="bg-card border border-primary rounded-lg p-6">
             <h3 className="text-sm font-medium text-secondary mb-1">Status</h3>
-            <p className="text-lg font-semibold text-primary capitalize">{resource.status}</p>
+            <p className="text-lg font-semibold text-primary capitalize">{formatStatus(resource.status)}</p>
           </div>
 
           <div className="bg-card border border-primary rounded-lg p-6">

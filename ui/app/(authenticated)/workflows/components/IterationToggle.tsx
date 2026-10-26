@@ -180,7 +180,7 @@ export function IterationToggle({
             </p>
           ) : (
             <p className="text-warning">
-              &#9888;&#65039; A list is connected. Check this to run the step once for each item.
+              &#9888;&#65039; A list is connected. Check this to run the node once for each item.
             </p>
           )}
         </div>

@@ -382,6 +382,7 @@ export interface ValidationError {
   loc: (string | number)[];
   msg: string;
   type: string;
+  ctx?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -444,7 +445,7 @@ export type ResourceStatus =
 
 export interface OrgFile {
   id: string; // UUID
-  job_execution_id: string; // UUID
+  job_execution_id: string | null; // UUID; null for a file uploaded to the step
   instance_id: string; // UUID
   organization_id: string; // UUID
   file_extension: string; // e.g., ".jpg", ".mp4"

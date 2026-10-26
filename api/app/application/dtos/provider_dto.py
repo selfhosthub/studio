@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.domain.common.value_objects import Visibility
+from app.domain.common.value_objects import Role, Visibility
 from app.domain.provider.models import (
     Provider,
     ProviderCredential,
@@ -283,6 +283,12 @@ class ProviderCredentialResponse(BaseModel):
             created_at=credential.created_at,
             updated_at=credential.updated_at,
         )
+
+    def for_role(self, role: Optional[str]) -> "ProviderCredentialResponse":
+        """Copy with webhook_callback_token cleared unless role is admin or super_admin."""
+        if role in (Role.ADMIN, Role.SUPER_ADMIN):
+            return self
+        return self.model_copy(update={"webhook_callback_token": None})
 
 
 class ProviderCredentialWithSecretResponse(ProviderCredentialResponse):
